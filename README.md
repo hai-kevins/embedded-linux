@@ -3,16 +3,10 @@
 Roadmap này tập trung vào **kiến thức cốt lõi mà một Fresher Embedded Linux / BSP nên nắm**.  
 Mục tiêu là hiểu được một hệ thống Embedded Linux từ **userspace → bootloader → kernel → Device Tree → RootFS → driver → board bring-up**, đồng thời có đủ kỹ năng thực hành để tự build, boot và debug trên board thật.
 
-> **Phạm vi:** Fresher / Entry-level Embedded Linux.
-
 ## Quy ước môi trường thực hành
 
 - **HOST:** Laptop/PC Ubuntu dùng để viết code, native build, cross-compile, build U-Boot/Kernel/RootFS/Buildroot và tạo image.
 - **TARGET:** **BeagleBone Black (BBB)** dùng để boot, chạy chương trình, kiểm tra Device Tree, kernel module/driver, peripheral, bring-up và debug.
-- **Raspberry Pi 4B:** không dùng trong roadmap này để tránh thay đổi target/BSP giữa các phase.
-- Mỗi topic chỉ gán **một môi trường thực hành chính**: `HOST` hoặc `TARGET — BeagleBone Black`.
-  
-> Các chủ đề như Yocto chuyên sâu, RCU, network stack internals, OTA, Secure Boot, PREEMPT_RT, boot-time optimization... không phải yêu cầu bắt buộc của roadmap này.
 
 ---
 
