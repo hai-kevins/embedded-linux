@@ -1,10 +1,10 @@
 # Chủ đề 1 — Basic Linux Command Line
 
-> **Phạm vi:** HOST — Ubuntu Laptop/PC  
+> **Phạm vi:** Linux command-line fundamentals — lý thuyết nền tảng cho Embedded Linux.
 >
-> Chương này xây nền tảng làm việc với Linux bằng command line. Mục tiêu không phải học thuộc càng nhiều lệnh càng tốt, mà là hiểu **shell nhận lệnh như thế nào, command được tìm và thực thi ra sao, dữ liệu đi qua stdin/stdout/stderr như thế nào, và vì sao pipeline/redirection là nền tảng của cách làm việc trên Linux**.
+> Chương này tập trung vào **bản chất của môi trường command line trong Linux**: terminal là gì, shell là gì, shell phân tích và thực thi command như thế nào, executable được tìm ra bằng cơ chế nào, dữ liệu đi qua `stdin/stdout/stderr` ra sao, pipeline và redirection thực sự làm gì ở mức process/file descriptor, và vì sao các utility nhỏ có thể ghép lại thành một hệ thống xử lý mạnh.
 >
-> Sau chương này, người học phải có thể thao tác bằng terminal, đọc hiểu một command line, kết hợp các utility nhỏ thành pipeline, kiểm tra exit status, và viết một Bash script đơn giản để tự động hóa thao tác lặp lại.
+> Mục tiêu của chương không phải học thuộc lệnh. Mục tiêu là hình thành **mental model đúng về command execution trong Linux**, vì các khái niệm này sẽ lặp lại ở system programming, process, IPC, device file, driver, logging, build system và debugging.
 
 > **Điều hướng:** [← Root README](README.md) · [Chủ đề 2 — Linux File System →](README-topic-02.md)
 
@@ -12,1215 +12,1264 @@
 
 ## Mục lục
 
-> Mục lục rút gọn theo cụm kiến thức. Các mục đánh số chi tiết vẫn được giữ nguyên trong nội dung.
-
-- **Command-line mental model**
-  - [1. Terminal, shell và command là ba khái niệm khác nhau](#1-terminal-shell-và-command-là-ba-khái-niệm-khác-nhau)
-  - [2. Shell xử lý một command line như thế nào?](#2-shell-xử-lý-một-command-line-như-thế-nào)
-  - [3. Command, argument và option](#3-command-argument-và-option)
-  - [4. Builtin và external command](#4-builtin-và-external-command)
-  - [5. PATH và command lookup](#5-path-và-command-lookup)
-- **Navigation & basic utilities**
-  - [6. Current working directory và path](#6-current-working-directory-và-path)
-  - [7. Nhóm lệnh thao tác thư mục và file cơ bản](#7-nhóm-lệnh-thao-tác-thư-mục-và-file-cơ-bản)
-  - [8. Nhóm lệnh quan sát nội dung text](#8-nhóm-lệnh-quan-sát-nội-dung-text)
-  - [9. Tìm kiếm bằng grep và find](#9-tìm-kiếm-bằng-grep-và-find)
-  - [10. Quan sát process và tài nguyên hệ thống](#10-quan-sát-process-và-tài-nguyên-hệ-thống)
-- **Data flow**
-  - [11. stdin, stdout và stderr](#11-stdin-stdout-và-stderr)
-  - [12. Redirection](#12-redirection)
-  - [13. Pipeline](#13-pipeline)
-  - [14. Quoting, globbing và expansion cơ bản](#14-quoting-globbing-và-expansion-cơ-bản)
-  - [15. Exit status và command chaining](#15-exit-status-và-command-chaining)
-- **Automation & debugging**
-  - [16. Bash script tối thiểu](#16-bash-script-tối-thiểu)
-  - [17. Thực hành tổng hợp trên HOST](#17-thực-hành-tổng-hợp-trên-host)
-  - [18. Failure modes và cách debug command line](#18-failure-modes-và-cách-debug-command-line)
-  - [19. Mô hình tư duy tổng hợp](#19-mô-hình-tư-duy-tổng-hợp)
-  - [20. Các nguyên tắc cốt lõi](#20-các-nguyên-tắc-cốt-lõi)
+- [1. Command line trong Linux thực chất là gì?](#1-command-line-trong-linux-thực-chất-là-gì)
+- [2. Terminal, TTY, pseudo-terminal và shell](#2-terminal-tty-pseudo-terminal-và-shell)
+- [3. Shell là một command language interpreter](#3-shell-là-một-command-language-interpreter)
+- [4. Cấu trúc của một command line](#4-cấu-trúc-của-một-command-line)
+- [5. Quá trình shell xử lý một command](#5-quá-trình-shell-xử-lý-một-command)
+- [6. Shell builtin, function và external executable](#6-shell-builtin-function-và-external-executable)
+- [7. PATH và cơ chế command lookup](#7-path-và-cơ-chế-command-lookup)
+- [8. Current working directory và path resolution](#8-current-working-directory-và-path-resolution)
+- [9. Environment và shell variables](#9-environment-và-shell-variables)
+- [10. Process model phía sau command line](#10-process-model-phía-sau-command-line)
+- [11. Standard file descriptors](#11-standard-file-descriptors)
+- [12. Redirection thực chất là gì?](#12-redirection-thực-chất-là-gì)
+- [13. Pipeline và Unix process composition](#13-pipeline-và-unix-process-composition)
+- [14. Quoting, expansion và globbing](#14-quoting-expansion-và-globbing)
+- [15. Exit status và control flow](#15-exit-status-và-control-flow)
+- [16. Các utility cơ bản dưới góc nhìn abstraction](#16-các-utility-cơ-bản-dưới-góc-nhìn-abstraction)
+- [17. Command line như một data-flow system](#17-command-line-như-một-data-flow-system)
+- [18. Error model và tư duy debug](#18-error-model-và-tư-duy-debug)
+- [19. Liên hệ với Embedded Linux](#19-liên-hệ-với-embedded-linux)
+- [20. Mô hình tư duy tổng hợp](#20-mô-hình-tư-duy-tổng-hợp)
+- [21. Các nguyên tắc cốt lõi](#21-các-nguyên-tắc-cốt-lõi)
 - [Tài liệu tham khảo](#tài-liệu-tham-khảo)
 
 ---
 
-# 1. Terminal, shell và command là ba khái niệm khác nhau
+# 1. Command line trong Linux thực chất là gì?
 
-Khi mới học Linux, ba khái niệm này thường bị gọi chung là "terminal". Về bản chất chúng là ba lớp khác nhau.
+Command line không phải chỉ là một nơi để "gõ lệnh".
+
+Về bản chất, nó là một **môi trường tương tác giữa người dùng và hệ điều hành thông qua một command interpreter**.
+
+Có thể nhìn theo chuỗi abstraction:
 
 ```text
-+--------------------------------------------------+
-| Terminal emulator                                |
-| gnome-terminal / Konsole / xterm / ...           |
-|                                                  |
-| Hiển thị text và truyền keyboard input           |
-+----------------------------+---------------------+
-                             |
-                             v
-+--------------------------------------------------+
-| Shell                                            |
-| bash / zsh / dash / ...                          |
-|                                                  |
-| Đọc, parse và thực thi command line              |
-+----------------------------+---------------------+
-                             |
-                             v
-+--------------------------------------------------+
-| Command / Program                                |
-| ls / grep / ps / gcc / application tự viết      |
-+--------------------------------------------------+
+User
+  ↓
+Terminal interface
+  ↓
+Shell
+  ↓
+Process creation / builtin execution
+  ↓
+Kernel
+  ↓
+Filesystem / device / network / process / memory
 ```
 
-## 1.1 Terminal
+Ở mức cao, người dùng nhìn thấy:
 
-Terminal emulator là chương trình cung cấp giao diện text để người dùng tương tác với shell.
-
-Nó chịu trách nhiệm những việc như:
-
-- hiển thị ký tự;
-- nhận input từ bàn phím;
-- hỗ trợ scrollback;
-- quản lý tab/window;
-- kết nối shell với pseudo-terminal.
-
-Terminal **không tự hiểu** ý nghĩa của:
-
-```bash
-ls -l
+```text
+$ ls -l /etc
 ```
 
-Việc phân tích command line thuộc về shell.
+Nhưng bên dưới, nhiều lớp đang tham gia:
+
+```text
+keyboard input
+   ↓
+terminal / pseudo-terminal
+   ↓
+shell parser
+   ↓
+command lookup
+   ↓
+argument vector creation
+   ↓
+process execution
+   ↓
+system calls
+   ↓
+kernel
+   ↓
+filesystem objects
+   ↓
+formatted output
+```
+
+Do đó, command line là một **frontend cho process execution và resource interaction**.
+
+Đây là lý do command line rất quan trọng trong Embedded Linux.
+
+Một hệ thống nhúng thường không có:
+
+```text
+desktop GUI
+window manager
+full graphical environment
+```
+
+nhưng gần như luôn cần một hoặc nhiều trong số:
+
+```text
+serial console
+SSH
+shell
+system log
+startup script
+service command
+debug utility
+```
+
+Vì vậy command line không phải công cụ phụ.
+
+Trong Embedded Linux, nó là một trong các giao diện quản trị và debug chính.
 
 ---
 
-## 1.2 Shell
+# 2. Terminal, TTY, pseudo-terminal và shell
 
-GNU Bash mô tả shell là một **command language interpreter**. Shell có thể chạy ở:
-
-```text
-Interactive mode
-    |
-    +--> người dùng nhập command từ terminal
-
-Non-interactive mode
-    |
-    +--> shell đọc command từ script/file/string
-```
-
-Shell không chỉ chạy chương trình. Nó còn thực hiện:
-
-- parsing;
-- variable expansion;
-- wildcard expansion;
-- redirection;
-- pipeline;
-- conditional;
-- loop;
-- function;
-- environment handling.
-
-Vì vậy:
-
-```bash
-ls *.c > files.txt
-```
-
-không phải toàn bộ công việc của `ls`.
-
-Shell phải xử lý:
+Ba khái niệm thường bị gộp lại thành "terminal":
 
 ```text
-*.c
- >
-files.txt
+terminal
+shell
+command
 ```
 
-trước hoặc trong quá trình chuẩn bị chạy chương trình.
+Nhưng chúng thuộc các lớp khác nhau.
 
 ---
 
-## 1.3 Command
+## 2.1 Terminal
 
-Một command có thể là:
+Trong lịch sử UNIX, terminal từng là thiết bị vật lý:
 
 ```text
-shell builtin
-external executable
-shell function
-alias
-script
+keyboard
++
+display/printer
++
+serial line
+```
+
+kết nối tới hệ thống.
+
+Ngày nay, trên desktop Linux, người dùng thường sử dụng **terminal emulator** như:
+
+```text
+GNOME Terminal
+Konsole
+xterm
+Alacritty
+kitty
+```
+
+Terminal emulator cung cấp:
+
+```text
+text display
+keyboard input
+terminal control sequences
+window/tab management
+pseudo-terminal endpoint
+```
+
+Terminal không hiểu bản chất của:
+
+```bash
+grep -n error app.log
+```
+
+Nó chủ yếu truyền byte input/output giữa người dùng và process phía sau.
+
+---
+
+# 2.2 TTY
+
+`TTY` xuất phát từ "teletypewriter".
+
+Trong Linux, TTY trở thành một abstraction của kernel cho terminal-style I/O.
+
+Mental model:
+
+```text
+process
+  ↕
+TTY subsystem
+  ↕
+terminal device / serial line / pseudo-terminal
+```
+
+TTY layer có thể tham gia các cơ chế như:
+
+```text
+line discipline
+echo
+canonical input
+special control characters
+terminal settings
 ```
 
 Ví dụ:
 
-```bash
-cd /tmp
-```
-
-`cd` thường là shell builtin.
-
-Trong khi:
-
-```bash
-/usr/bin/grep
-```
-
-là executable bên ngoài shell.
-
-Mental model cần nhớ:
-
 ```text
-Terminal
-   ↓
-Shell
-   ↓
-Parse command
-   ↓
-Resolve command
-   ↓
-Execute builtin hoặc program
-   ↓
-Collect exit status
-   ↓
-Hiển thị output / tiếp tục pipeline
+Ctrl+C
+Ctrl+D
+Backspace behavior
+local echo
 ```
+
+không đơn giản chỉ là "ký tự bình thường".
+
+Chúng có thể được terminal/TTY stack xử lý theo cấu hình hiện tại.
 
 ---
 
-# 2. Shell xử lý một command line như thế nào?
+# 2.3 Pseudo-terminal
 
-GNU Bash mô tả quá trình xử lý command theo các bước logic gồm:
+Khi chạy terminal emulator trên desktop, không nhất thiết có hardware terminal thật.
 
-1. đọc input;
-2. tách input thành words/operators;
-3. parse thành command;
-4. thực hiện shell expansion;
-5. thiết lập redirection;
-6. thực thi command;
-7. thu exit status.
-
-Có thể hình dung:
+Thay vào đó Linux dùng pseudo-terminal:
 
 ```text
-User input
-   |
-   v
-"grep -i error *.log > errors.txt"
-   |
-   v
-Tokenization / parsing
-   |
-   +--> command = grep
-   +--> option  = -i
-   +--> arg     = error
-   +--> pattern = *.log
-   +--> redirect stdout -> errors.txt
-   |
-   v
-Expansion
-   |
-   +--> *.log -> app.log kernel.log ...
-   |
-   v
-Command lookup
-   |
-   v
-Execute grep
-   |
-   v
-stdout redirected to errors.txt
-   |
-   v
-Exit status
+PTY master
+    ↕
+PTY slave
+```
+
+Mô hình:
+
+```text
+Terminal Emulator
+      |
+      | PTY master
+      v
++------------------+
+| Kernel PTY layer |
++------------------+
+      ^
+      | PTY slave
+      |
+    Shell
+```
+
+Shell thường thấy phía slave như một terminal bình thường.
+
+Terminal emulator điều khiển phía master.
+
+Cơ chế này tạo ảo giác rằng:
+
+```text
+shell <-> terminal
+```
+
+đang nói chuyện qua terminal vật lý.
+
+---
+
+# 2.4 Serial console trong Embedded Linux
+
+Trong Embedded Linux, terminal abstraction trở nên dễ nhìn hơn.
+
+Ví dụ:
+
+```text
+Laptop
+  |
+USB-UART
+  |
+SoC UART
+  |
+/dev/ttySx
+  |
+kernel console / getty / shell
+```
+
+Vì vậy kiến thức command line liên kết trực tiếp với:
+
+```text
+UART console
+boot log
+login shell
+debug shell
+```
+
+trên board nhúng.
+
+---
+
+# 3. Shell là một command language interpreter
+
+GNU Bash định nghĩa shell như một **command language interpreter**.
+
+Điều này quan trọng vì shell không phải đơn giản là "program chạy program khác".
+
+Shell có cả:
+
+```text
+syntax
+grammar
+variables
+expansion
+redirection
+pipeline
+conditional
+loop
+function
+job control
+environment handling
+```
+
+Do đó shell gần với một **ngôn ngữ lập trình nhỏ chuyên điều phối process và data flow**.
+
+---
+
+# 3.1 Interactive shell
+
+Interactive shell nhận command từ người dùng.
+
+Ví dụ mental model:
+
+```text
+prompt
+  ↓
+user input
+  ↓
+parse
+  ↓
+execute
+  ↓
+wait/result
+  ↓
+new prompt
+```
+
+Prompt như:
+
+```text
+$
+#
+```
+
+không phải kernel prompt.
+
+Nó được shell hiển thị.
+
+---
+
+# 3.2 Non-interactive shell
+
+Shell cũng có thể đọc command từ:
+
+```text
+script file
+standard input
+-c argument
+```
+
+Ví dụ architecture:
+
+```text
+script.sh
+   ↓
+bash parser
+   ↓
+same execution machinery
 ```
 
 Điểm quan trọng:
 
-> Shell không đơn giản "gửi nguyên chuỗi" cho chương trình.
+> Shell script và interactive command line dùng cùng một nền tảng syntax/execution model.
 
-Một số ký tự như:
+Khác biệt chính nằm ở:
 
 ```text
-|
->
-<
-*
-$
-"
-'
-;
-&
+input source
+interactive features
+startup behavior
+job control
 ```
-
-có ý nghĩa với shell và có thể được xử lý trước khi chương trình nhận argument.
 
 ---
 
-# 3. Command, argument và option
+# 3.3 Login shell và non-login shell
 
-Một simple command thường có dạng:
+Một shell có thể được khởi tạo ở các mode khác nhau.
+
+Điều này ảnh hưởng đến:
 
 ```text
-command [options] [arguments]
+startup files
+environment initialization
+PATH
+aliases
+shell options
+```
+
+Ví dụ trong Bash, các startup file khác nhau có thể được đọc tùy:
+
+```text
+login shell?
+interactive?
+non-interactive?
+```
+
+Đây là lý do đôi khi:
+
+```text
+command chạy được trong terminal
+```
+
+nhưng:
+
+```text
+không chạy trong script/service
+```
+
+do environment khác nhau.
+
+---
+
+# 4. Cấu trúc của một command line
+
+Một simple command thường được người dùng nhìn như:
+
+```text
+command option argument
 ```
 
 Ví dụ:
-
-```bash
-ls -l /etc
-```
-
-Ta có:
-
-```text
-command   = ls
-option    = -l
-argument  = /etc
-```
-
-Một ví dụ khác:
 
 ```bash
 grep -n "error" app.log
 ```
 
+Có thể tách:
+
 ```text
-command   = grep
-option    = -n
-pattern   = error
-file      = app.log
+command  = grep
+option   = -n
+pattern  = error
+operand  = app.log
 ```
 
-## 3.1 Short option
+Nhưng shell nhìn command line rộng hơn.
 
-Thường có dạng:
+Nó còn phải xử lý:
 
-```bash
--l
--a
--r
-```
-
-Nhiều GNU utility cho phép gộp:
-
-```bash
-ls -la
-```
-
-tương đương về ý nghĩa với:
-
-```bash
-ls -l -a
-```
-
-trong trường hợp các option đó không cần argument riêng.
-
----
-
-## 3.2 Long option
-
-GNU utilities thường hỗ trợ dạng dễ đọc hơn:
-
-```bash
-ls --all
-rm --interactive
-grep --ignore-case
-```
-
-Không phải mọi program đều tuân cùng một convention, vì vậy không nên đoán option.
-
-Tra cứu bằng:
-
-```bash
-command --help
-```
-
-hoặc:
-
-```bash
-man command
+```text
+quotes
+operators
+redirection
+pipeline
+variables
+wildcards
+command substitution
 ```
 
 Ví dụ:
 
 ```bash
-man grep
-man ps
-man mount
+grep -i "$pattern" *.log > result.txt
 ```
+
+Không phải toàn bộ chuỗi trên được truyền nguyên xi cho `grep`.
+
+Shell xử lý nhiều thành phần trước.
 
 ---
 
-# 4. Builtin và external command
+# 4.1 Word
 
-Đây là distinction quan trọng khi hiểu shell.
-
-## 4.1 Shell builtin
-
-Một số command phải thao tác trực tiếp với trạng thái của shell hiện tại.
+Shell parser chia input thành các word/token theo grammar.
 
 Ví dụ:
 
 ```bash
-cd /tmp
+echo hello world
 ```
 
-Nếu `cd` chỉ chạy trong một process con:
+có thể tạo conceptual words:
 
 ```text
-shell
-  |
-  +--> child process changes directory
-  |
-child exits
-  |
-shell vẫn ở directory cũ
+echo
+hello
+world
 ```
 
-thì command không có tác dụng mong muốn.
+Sau expansion, số lượng argument có thể thay đổi.
 
-Vì vậy `cd` được thực hiện trong shell.
+---
 
-Các builtin thường gặp:
+# 4.2 Operator
+
+Một số ký tự có nghĩa đặc biệt với shell:
+
+```text
+|
+||
+&&
+;
+&
+>
+>>
+<
+<<
+()
+{}
+```
+
+Chúng không đơn giản là argument bình thường.
+
+Ví dụ:
+
+```bash
+cmd1 | cmd2
+```
+
+`|` được shell hiểu như pipeline operator.
+
+---
+
+# 4.3 Argument vector
+
+External program trong UNIX-like system thường nhận command arguments dưới dạng:
+
+```text
+argv[0]
+argv[1]
+argv[2]
+...
+```
+
+Ví dụ conceptual mapping:
+
+```bash
+grep -n error file.log
+```
+
+có thể trở thành:
+
+```text
+argv[0] = "grep"
+argv[1] = "-n"
+argv[2] = "error"
+argv[3] = "file.log"
+```
+
+Điểm quan trọng:
+
+> Program không nhận "command line string" theo đúng cách người dùng nhìn thấy nó.
+
+Shell đã parse và tạo argument structure.
+
+---
+
+# 5. Quá trình shell xử lý một command
+
+GNU Bash mô tả shell operation như một chuỗi bước logic.
+
+Có thể đơn giản hóa:
+
+```text
+1. Read input
+2. Parse tokens / operators
+3. Build command structure
+4. Perform expansions
+5. Apply redirections
+6. Resolve command
+7. Execute
+8. Wait / collect status
+```
+
+Đây là mental model cốt lõi.
+
+---
+
+# 5.1 Read input
+
+Input có thể đến từ:
+
+```text
+terminal
+script
+pipe
+-c string
+```
+
+Shell nhận một chuỗi byte/text.
+
+---
+
+# 5.2 Lexical analysis và parsing
+
+Shell phải xác định:
+
+```text
+word nào là command
+word nào là argument
+operator nào là pipeline
+operator nào là redirect
+quote nào giữ literal meaning
+```
+
+Ví dụ:
+
+```bash
+echo "a | b"
+```
+
+`|` nằm trong quote nên không được parse như pipeline operator.
+
+Trong khi:
+
+```bash
+echo a | b
+```
+
+là cấu trúc pipeline.
+
+---
+
+# 5.3 Expansion
+
+Sau parsing, shell có thể thực hiện nhiều loại expansion:
+
+```text
+parameter expansion
+command substitution
+arithmetic expansion
+pathname expansion
+word splitting
+tilde expansion
+```
+
+Không phải mọi expansion đều xảy ra trong mọi context.
+
+Ordering và quoting có ảnh hưởng rất lớn.
+
+---
+
+# 5.4 Redirection setup
+
+Shell thiết lập file descriptor trước khi external command chạy.
+
+Ví dụ:
+
+```bash
+cmd > out.txt
+```
+
+shell phải:
+
+```text
+open/create out.txt
+redirect stdout
+then execute cmd
+```
+
+Program `cmd` không nhất thiết biết rằng output của nó đang đi vào file.
+
+Từ góc nhìn program:
+
+```text
+write(fd=1, ...)
+```
+
+vẫn chỉ là ghi stdout.
+
+---
+
+# 5.5 Command resolution
+
+Shell xác định `cmd` là:
+
+```text
+reserved word?
+alias?
+function?
+builtin?
+external command?
+```
+
+Nếu external command, shell tìm executable.
+
+---
+
+# 5.6 Execution
+
+Nếu là builtin:
+
+```text
+shell có thể thực thi nội bộ
+```
+
+Nếu là external command:
+
+```text
+shell tạo execution context/process
+      ↓
+program image được load
+      ↓
+program chạy
+```
+
+Ở Linux, chi tiết low-level thường liên quan tới:
+
+```text
+fork/clone-like process creation
+execve()
+wait()
+```
+
+tùy implementation và optimization.
+
+---
+
+# 5.7 Exit status
+
+Khi command hoàn tất, shell thu kết quả:
+
+```text
+0
+non-zero
+signal termination
+pipeline status
+```
+
+và dùng nó cho:
+
+```text
+$?
+if
+&&
+||
+set -e behavior
+script control flow
+```
+
+---
+
+# 6. Shell builtin, function và external executable
+
+Không phải mọi command đều là executable file.
+
+---
+
+# 6.1 Builtin
+
+Builtin nằm trong chính shell process.
+
+Ví dụ phổ biến:
 
 ```text
 cd
-echo
-printf
-read
 export
 unset
+read
 alias
-history
 jobs
 fg
 bg
 ```
 
-Danh sách thực tế phụ thuộc shell.
+Vì sao cần builtin?
+
+Xét `cd`.
+
+Current working directory là state của process.
+
+Nếu shell làm:
+
+```text
+shell
+  |
+  +--> child
+         |
+         +--> chdir("/tmp")
+         |
+         +--> exit
+```
+
+thì shell cha không đổi directory.
+
+Do đó `cd` phải thay đổi state của shell process hiện tại.
+
+Đây là lý do bản chất, không phải chỉ là quyết định implementation tùy ý.
 
 ---
 
-## 4.2 External command
+# 6.2 Shell function
 
-External command là executable nằm trong filesystem.
+Shell function là block command do người dùng định nghĩa.
 
-Ví dụ trên Ubuntu:
+Nó tồn tại trong execution environment của shell.
 
-```bash
-command -v grep
-command -v ls
-command -v ps
-```
-
-Có thể cho kết quả tương tự:
+Ví dụ conceptual:
 
 ```text
-/usr/bin/grep
-/usr/bin/ls
-/usr/bin/ps
+function name
+   ↓
+shell symbol table
+   ↓
+execute function body
 ```
 
-Không nên hard-code đường dẫn nếu không có lý do cụ thể.
-
----
-
-## 4.3 Kiểm tra command thuộc loại nào
-
-Dùng:
-
-```bash
-type cd
-type ls
-type grep
-```
-
-hoặc:
-
-```bash
-command -V cd
-command -V grep
-```
-
-Mental model:
+Function khác external binary ở chỗ:
 
 ```text
-command name
-    |
-    v
-Shell resolution
-    |
-    +--> alias?
-    +--> function?
-    +--> builtin?
-    +--> executable trong PATH?
-    |
-    v
-Execute
+không cần ELF executable riêng
+không cần PATH lookup theo cách thông thường
 ```
 
 ---
 
-# 5. PATH và command lookup
+# 6.3 Alias
 
-Khi nhập:
+Alias là một cơ chế textual/substitution ở shell level.
 
-```bash
-grep
-```
+Nó không phải executable.
 
-shell phải tìm executable tương ứng.
-
-Biến môi trường `PATH` chứa danh sách directory dùng cho command search.
-
-Kiểm tra:
-
-```bash
-echo "$PATH"
-```
-
-Ví dụ cấu trúc:
+Ví dụ concept:
 
 ```text
-/usr/local/sbin
-/usr/local/bin
-/usr/sbin
-/usr/bin
-/sbin
-/bin
+alias ll='ls -l'
 ```
 
-Các directory được phân tách bằng dấu `:`.
+Khi shell parse input tương ứng, alias có thể được expand theo rule của shell.
 
-Mental model:
+Không nên nhầm:
 
 ```text
-grep
- |
- v
-Search PATH từ trái sang phải
- |
- +--> /usr/local/sbin/grep ?
- +--> /usr/local/bin/grep ?
- +--> /usr/sbin/grep ?
- +--> /usr/bin/grep ?  ---> found
- |
- v
-execute
+alias
 ```
 
-## 5.1 Tìm executable
+với:
 
-```bash
-command -v grep
+```text
+symlink
 ```
 
-Nên ưu tiên `command -v` khi muốn kiểm tra command resolution trong shell script.
+Alias tồn tại ở shell syntax layer.
+
+Symlink tồn tại ở filesystem layer.
 
 ---
 
-## 5.2 Vì sao `./app` thường cần `./`?
+# 6.4 External executable
 
-Giả sử có executable:
-
-```text
-/home/user/project/app
-```
-
-và current directory là:
-
-```text
-/home/user/project
-```
-
-Nhập:
-
-```bash
-app
-```
-
-chỉ hoạt động nếu directory hiện tại nằm trong `PATH`.
-
-Thông thường current directory không mặc định nằm trong `PATH`.
-
-Vì vậy dùng:
-
-```bash
-./app
-```
-
-Ý nghĩa:
-
-```text
-.
-|
-+--> current directory
-
-./app
-|
-+--> executable "app" trong current directory
-```
-
-Điều này tránh việc shell vô tình chạy một executable không đáng tin chỉ vì nó nằm trong directory hiện tại.
-
----
-
-# 6. Current working directory và path
-
-Mỗi process có khái niệm **current working directory**.
-
-Shell cũng là một process, nên shell có working directory của riêng nó.
-
-Kiểm tra:
-
-```bash
-pwd
-```
+External command là program nằm trong filesystem.
 
 Ví dụ:
 
 ```text
-/home/hai
+/usr/bin/grep
+/usr/bin/find
+/usr/bin/ps
 ```
 
-## 6.1 Absolute path
-
-Absolute path bắt đầu từ root `/`.
+Executable có thể là:
 
 ```text
-/home/hai/project/main.c
-/etc/passwd
-/usr/bin/grep
+ELF binary
+script có shebang
+interpreter-driven executable
 ```
 
-Ưu điểm:
-
-- không phụ thuộc current directory;
-- rõ ràng trong script/config.
+Shell phải resolve đường dẫn và yêu cầu kernel thực thi.
 
 ---
 
-## 6.2 Relative path
+# 7. PATH và cơ chế command lookup
+
+Khi nhập:
+
+```text
+grep
+```
+
+shell không mặc định search toàn filesystem.
+
+Nó sử dụng command resolution rules.
+
+Đối với external executable, biến `PATH` rất quan trọng.
+
+---
+
+# 7.1 PATH là gì?
+
+`PATH` là danh sách directory.
+
+Ví dụ:
+
+```text
+/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+```
+
+Mental model:
+
+```text
+command name = grep
+      |
+      v
+iterate PATH entries
+      |
+      +--> /usr/local/sbin/grep
+      +--> /usr/local/bin/grep
+      +--> /usr/sbin/grep
+      +--> /usr/bin/grep  <-- found
+```
+
+Search theo thứ tự.
+
+Directory đứng trước có priority cao hơn.
+
+---
+
+# 7.2 PATH không phải registry
+
+PATH không lưu danh sách command.
+
+Nó chỉ lưu:
+
+```text
+directory search order
+```
+
+Shell vẫn phải kiểm tra filesystem.
+
+---
+
+# 7.3 Vì sao current directory thường không nằm trong PATH?
+
+Nếu `.` tự động có trong PATH và đứng trước system directory:
+
+```text
+attacker tạo ./ls
+```
+
+người dùng nhập:
+
+```text
+ls
+```
+
+có thể vô tình chạy binary độc hại trong current directory.
+
+Do đó việc explicit:
+
+```text
+./program
+```
+
+làm rõ rằng người dùng muốn executable tại path tương đối đó.
+
+---
+
+# 7.4 Command hashing
+
+Một số shell như Bash có thể cache vị trí executable đã resolve để tránh search PATH liên tục.
+
+Do đó mental model đầy đủ hơn:
+
+```text
+command
+   |
+   +--> shell cache/hash?
+   |
+   +--> PATH search
+```
+
+Điều này giải thích một số edge case khi executable được di chuyển hoặc PATH thay đổi.
+
+---
+
+# 8. Current working directory và path resolution
+
+Mỗi process trong Linux có một current working directory.
+
+Đây là state của process.
+
+Shell cũng vậy.
+
+---
+
+# 8.1 Absolute path
+
+Absolute path bắt đầu từ `/`.
+
+```text
+/etc/passwd
+/usr/bin/bash
+/home/user/project
+```
+
+Resolution bắt đầu từ root.
+
+```text
+/
+ ↓
+etc
+ ↓
+passwd
+```
+
+---
+
+# 8.2 Relative path
 
 Relative path được resolve từ current working directory.
 
 Ví dụ:
 
-```bash
-cd /home/hai
-cat project/README.md
+```text
+cwd = /home/user
+path = project/main.c
 ```
 
-`project/README.md` tương đương:
+Result conceptual:
 
 ```text
-/home/hai/project/README.md
+/home/user/project/main.c
 ```
-
-trong context đó.
 
 ---
 
-## 6.3 `.` và `..`
+# 8.3 `.` và `..`
 
 ```text
 .   current directory
 ..  parent directory
 ```
 
-Ví dụ:
-
-```bash
-cd ..
-```
-
-hoặc:
-
-```bash
-./app
-```
+Đây là directory entries/semantic path components đặc biệt.
 
 ---
 
-## 6.4 Home directory
-
-Trong shell:
-
-```bash
-cd ~
-```
-
-hoặc đơn giản:
-
-```bash
-cd
-```
-
-thường đưa user về home directory.
-
-Kiểm tra:
-
-```bash
-echo "$HOME"
-```
-
----
-
-# 7. Nhóm lệnh thao tác thư mục và file cơ bản
-
-Phần này chỉ tập trung vào **thao tác cơ bản**. Cấu trúc filesystem, inode, permission, hard link, symbolic link và device file sẽ được học sâu ở Topic 2.
-
----
-
-## 7.1 `pwd` — xác định vị trí hiện tại
-
-```bash
-pwd
-```
-
-Mental model:
-
-```text
-shell process
-    |
-    +--> current working directory
-              |
-              v
-             pwd
-```
-
-Đây nên là command đầu tiên khi bạn không chắc mình đang thao tác ở đâu.
-
----
-
-## 7.2 `ls` — quan sát directory
-
-```bash
-ls
-```
-
-Một số dạng thường dùng:
-
-```bash
-ls -l
-ls -a
-ls -la
-ls -lh
-```
-
-Ý nghĩa khái quát:
-
-```text
--l  long listing
--a  hiển thị cả entry bắt đầu bằng .
--h  human-readable size khi kết hợp option phù hợp
-```
-
-GNU Coreutils lưu ý rằng khi không truyền argument, `ls` thao tác trên current directory.
-
----
-
-## 7.3 `cd` — thay đổi current directory
-
-```bash
-cd /etc
-cd ..
-cd ~
-cd -
-```
-
-`cd -` thường quay lại previous working directory trong Bash.
-
-Sau khi `cd`, nên xác nhận bằng:
-
-```bash
-pwd
-```
-
-khi đang thực hiện thao tác nhạy cảm.
-
----
-
-## 7.4 `mkdir` — tạo directory
-
-```bash
-mkdir logs
-```
-
-Tạo cả parent directory khi cần:
-
-```bash
-mkdir -p build/output/logs
-```
-
----
-
-## 7.5 `touch`
-
-Một cách dùng phổ biến:
-
-```bash
-touch notes.txt
-```
-
-Nếu file chưa tồn tại, file regular trống có thể được tạo.
-
-Nếu file đã tồn tại, `touch` chủ yếu cập nhật timestamp theo option/default behavior.
-
-Không nên hiểu `touch` đơn giản là "lệnh tạo file"; bản chất utility này liên quan đến timestamp.
-
----
-
-## 7.6 `cp` — copy
-
-```bash
-cp source.txt backup.txt
-```
-
-Copy vào directory:
-
-```bash
-cp source.txt backup/
-```
-
-Copy directory recursively:
-
-```bash
-cp -r config/ backup/
-```
-
-Mental model:
-
-```text
-source
-  |
-  | read
-  v
-cp
-  |
-  | create/write
-  v
-destination
-```
-
-Copy tạo destination độc lập về nội dung; không phải alias tới source.
-
----
-
-## 7.7 `mv` — move hoặc rename
-
-Rename:
-
-```bash
-mv old.txt new.txt
-```
-
-Move:
-
-```bash
-mv app.log logs/
-```
-
-Một nuance quan trọng:
-
-- trong cùng filesystem, `mv` thường có thể thực hiện rename;
-- qua filesystem khác, implementation có thể cần copy rồi xóa source.
-
-Không nên mặc định rằng mọi `mv` đều chỉ thay đổi tên entry.
-
----
-
-## 7.8 `rm` — remove
-
-```bash
-rm file.txt
-```
-
-Remove directory tree:
-
-```bash
-rm -r directory/
-```
-
-Khi học và thực hành, có thể dùng:
-
-```bash
-rm -i file.txt
-```
-
-để được hỏi xác nhận.
+# 8.4 Working directory là process state
 
 Điểm quan trọng:
 
-> `rm` không có khái niệm "Recycle Bin" như GUI desktop theo mặc định.
-
-Do đó trước lệnh recursive, nên kiểm tra:
-
-```bash
-pwd
-ls
+```text
+shell A có cwd riêng
+shell B có cwd riêng
+service có cwd riêng
+process con thừa hưởng cwd ban đầu từ parent
 ```
 
-và xác minh argument.
+Do đó một path tương đối có thể đúng trong terminal này nhưng sai trong service khác.
 
----
-
-# 8. Nhóm lệnh quan sát nội dung text
-
-Linux command line mạnh vì rất nhiều utility có thể:
+Đây là một nguyên nhân phổ biến của:
 
 ```text
-read text
-   ↓
-transform/filter
-   ↓
-write text
+works manually
+fails in service
 ```
-
-Điều này làm chúng dễ nối bằng pipe.
 
 ---
 
-## 8.1 `cat`
+# 9. Environment và shell variables
 
-```bash
-cat file.txt
+Shell duy trì nhiều loại state.
+
+Hai khái niệm thường bị nhầm:
+
+```text
+shell variable
+environment variable
 ```
 
-`cat` đọc file và ghi nội dung ra standard output.
+---
 
-Nó đặc biệt hữu ích khi:
+# 9.1 Shell variable
 
-- file nhỏ;
-- cần nối nhiều file;
-- cần feed nội dung vào pipeline.
+Shell variable tồn tại trong shell.
+
+Ví dụ conceptual:
+
+```text
+name=value
+```
+
+Nó không tự động được truyền cho child process.
+
+---
+
+# 9.2 Environment variable
+
+Environment là tập key/value được truyền vào process khi process được tạo/executed.
 
 Ví dụ:
 
-```bash
-cat part1.txt part2.txt
+```text
+PATH
+HOME
+LANG
+USER
+TERM
 ```
 
----
-
-## 8.2 `head`
-
-Mặc định GNU `head` in phần đầu của input.
-
-```bash
-head file.txt
-```
-
-Ví dụ:
-
-```bash
-head -n 20 file.txt
-```
-
----
-
-## 8.3 `tail`
-
-```bash
-tail file.txt
-```
-
-Theo dõi file tăng liên tục:
-
-```bash
-tail -f app.log
-```
-
-Đây là pattern rất thường dùng khi debug log userspace.
-
----
-
-## 8.4 `wc`
-
-```bash
-wc file.txt
-```
-
-Các dạng thường gặp:
-
-```bash
-wc -l file.txt
-wc -w file.txt
-wc -c file.txt
-```
-
-Trong pipeline:
-
-```bash
-grep "error" app.log | wc -l
-```
+Một external program có thể đọc environment.
 
 Mental model:
 
 ```text
-app.log
+shell state
    |
-   v
-grep "error"
+   +--> shell variables
    |
-matching lines
-   |
-   v
-wc -l
-   |
-count
+   +--> exported variables
+           |
+           v
+      child environment
 ```
 
 ---
 
-# 9. Tìm kiếm bằng grep và find
+# 9.3 `export`
 
-Hai command này giải quyết hai bài toán khác nhau.
+`export` đánh dấu variable để nó được đưa vào environment của child process.
+
+Concept:
 
 ```text
-grep
- |
- +--> tìm pattern trong nội dung text
+VAR=value
+  |
+shell variable
 
-find
- |
- +--> tìm filesystem object theo điều kiện
+export VAR
+  |
+  v
+future child processes inherit VAR
 ```
+
+Child có thể thay đổi environment của chính nó nhưng không trực tiếp thay environment của parent.
 
 ---
 
-## 9.1 `grep`
+# 9.4 Environment inheritance
 
-GNU grep có nhiệm vụ chính là tìm các line match pattern.
+Process creation theo mô hình UNIX thường mang tính inheritance.
 
-Ví dụ:
-
-```bash
-grep "error" app.log
-```
-
-Không phân biệt hoa/thường:
-
-```bash
-grep -i "error" app.log
-```
-
-Hiển thị line number:
-
-```bash
-grep -n "error" app.log
-```
-
-Recursive search:
-
-```bash
-grep -R "CONFIG_UART" .
-```
-
-Một pattern rất hữu ích khi đọc source tree:
-
-```bash
-grep -R -n "function_name" src/
-```
-
----
-
-## 9.2 `find`
-
-`find` duyệt filesystem tree và chọn entry theo expression.
-
-Theo tên:
-
-```bash
-find . -name "*.c"
-```
-
-Theo loại:
-
-```bash
-find . -type f
-find . -type d
-```
-
-Theo tên không phân biệt hoa/thường:
-
-```bash
-find . -iname "readme*"
-```
-
-Một khác biệt quan trọng:
-
-```bash
-grep -R "UART" .
-```
-
-tìm **text `UART` bên trong file**.
-
-Trong khi:
-
-```bash
-find . -name "*uart*"
-```
-
-tìm **tên filesystem entry**.
-
----
-
-# 10. Quan sát process và tài nguyên hệ thống
-
-Topic Process sau này sẽ đi sâu `fork`, `exec`, PID, state và lifecycle. Ở Topic 1 chỉ cần biết cách quan sát hệ thống.
-
----
-
-## 10.1 `ps`
-
-`ps` hiển thị snapshot thông tin process.
-
-Các cách dùng phổ biến:
-
-```bash
-ps
-ps -ef
-ps aux
-```
-
-Lưu ý:
-
-`ps` hỗ trợ nhiều style option khác nhau do lịch sử UNIX/BSD/GNU. Vì vậy:
+Child ban đầu thừa hưởng nhiều context:
 
 ```text
-ps -ef
+environment
+open file descriptors
+current working directory
+resource limits
+credentials
+signal disposition aspects
 ```
 
-và:
+Sau `exec`, process image thay đổi nhưng nhiều process attributes vẫn tiếp tục tồn tại theo rule cụ thể.
+
+Đây là bridge quan trọng giữa shell và system programming.
+
+---
+
+# 10. Process model phía sau command line
+
+Command line nhìn đơn giản nhưng gần như luôn liên quan process.
+
+---
+
+# 10.1 Shell bản thân là một process
+
+Khi terminal mở shell:
 
 ```text
-ps aux
+terminal emulator
+      |
+      v
+shell process
 ```
 
-không đơn giản là cùng một syntax convention.
+Shell có:
 
-Khi cần chính xác:
-
-```bash
-man ps
+```text
+PID
+PPID
+cwd
+environment
+file descriptors
+signal state
 ```
 
 ---
 
-## 10.2 `top`
+# 10.2 External command thường chạy trong process context riêng
 
-`top` cung cấp view động về process và tài nguyên.
-
-```bash
-top
-```
-
-Có thể quan sát:
-
-- CPU usage;
-- memory;
-- load;
-- process;
-- PID;
-- state;
-- command.
-
-Khác với `ps`:
+Conceptual flow:
 
 ```text
-ps   -> snapshot
-
-top  -> interactive / periodically updated view
+shell
+  |
+  +--> create child execution context
+           |
+           +--> setup redirection
+           +--> setup pipe
+           +--> exec program
+           |
+           v
+        external process
 ```
+
+Shell có thể:
+
+```text
+wait
+or
+continue asynchronously
+```
+
+tùy command syntax.
 
 ---
 
-## 10.3 `df`
+# 10.3 Foreground process
 
-GNU `df` báo cáo dung lượng đã dùng và còn khả dụng theo filesystem.
+Foreground job gắn với terminal interaction.
 
-```bash
-df
-df -h
-```
-
-Mental model:
+Thường:
 
 ```text
-filesystem
-   |
-   +--> capacity
-   +--> used
-   +--> available
-   +--> mount point
+shell launches command
+      ↓
+terminal foreground process group changes
+      ↓
+command interacts with TTY
+      ↓
+command exits/stops
+      ↓
+shell regains foreground
 ```
+
+Đây là nền tảng cho job control.
 
 ---
 
-## 10.4 `du`
+# 10.4 Background process
 
-`du` ước lượng space usage của file/directory tree.
-
-```bash
-du -sh .
-du -sh *
-```
-
-Phân biệt:
+Khi command được chạy background:
 
 ```text
-df
- |
- +--> nhìn từ filesystem
-
-du
- |
- +--> nhìn từ file/directory tree
+command &
 ```
 
-Vì hai công cụ đo ở hai abstraction khác nhau, kết quả không phải lúc nào cũng trùng trực tiếp.
+shell không chờ completion theo cách foreground bình thường.
+
+Điều này tạo thêm khái niệm:
+
+```text
+job
+process group
+terminal ownership
+signal handling
+```
+
+Chi tiết process/job control sẽ được học ở topic process.
 
 ---
 
-## 10.5 `mount`
+# 11. Standard file descriptors
 
-Ở mức Topic 1, cần hiểu `mount` là thao tác gắn một filesystem vào namespace/tree để truy cập qua một mount point.
+Đây là một trong những abstraction quan trọng nhất của Linux.
 
-Xem mount hiện tại:
-
-```bash
-mount
-```
-
-hoặc:
-
-```bash
-findmnt
-```
-
-Ví dụ khái niệm:
-
-```text
-block device / filesystem
-        |
-        v
-mount operation
-        |
-        v
-/mnt/data
-        |
-        v
-accessible through filesystem tree
-```
-
-Chi tiết filesystem, VFS và mount sẽ được đào sâu ở các topic sau.
-
----
-
-# 11. stdin, stdout và stderr
-
-Đây là phần quan trọng nhất của Topic 1.
-
-Một process command-line thường bắt đầu với ba standard file descriptor:
+Một process command-line thông thường khởi đầu với:
 
 ```text
 fd 0 -> stdin
@@ -1228,1432 +1277,1470 @@ fd 1 -> stdout
 fd 2 -> stderr
 ```
 
-Mental model:
+---
+
+# 11.1 File descriptor là gì?
+
+File descriptor là một số nguyên nhỏ dùng như handle để process tham chiếu tới một open file description/kernel I/O object.
+
+Mental model đơn giản:
 
 ```text
-                 +----------------------+
-stdin (fd 0) --->|      Program         |---> stdout (fd 1)
-                 |                      |
-                 +----------------------+---> stderr (fd 2)
+Process
++------------------+
+| fd 0             |----> input endpoint
+| fd 1             |----> output endpoint
+| fd 2             |----> error endpoint
+| fd 3             |----> another file/socket/pipe...
++------------------+
 ```
 
-Thông thường khi chạy từ terminal:
+Program dùng:
 
 ```text
-stdin  <- terminal keyboard
-stdout -> terminal
-stderr -> terminal
+read()
+write()
 ```
 
-Nhưng shell có thể thay đổi các connection này bằng redirection và pipe.
+trên file descriptor.
 
 ---
 
-## 11.1 Vì sao stdout và stderr tách riêng?
+# 11.2 stdin
 
-Giả sử program:
+`stdin` là input stream mặc định.
 
-```text
-kết quả hợp lệ   -> stdout
-diagnostic/error -> stderr
-```
-
-Nhờ tách riêng, ta có thể:
-
-```bash
-command > result.txt
-```
-
-mà diagnostic vẫn xuất hiện trên terminal.
-
-Hoặc:
-
-```bash
-command 2> error.log
-```
-
-để giữ riêng lỗi.
-
-Đây là một design cực kỳ quan trọng cho automation.
-
----
-
-# 12. Redirection
-
-Bash thực hiện redirection **trước khi command được chạy** theo command execution flow.
-
----
-
-## 12.1 Redirect stdout
-
-```bash
-command > output.txt
-```
-
-Mental model:
+Thông thường trong interactive shell:
 
 ```text
-Before:
-
-program stdout ---> terminal
-
-After:
-
-program stdout ---> output.txt
+fd 0
+ |
+ v
+terminal
 ```
 
-`>` tạo file nếu chưa có và thường truncate file hiện có.
-
----
-
-## 12.2 Append stdout
-
-```bash
-command >> output.txt
-```
-
-Khác với `>`:
+Nhưng shell có thể thay nó bằng:
 
 ```text
->   replace/truncate output file
->>  append to end
+file
+pipe
+here-document
+socket-like endpoint
 ```
 
 ---
 
-## 12.3 Redirect stdin
+# 11.3 stdout
 
-```bash
-command < input.txt
-```
+`stdout` là output stream mặc định cho result bình thường.
 
-Mental model:
+Thông thường:
 
 ```text
-input.txt
-   |
-   v
-stdin
-   |
-   v
-program
+fd 1
+ |
+ v
+terminal
 ```
+
+Nhưng có thể redirect tới:
+
+```text
+file
+pipe
+device
+```
+
+---
+
+# 11.4 stderr
+
+`stderr` dành cho diagnostic/error output.
+
+Việc tách:
+
+```text
+stdout
+stderr
+```
+
+cho phép program vừa:
+
+```text
+tạo machine-consumable data
+```
+
+vừa:
+
+```text
+ghi diagnostic cho human
+```
+
+mà không trộn hai luồng.
+
+Đây là một design cực kỳ quan trọng.
+
+---
+
+# 11.5 Tại sao chỉ là file descriptor?
+
+UNIX cố gắng chuẩn hóa I/O qua abstraction chung.
+
+Một process có thể write tới:
+
+```text
+regular file
+terminal
+pipe
+socket
+device
+```
+
+mà API cơ bản vẫn có thể là:
+
+```text
+write(fd, buffer, size)
+```
+
+Đây là nền tảng của câu nói thường gặp:
+
+> "Everything is a file"
+
+Câu này hữu ích như mental model nhưng không hoàn toàn chính xác theo nghĩa tuyệt đối.
+
+Tốt hơn nên hiểu:
+
+> Linux/UNIX cố gắng cung cấp nhiều resource thông qua **file-descriptor-oriented interfaces**.
+
+---
+
+# 12. Redirection thực chất là gì?
+
+Redirection là việc shell thay đổi mapping file descriptor của command trước khi execution.
+
+---
+
+# 12.1 `>` không phải feature của program
 
 Ví dụ:
 
-```bash
-wc -l < file.txt
+```text
+program > output.txt
 ```
 
----
+Program thường không parse `>`.
 
-## 12.4 Redirect stderr
+Shell parse nó.
 
-```bash
-command 2> error.log
-```
-
-Giải thích:
+Mental model:
 
 ```text
-2
-|
-+--> stderr file descriptor
+shell
+ |
+ +--> open("output.txt")
+ |
+ +--> make fd 1 point to file
+ |
+ +--> execute program
+```
+
+Program vẫn nghĩ:
+
+```text
+stdout = fd 1
+```
+
+nhưng endpoint đã khác.
+
+---
+
+# 12.2 Conceptual descriptor table
+
+Trước redirect:
+
+```text
+fd 0 -> terminal input
+fd 1 -> terminal output
+fd 2 -> terminal output
+```
+
+Sau:
+
+```text
+cmd > out.txt
+```
+
+có thể trở thành:
+
+```text
+fd 0 -> terminal input
+fd 1 -> out.txt
+fd 2 -> terminal output
 ```
 
 ---
 
-## 12.5 Redirect stdout và stderr cùng file
+# 12.3 Append
 
-```bash
-command > all.log 2>&1
-```
-
-Bash xử lý redirection từ trái sang phải.
-
-Vì vậy thứ tự có ý nghĩa.
+`>>` khác `>` ở file opening semantics.
 
 Concept:
 
 ```text
-> all.log
- |
- +--> stdout -> all.log
-
-2>&1
- |
- +--> stderr -> nơi stdout đang trỏ
+>   open for output, truncate/replace current content
+>>  open for output in append mode
 ```
 
-Bash cũng hỗ trợ cú pháp:
+Điểm chính nằm ở:
 
-```bash
-command &> all.log
+```text
+how shell opens target
 ```
 
-nhưng khi học file descriptor, dạng:
-
-```bash
-> all.log 2>&1
-```
-
-giúp nhìn rõ cơ chế hơn.
+không nằm ở program.
 
 ---
 
-# 13. Pipeline
-
-Theo Bash, pipeline là chuỗi command nối bởi `|` hoặc `|&`.
-
-Dạng cơ bản:
-
-```bash
-command1 | command2
-```
-
-Ý nghĩa:
+# 12.4 Redirect stderr
 
 ```text
-command1 stdout
-        |
-        v
-      pipe
-        |
-        v
-command2 stdin
+2> error.log
 ```
+
+`2` là file descriptor number.
+
+Shell thiết lập:
+
+```text
+fd 2 -> error.log
+```
+
+stdout không đổi.
+
+---
+
+# 12.5 Descriptor duplication
+
+Cú pháp:
+
+```text
+2>&1
+```
+
+không đơn giản là "đưa stderr vào stdout" dưới dạng text.
+
+Nó có nghĩa conceptually:
+
+```text
+make fd 2 refer to same destination as fd 1
+```
+
+Ordering quan trọng.
 
 Ví dụ:
 
-```bash
-ps aux | grep ssh
+```text
+cmd > out 2>&1
 ```
 
-Không nên hiểu pipe là:
+logic:
 
-> "chạy command 1 xong, copy text rồi đưa sang command 2".
+```text
+1. fd1 -> out
+2. fd2 -> current fd1 target
+```
 
-Ở mức OS, pipe là cơ chế IPC dạng byte stream. Shell thiết lập pipe và nối file descriptor giữa các process.
+Sau đó:
+
+```text
+fd1 -> out
+fd2 -> out
+```
+
+Nhưng:
+
+```text
+cmd 2>&1 > out
+```
+
+ordering khác.
+
+Concept:
+
+```text
+1. fd2 -> current fd1 target (terminal)
+2. fd1 -> out
+```
+
+Result:
+
+```text
+fd1 -> out
+fd2 -> terminal
+```
+
+Đây là ví dụ điển hình cho việc hiểu semantics thay vì học syntax máy móc.
+
+---
+
+# 13. Pipeline và Unix process composition
+
+Pipeline là một trong những đặc trưng mạnh nhất của UNIX shell.
+
+Cú pháp:
+
+```text
+producer | consumer
+```
 
 Mental model:
 
 ```text
-       stdout                    stdin
-[ process A ] -----> [ pipe ] -----> [ process B ]
+process A stdout
+       |
+       v
+    kernel pipe
+       |
+       v
+process B stdin
 ```
 
 ---
 
-## 13.1 Pipeline nhiều stage
+# 13.1 Pipe là kernel object
 
-```bash
-ps aux | grep python | wc -l
-```
+Pipe không phải file text tạm.
 
-Data flow:
+Nó là IPC mechanism trong kernel.
 
-```text
-ps aux
-   |
-   v
-process list
-   |
-   v
-grep python
-   |
-   v
-matching lines
-   |
-   v
-wc -l
-   |
-   v
-count
-```
-
-Đây là tinh thần "small tools composed together":
+Có hai đầu:
 
 ```text
-generate
+read end
+write end
+```
+
+Shell tạo pipe và map file descriptor:
+
+```text
+A fd1 -> pipe write end
+B fd0 -> pipe read end
+```
+
+---
+
+# 13.2 Processes có thể chạy đồng thời
+
+Pipeline không nhất thiết:
+
+```text
+A chạy xong
+↓
+B bắt đầu
+```
+
+Thông thường các process trong pipeline có thể tồn tại đồng thời.
+
+Data chảy dần:
+
+```text
+A produces bytes
+      ↓
+pipe buffer
+      ↓
+B consumes bytes
+```
+
+Đây là streaming model.
+
+---
+
+# 13.3 Backpressure
+
+Pipe có buffer hữu hạn.
+
+Nếu consumer chậm:
+
+```text
+B đọc chậm
+   ↓
+pipe buffer đầy
+   ↓
+A write có thể block
+```
+
+Nếu producer chậm:
+
+```text
+B read
+   ↓
+không có data
+   ↓
+B có thể block
+```
+
+Vì vậy pipeline tự nhiên có flow control thông qua blocking I/O.
+
+---
+
+# 13.4 EOF trong pipeline
+
+Consumer biết input kết thúc khi:
+
+```text
+all write ends of pipe are closed
+```
+
+Sau đó `read()` có thể trả EOF.
+
+Điều này liên quan trực tiếp tới process lifetime và descriptor inheritance.
+
+---
+
+# 13.5 Pipeline composition
+
+Unix philosophy khuyến khích utility làm một nhiệm vụ tương đối tập trung.
+
+Ví dụ abstraction:
+
+```text
+source
   ↓
 filter
   ↓
 transform
   ↓
-summarize
+aggregate
+  ↓
+sink
 ```
+
+Pipeline biến các utility độc lập thành một processing graph.
 
 ---
 
-## 13.2 `|` chỉ nối stdout mặc định
-
-Giả sử:
-
-```text
-command1:
-stdout = data
-stderr = error
-```
+# 13.6 stderr không tự đi qua pipe
 
 Với:
 
-```bash
-command1 | command2
+```text
+A | B
 ```
 
-mặc định:
+thông thường:
 
 ```text
-stdout -> pipe -> command2
-
-stderr -> terminal
+A stdout -> pipe -> B stdin
+A stderr -> original stderr destination
 ```
 
-Nếu muốn cả stderr đi qua pipeline, Bash hỗ trợ:
-
-```bash
-command1 |& command2
-```
-
-`|&` tương đương về ý nghĩa với việc đưa stderr vào stdout rồi pipe trong context Bash.
+Điều này giúp diagnostic không làm hỏng data stream.
 
 ---
 
-# 14. Quoting, globbing và expansion cơ bản
+# 14. Quoting, expansion và globbing
 
-Đây là phần dễ gây bug nhất khi viết command và shell script.
-
----
-
-## 14.1 Globbing
-
-Ví dụ:
-
-```bash
-ls *.c
-```
-
-Thông thường `*.c` được shell expand thành danh sách filename trước khi `ls` chạy.
-
-Giả sử directory có:
-
-```text
-main.c
-uart.c
-gpio.c
-```
-
-Shell có thể biến command logic thành:
-
-```bash
-ls gpio.c main.c uart.c
-```
-
-`ls` không nhất thiết tự xử lý `*.c`.
+Shell syntax mạnh nhưng cũng dễ gây lỗi vì input người dùng trải qua nhiều stage trước khi program nhận argument.
 
 ---
 
-## 14.2 Single quote
+# 14.1 Parameter expansion
 
-```bash
-echo '$HOME'
-```
-
-Single quote giữ nội dung literal mạnh hơn.
-
-Output:
+Ví dụ concept:
 
 ```text
 $HOME
 ```
 
+shell thay bằng value.
+
+Program không thấy literal `$HOME` trừ khi quoting ngăn expansion.
+
 ---
 
-## 14.3 Double quote
+# 14.2 Command substitution
 
-```bash
-echo "$HOME"
-```
-
-Variable expansion vẫn xảy ra.
-
-Output có thể là:
+Concept:
 
 ```text
-/home/hai
+$(command)
 ```
 
-Quy tắc thực tế rất quan trọng:
-
-> Khi dùng variable chứa path/string, mặc định nên quote bằng `"` nếu không có lý do rõ ràng để word splitting/globbing xảy ra.
-
-Ví dụ:
-
-```bash
-file="my notes.txt"
-cat "$file"
-```
-
-Tốt hơn:
-
-```bash
-cat $file
-```
-
-vì dạng sau có thể bị shell tách thành hai argument.
-
----
-
-## 14.4 Variable expansion
-
-```bash
-name="embedded-linux"
-echo "$name"
-```
-
-Shell thay:
+shell:
 
 ```text
-$name
+execute inner command
+       ↓
+capture stdout
+       ↓
+substitute result
 ```
 
-bằng value trước khi command nhận argument.
-
----
-
-## 14.5 Command substitution
-
-```bash
-kernel=$(uname -r)
-echo "$kernel"
-```
-
-Mental model:
+Do đó command substitution tạo dependency:
 
 ```text
-uname -r
-   |
-stdout
-   |
-   v
-command substitution
-   |
-   v
-value assigned to kernel
-```
-
-Không cần dùng command substitution cho mọi thứ; nó chỉ cần khi output của một command trở thành dữ liệu trong command expression khác.
-
----
-
-# 15. Exit status và command chaining
-
-Mỗi command khi kết thúc trả một **exit status** cho shell.
-
-Theo convention phổ biến:
-
-```text
-0       success
-nonzero failure / other status
-```
-
-Kiểm tra status của command gần nhất:
-
-```bash
-echo $?
-```
-
-Ví dụ:
-
-```bash
-ls /etc
-echo $?
-```
-
-Sau đó thử:
-
-```bash
-ls /path/does/not/exist
-echo $?
-```
-
----
-
-## 15.1 `&&`
-
-```bash
-command1 && command2
-```
-
-`command2` chỉ chạy khi `command1` thành công theo exit status.
-
-Ví dụ:
-
-```bash
-mkdir build && cd build
-```
-
-Mental model:
-
-```text
-command1
-   |
-exit == 0 ?
-   |
-   +-- yes --> command2
-   |
-   +-- no  --> stop chain
-```
-
----
-
-## 15.2 `||`
-
-```bash
-command1 || command2
-```
-
-`command2` chạy khi `command1` không thành công.
-
-Ví dụ:
-
-```bash
-test -f config.ini || echo "config.ini not found"
-```
-
----
-
-## 15.3 `;`
-
-```bash
-command1 ; command2
-```
-
-Hai command được chạy tuần tự theo list syntax, không dùng success của command trước làm điều kiện như `&&`.
-
----
-
-## 15.4 Vì sao exit status quan trọng?
-
-Automation cần machine-readable result.
-
-Human-readable text:
-
-```text
-Build completed successfully
-```
-
-không phải interface tốt để shell quyết định flow.
-
-Exit status cho phép:
-
-```bash
-make && ./test_app
-```
-
-Nếu build fail:
-
-```text
-make exit != 0
-      |
-      v
-test_app không chạy
-```
-
-Đây là một pattern quan trọng trong build/test script sau này.
-
----
-
-# 16. Bash script tối thiểu
-
-Shell script là tập command được shell đọc từ file.
-
-Ví dụ:
-
-```bash
-#!/usr/bin/env bash
-
-echo "Embedded Linux host check"
-pwd
-uname -a
-```
-
-Lưu file:
-
-```text
-host-check.sh
-```
-
-Cho phép execute:
-
-```bash
-chmod +x host-check.sh
-```
-
-Chạy:
-
-```bash
-./host-check.sh
-```
-
----
-
-## 16.1 Shebang
-
-Dòng:
-
-```bash
-#!/usr/bin/env bash
-```
-
-chỉ ra interpreter mong muốn khi kernel/user-space execution path xử lý script executable.
-
-Trong môi trường học tập, cách này giúp dùng Bash được tìm qua environment.
-
----
-
-## 16.2 Variable
-
-```bash
-project="embedded-linux"
-echo "$project"
-```
-
-Không có space quanh `=`:
-
-```bash
-project = "embedded-linux"
-```
-
-không phải variable assignment hợp lệ theo syntax Bash thông thường.
-
----
-
-## 16.3 Positional parameter
-
-Script:
-
-```bash
-#!/usr/bin/env bash
-
-echo "Script: $0"
-echo "Arg 1: $1"
-echo "Arg 2: $2"
-```
-
-Chạy:
-
-```bash
-./args.sh hello linux
-```
-
-Mental model:
-
-```text
-$0 -> script invocation name
-$1 -> hello
-$2 -> linux
-```
-
----
-
-## 16.4 `if`
-
-Ví dụ:
-
-```bash
-#!/usr/bin/env bash
-
-if command -v gcc >/dev/null 2>&1; then
-    echo "gcc is available"
-else
-    echo "gcc is not available"
-fi
-```
-
-Điểm đáng chú ý:
-
-```text
-if
- |
- +--> dựa vào exit status của command
-```
-
-Shell conditional gắn rất chặt với exit status.
-
----
-
-## 16.5 Loop cơ bản
-
-```bash
-#!/usr/bin/env bash
-
-for file in *.c; do
-    echo "$file"
-done
-```
-
-Không cần học shell programming quá sâu ở Topic 1.
-
-Mục tiêu chỉ là:
-
-```text
-repeatable command sequence
+inner process output
         ↓
-script
-        ↓
-reproducible operation
+outer command argument
 ```
 
 ---
 
-# 17. Thực hành tổng hợp trên HOST
+# 14.3 Pathname expansion / globbing
 
-> **Môi trường:** HOST — Ubuntu Laptop/PC  
->
-> Không cần BeagleBone Black ở Topic 1.
+Pattern:
 
----
-
-## Lab 1 — Xác định shell và command resolution
-
-Chạy:
-
-```bash
-echo "$SHELL"
-ps -p $$ -o pid,ppid,comm,args
-type cd
-type ls
-type grep
-command -v ls
-command -v grep
+```text
+*.c
 ```
 
-### Cần trả lời được
+thường được shell expand dựa trên directory entries.
 
-1. Shell đang chạy là gì?
-2. `cd` là builtin hay executable?
-3. `grep` được resolve từ đâu?
-4. Vì sao `cd` cần là shell builtin?
+Ví dụ:
+
+```text
+main.c
+gpio.c
+uart.c
+```
+
+pattern có thể thành:
+
+```text
+gpio.c main.c uart.c
+```
+
+trước khi program chạy.
+
+Program nhận danh sách filename đã expand.
 
 ---
 
-## Lab 2 — Navigation và file operations
+# 14.4 Single quotes
 
-Tạo workspace:
+Single quote ngăn hầu hết shell interpretation bên trong.
 
-```bash
-mkdir -p ~/embedded-linux-labs/topic-01
-cd ~/embedded-linux-labs/topic-01
+Concept:
+
+```text
+'$HOME'
+```
+
+được giữ literal.
+
+---
+
+# 14.5 Double quotes
+
+Double quote giữ word grouping nhưng vẫn cho phép một số expansion như parameter expansion và command substitution.
+
+Concept:
+
+```text
+"$HOME"
+```
+
+giữ result thành một shell word logic thay vì để word splitting/globbing làm thay đổi structure ngoài ý muốn.
+
+---
+
+# 14.6 Word splitting
+
+Unquoted expansion có thể tạo nhiều word.
+
+Ví dụ conceptual:
+
+```text
+VAR="a b"
+```
+
+unquoted:
+
+```text
+$VAR
+```
+
+có thể trở thành:
+
+```text
+"a"
+"b"
+```
+
+Trong khi quoted:
+
+```text
+"$VAR"
+```
+
+giữ:
+
+```text
+"a b"
+```
+
+như một argument logic.
+
+---
+
+# 14.7 Expansion ordering
+
+Shell expansion không phải một operation duy nhất.
+
+Nó là nhiều stage có thứ tự.
+
+Ở mức nền tảng nên nhớ:
+
+```text
+syntax parsing
+   ↓
+expansions
+   ↓
+word structure may change
+   ↓
+redirection
+   ↓
+execution
+```
+
+Khi command "trông đúng" nhưng argument sai, nguyên nhân rất thường nằm ở expansion/quoting.
+
+---
+
+# 15. Exit status và control flow
+
+UNIX process không chỉ tạo text output.
+
+Nó còn trả **status**.
+
+---
+
+# 15.1 Exit status
+
+Thông thường:
+
+```text
+0        success
+non-zero non-success / condition / error
+```
+
+Nhưng semantic cụ thể tùy program.
+
+Ví dụ một utility có thể dùng nhiều non-zero code cho nhiều trạng thái khác nhau.
+
+Không nên mặc định mọi non-zero đều có cùng nghĩa.
+
+---
+
+# 15.2 Shell nhận status
+
+Shell lưu status của command gần nhất.
+
+Concept:
+
+```text
+process terminates
+     ↓
+kernel records termination state
+     ↓
+parent shell collects status
+     ↓
+shell control flow
+```
+
+---
+
+# 15.3 `&&`
+
+```text
+A && B
+```
+
+nghĩa:
+
+```text
+run A
+  ↓
+A success?
+  |
+ yes -> run B
+ no  -> do not run B
+```
+
+---
+
+# 15.4 `||`
+
+```text
+A || B
+```
+
+nghĩa:
+
+```text
+run A
+  ↓
+A success?
+  |
+ yes -> skip B
+ no  -> run B
+```
+
+---
+
+# 15.5 `;`
+
+```text
+A ; B
+```
+
+không dùng success của A làm điều kiện.
+
+---
+
+# 15.6 Exit status là machine interface
+
+Điểm quan trọng:
+
+```text
+stdout = data for humans/programs
+stderr = diagnostics
+exit status = control result
+```
+
+Automation tốt nên không cố parse text nếu program đã cung cấp exit status rõ ràng.
+
+---
+
+# 16. Các utility cơ bản dưới góc nhìn abstraction
+
+Các command cơ bản nên được hiểu theo **abstraction mà chúng tác động**, không phải chỉ học syntax.
+
+---
+
+# 16.1 Navigation utilities
+
+Các utility như:
+
+```text
 pwd
-```
-
-Tạo dữ liệu:
-
-```bash
-mkdir logs config backup
-touch config/app.conf
-printf "INFO boot\nERROR uart timeout\nINFO retry\nERROR i2c\n" > logs/app.log
-```
-
-Quan sát:
-
-```bash
+cd
 ls
-ls -la
-find . -maxdepth 2 -type f
 ```
 
-Copy và rename:
-
-```bash
-cp config/app.conf backup/
-mv backup/app.conf backup/app.conf.bak
-```
-
-### Cần hiểu
+liên quan tới:
 
 ```text
-mkdir/touch/cp/mv
+current working directory
+directory entries
+path resolution
 ```
 
-thay đổi filesystem state.
-
-Trong khi:
+Mental model:
 
 ```text
-pwd/ls/find
-```
-
-chủ yếu quan sát state.
-
----
-
-## Lab 3 — Pipeline
-
-Dùng file:
-
-```text
-logs/app.log
-```
-
-Chạy:
-
-```bash
-cat logs/app.log
-grep "ERROR" logs/app.log
-grep "ERROR" logs/app.log | wc -l
-```
-
-Sau đó:
-
-```bash
-cat logs/app.log | grep "ERROR" | wc -l
-```
-
-So sánh với:
-
-```bash
-grep "ERROR" logs/app.log | wc -l
-```
-
-### Câu hỏi
-
-Có cần `cat` trong pipeline thứ hai không?
-
-Không phải lúc nào `cat file | command` cũng sai, nhưng nếu command đã nhận filename trực tiếp thì:
-
-```bash
-grep "ERROR" logs/app.log
-```
-
-thường đơn giản hơn:
-
-```bash
-cat logs/app.log | grep "ERROR"
-```
-
-Điều quan trọng là hiểu data flow, không phải học một luật máy móc kiểu "never use cat".
-
----
-
-## Lab 4 — stdout và stderr
-
-Tạo command success:
-
-```bash
-ls /etc > success.txt
-```
-
-Kiểm tra:
-
-```bash
-head success.txt
-```
-
-Tạo command fail:
-
-```bash
-ls /path/does/not/exist
-```
-
-Redirect stderr:
-
-```bash
-ls /path/does/not/exist 2> error.txt
-```
-
-Kiểm tra:
-
-```bash
-cat error.txt
-```
-
-Redirect cả hai:
-
-```bash
-ls /etc /path/does/not/exist > all.txt 2>&1
-```
-
-### Cần giải thích được
-
-```text
-fd 1 = stdout
-fd 2 = stderr
-```
-
-và vì sao:
-
-```bash
-2> error.txt
-```
-
-không giống:
-
-```bash
-> error.txt
+process context
+   |
+   +--> cwd
+   |
+   +--> pathname
+           |
+           v
+      filesystem lookup
 ```
 
 ---
 
-## Lab 5 — Exit status
+# 16.2 File manipulation utilities
 
-Chạy:
+Các utility:
 
-```bash
-true
-echo $?
-
-false
-echo $?
+```text
+cp
+mv
+rm
+mkdir
+touch
 ```
 
-Sau đó:
+thay đổi filesystem namespace hoặc file metadata/content.
 
-```bash
-mkdir build && echo "build directory ready"
+Không nên nhìn chúng chỉ là "lệnh copy/xóa".
+
+Ví dụ:
+
+```text
+cp
 ```
 
-Thử lại:
+liên quan:
 
-```bash
-mkdir build && echo "created"
+```text
+open source
+read data
+create/open destination
+write data
+metadata handling
 ```
 
-nếu `build` đã tồn tại và command không thành công theo điều kiện mặc định, quan sát behavior.
+`mv` có thể là:
 
-Thử:
+```text
+rename within filesystem
+```
 
-```bash
-test -f logs/app.log && echo "log exists"
-test -f missing.log || echo "missing.log does not exist"
+hoặc trong một số trường hợp cần logic tương đương:
+
+```text
+copy + remove
+```
+
+khi di chuyển qua filesystem boundary.
+
+---
+
+# 16.3 Text-processing utilities
+
+Các utility:
+
+```text
+cat
+head
+tail
+wc
+grep
+```
+
+thường phù hợp với stream model.
+
+Mental model:
+
+```text
+input bytes/text
+      ↓
+processing
+      ↓
+output bytes/text
+```
+
+Do đó chúng ghép pipeline rất tự nhiên.
+
+---
+
+# 16.4 Filesystem search
+
+`find` làm việc trên filesystem tree.
+
+Mental model:
+
+```text
+starting path
+    ↓
+tree traversal
+    ↓
+evaluate predicates
+    ↓
+selected entries
+```
+
+Khác `grep`:
+
+```text
+grep -> content matching
+find -> filesystem entry selection
 ```
 
 ---
 
-## Lab 6 — Process observation
+# 16.5 Process observation
 
-Mở một terminal:
+Utilities như:
 
-```bash
-sleep 300
-```
-
-Mở terminal khác:
-
-```bash
-ps aux | grep sleep
-```
-
-hoặc:
-
-```bash
-pgrep -a sleep
-```
-
-Quan sát:
-
-```bash
+```text
+ps
 top
 ```
 
-### Cần trả lời
+trình bày process state từ kernel/proc-based interfaces theo cách khác nhau.
 
-- PID của `sleep` là gì?
-- `ps` và `top` khác nhau ở đâu?
-- command `sleep` có phải shell builtin trên hệ của bạn không? Kiểm tra bằng `type`.
+```text
+ps  -> snapshot
+top -> periodically refreshed interactive view
+```
 
-Sau lab, kết thúc process nếu nó còn chạy.
+Cả hai đều là userspace observer của process information.
 
 ---
 
-## Lab 7 — Disk observation
+# 16.6 Storage observation
 
-Chạy:
-
-```bash
-df -h
-du -sh ~/embedded-linux-labs
-mount | head
-```
-
-Nếu có `findmnt`:
-
-```bash
-findmnt
-```
-
-### Cần phân biệt
+`df` và `du` nhìn storage từ hai abstraction khác nhau.
 
 ```text
-df -> filesystem capacity/usage
-du -> file tree space usage
-mount/findmnt -> filesystem attachment/mount relationships
+df
+ |
+ +--> filesystem allocation/accounting perspective
+
+du
+ |
+ +--> directory/file tree traversal perspective
 ```
+
+Vì thế số liệu có thể khác.
+
+Đây không nhất thiết là bug.
 
 ---
 
-## Lab 8 — Bash script
+# 16.7 Mount observation
 
-Tạo:
+`mount`/`findmnt` liên quan tới mapping:
 
 ```text
-topic01-report.sh
+filesystem
+   ↓
+mount point
+   ↓
+visible namespace path
 ```
 
-Nội dung:
+Mount không "copy filesystem vào directory".
 
-```bash
-#!/usr/bin/env bash
-
-echo "=== HOST REPORT ==="
-echo "User: $USER"
-echo "Home: $HOME"
-echo "PWD: $(pwd)"
-echo "Kernel: $(uname -r)"
-echo
-
-echo "=== DISK ==="
-df -h /
-
-echo
-echo "=== TOP-LEVEL FILES ==="
-find . -maxdepth 1 -type f
-```
-
-Cho phép execute:
-
-```bash
-chmod +x topic01-report.sh
-```
-
-Chạy:
-
-```bash
-./topic01-report.sh
-```
-
-Redirect report:
-
-```bash
-./topic01-report.sh > report.txt
-```
-
-Kiểm tra:
-
-```bash
-cat report.txt
-```
+Nó gắn một filesystem tree vào namespace tại một vị trí.
 
 ---
 
-# 18. Failure modes và cách debug command line
+# 17. Command line như một data-flow system
 
-Không nên debug bằng cách thay command ngẫu nhiên.
+Một command line phức tạp có thể được xem như graph.
 
-Hãy tìm layer đầu tiên bị sai.
+Ví dụ abstract:
+
+```text
+source | filter | transform > sink
+```
+
+Tương đương mental model:
+
+```text
++--------+     +--------+     +-----------+
+| source | --> | filter | --> | transform |
++--------+     +--------+     +-----+-----+
+                                      |
+                                      v
+                                    sink
+```
+
+Shell chịu trách nhiệm:
+
+```text
+parse syntax
+create processes
+create pipes
+duplicate descriptors
+open files
+connect endpoints
+wait/collect status
+```
+
+Utilities chịu trách nhiệm:
+
+```text
+consume input
+perform transformation
+produce output
+return status
+```
+
+Sự tách trách nhiệm này là nền tảng của UNIX composability.
 
 ---
 
-## 18.1 `command not found`
+# 17.1 Data plane và control plane
 
-Ví dụ:
+Có thể nhìn command line theo hai lớp.
 
-```text
-mytool: command not found
-```
-
-Causal chain:
+## Data plane
 
 ```text
-command name
-    |
-    v
-shell lookup
-    |
-    +--> alias/function/builtin?
-    |
-    +--> PATH search
-            |
-            +--> executable found? --- no ---> command not found
+stdin
+stdout
+stderr
+pipe byte streams
+file content
 ```
 
-Checklist:
-
-```bash
-type mytool
-command -v mytool
-echo "$PATH"
-```
-
-Nếu biết file:
-
-```bash
-ls -l ./mytool
-file ./mytool
-```
-
-Không nên ngay lập tức thêm mọi directory vào `PATH`.
-
----
-
-## 18.2 `Permission denied`
-
-Causal possibilities:
+## Control plane
 
 ```text
-file exists
-   |
-   +--> execute permission?
-   |
-   +--> directory traversal permission?
-   |
-   +--> filesystem mounted noexec?
-   |
-   +--> wrong file/interpreter?
-```
-
-Topic 2 sẽ học permission chi tiết.
-
-Ở Topic 1 chỉ cần biết rằng:
-
-```text
-file exists
-```
-
-không đồng nghĩa:
-
-```text
-file executable
-```
-
----
-
-## 18.3 `No such file or directory`
-
-Có thể là:
-
-```text
-path sai
-current directory sai
-file không tồn tại
-symlink target không tồn tại
-script interpreter trong shebang không tồn tại
-dynamic loader không tồn tại
-```
-
-Vì vậy message này không phải lúc nào cũng đơn giản là "file bị thiếu".
-
-Basic checks:
-
-```bash
-pwd
-ls -l
-file target
-```
-
----
-
-## 18.4 Pipeline cho kết quả sai
-
-Debug từng stage.
-
-Thay vì:
-
-```bash
-producer | grep pattern | wc -l
-```
-
-hãy kiểm tra:
-
-```bash
-producer
-```
-
-sau đó:
-
-```bash
-producer | grep pattern
-```
-
-rồi mới:
-
-```bash
-producer | grep pattern | wc -l
+process creation
+exit status
+signals
+job control
+conditional execution
 ```
 
 Mental model:
 
 ```text
-Stage A output đúng?
-     |
-    no -> sửa A
-     |
-    yes
-     v
-Stage B nhận đúng input?
-     |
-    no -> sửa pipe/format/pattern
-     |
-    yes
-     v
-Stage C
+        control
+shell ----------------> processes
+  |                        |
+  |                        |
+  +------ data wiring -----+
+           pipes/fds
+```
+
+Đây là một cách nhìn rất hữu ích khi học system programming sau này.
+
+---
+
+# 18. Error model và tư duy debug
+
+Command-line error nên được phân loại theo layer.
+
+---
+
+# 18.1 Resolution error
+
+Ví dụ symptom:
+
+```text
+command not found
+```
+
+Causal chain:
+
+```text
+token parsed as command
+       ↓
+builtin/function/alias lookup
+       ↓
+PATH lookup
+       ↓
+executable not found
+```
+
+Root cause có thể là:
+
+```text
+PATH sai
+package chưa cài
+command name sai
+environment khác
 ```
 
 ---
 
-## 18.5 Redirection không có output trên terminal
+# 18.2 Path resolution error
 
-Ví dụ:
+Symptom:
 
-```bash
-command > output.txt
+```text
+No such file or directory
 ```
 
-Sau đó terminal im lặng.
+Có thể xuất phát từ:
 
-Điều này có thể hoàn toàn đúng vì:
+```text
+cwd sai
+relative path sai
+target không tồn tại
+symlink target thiếu
+interpreter path thiếu
+dynamic loader thiếu
+```
+
+Do đó error text không luôn chỉ ra chính xác layer cuối cùng.
+
+---
+
+# 18.3 Permission error
+
+Symptom:
+
+```text
+Permission denied
+```
+
+Possible causes:
+
+```text
+execute bit
+directory search permission
+filesystem mount option
+credentials
+MAC policy
+interpreter/resource permission
+```
+
+Permission sẽ được đào sâu trong Topic 2.
+
+---
+
+# 18.4 Expansion error
+
+Command nhìn "đúng" nhưng program nhận argument sai.
+
+Causal chain:
+
+```text
+variable
+  ↓
+expansion
+  ↓
+word splitting
+  ↓
+globbing
+  ↓
+argument vector khác mong muốn
+```
+
+Đây là lý do quoting là semantic, không phải style.
+
+---
+
+# 18.5 Redirection error
+
+Có thể xảy ra khi:
+
+```text
+target directory không tồn tại
+permission không đủ
+filesystem read-only
+descriptor ordering sai
+```
+
+Điểm quan trọng:
+
+> Redirection failure có thể xảy ra trước khi external program thực sự chạy.
+
+---
+
+# 18.6 Pipeline error
+
+Pipeline nhiều stage tạo nhiều failure point.
+
+Mental model debug:
+
+```text
+source output correct?
+      ↓
+pipe wiring correct?
+      ↓
+filter receives expected bytes?
+      ↓
+format compatible?
+      ↓
+consumer status?
+```
+
+Không nên nhìn toàn pipeline như một black box.
+
+---
+
+# 19. Liên hệ với Embedded Linux
+
+Topic này có vẻ "Linux cơ bản", nhưng gần như mọi phần đều xuất hiện lại trong Embedded Linux.
+
+---
+
+# 19.1 Serial console
+
+Embedded board:
+
+```text
+UART
+ ↓
+TTY driver
+ ↓
+console/getty
+ ↓
+shell
+```
+
+Kiến thức terminal/TTY giúp hiểu:
+
+```text
+boot console
+login prompt
+serial shell
+Ctrl+C
+line settings
+```
+
+---
+
+# 19.2 Init scripts và services
+
+Startup sequence thường chạy:
+
+```text
+shell scripts
+service commands
+applications
+```
+
+Nếu không hiểu:
+
+```text
+PATH
+cwd
+environment
+exit status
+redirection
+```
+
+rất dễ gặp:
+
+```text
+works manually
+fails at boot
+```
+
+---
+
+# 19.3 Logging
+
+Embedded application thường có:
 
 ```text
 stdout
-  |
-  X terminal
-  |
-  v
-output.txt
+stderr
+syslog/journal
+file logs
+serial logs
 ```
 
-Kiểm tra:
-
-```bash
-cat output.txt
-```
+Việc tách stdout/stderr giúp thiết kế application và debug tốt hơn.
 
 ---
 
-## 18.6 Variable có space làm command sai
+# 19.4 Build systems
 
-Sai pattern:
+Makefile và build scripts dựa rất nhiều vào shell semantics.
 
-```bash
-file="my log.txt"
-cat $file
-```
-
-Shell có thể tạo:
+Ví dụ concept:
 
 ```text
-arg1 = my
-arg2 = log.txt
+compiler command
+   ↓
+exit status
+   ↓
+make decision
 ```
 
-Đúng:
-
-```bash
-cat "$file"
-```
-
-Causal chain:
-
-```text
-variable expansion
-       |
-       v
-word splitting
-       |
-       v
-argument list thay đổi
-       |
-       v
-command behavior sai
-```
-
-Đây là lý do quoting phải được hiểu, không chỉ ghi nhớ.
+Pipeline/redirection/environment cũng xuất hiện thường xuyên.
 
 ---
 
-## 18.7 Script chạy tay được nhưng chạy bằng `./script.sh` không được
+# 19.5 Device access
 
-Kiểm tra:
+Sau này userspace tương tác driver qua:
 
 ```text
-file exists?
-  ↓
-execute bit?
-  ↓
-shebang đúng?
-  ↓
-interpreter tồn tại?
-  ↓
-line endings hợp lệ?
+/dev/*
+/sys/*
+/proc/*
 ```
 
-Commands hỗ trợ:
+và rất nhiều interaction vẫn dựa trên:
 
-```bash
-ls -l script.sh
-head -n 1 script.sh
-file script.sh
+```text
+file descriptor
+read/write
+path resolution
+permissions
 ```
+
+Topic 1 là nền cho abstraction này.
 
 ---
 
-# 19. Mô hình tư duy tổng hợp
+# 19.6 Remote administration
 
-Một command line Linux có thể nhìn như một **data-flow graph nhỏ**.
-
-Ví dụ:
-
-```bash
-find logs -type f | grep '\.log$' | wc -l > count.txt
-```
-
-Mental model:
+Embedded target thường được quản trị qua:
 
 ```text
-                shell
-                  |
-        parse / expand / redirect
-                  |
-                  v
-+------+       pipe       +------+       pipe       +------+
-| find | ---------------->| grep | ---------------->|  wc  |
-+------+                   +------+                   +--+---+
-                                                         |
-                                                         | stdout
-                                                         v
-                                                    count.txt
+serial
+SSH
+network shell
 ```
 
-Tách theo trách nhiệm:
+Command line là interface vận hành thực tế, không phải kiến thức phụ.
+
+---
+
+# 20. Mô hình tư duy tổng hợp
+
+Có thể tổng hợp toàn bộ topic bằng sơ đồ:
+
+```text
+                    USER
+                      |
+                      v
+              Terminal / PTY
+                      |
+                      v
+                   Shell
+                      |
+        +-------------+-------------+
+        |             |             |
+        v             v             v
+      Parse        Expansion     Redirection
+        |             |             |
+        +-------------+-------------+
+                      |
+                      v
+              Command resolution
+                      |
+          +-----------+-----------+
+          |                       |
+          v                       v
+       Builtin                External
+                                  |
+                                  v
+                               Process
+                                  |
+                 +----------------+----------------+
+                 |                |                |
+                 v                v                v
+              stdin            stdout           stderr
+               fd0              fd1              fd2
+                 |                |                |
+                 +--------+-------+--------+-------+
+                          |                |
+                          v                v
+                       files            pipes
+                       TTY              devices
+                       sockets          logs
+```
+
+Ở góc nhìn kernel/process:
 
 ```text
 Shell
- |
- +--> parse syntax
- +--> expand expressions
- +--> lookup commands
- +--> create pipe
- +--> configure file descriptors
- +--> execute processes
- +--> track exit status
-
-Programs
- |
- +--> read arguments
- +--> read stdin/file
- +--> perform one focused job
- +--> write stdout/stderr
- +--> return exit status
+  |
+  +--> process lifecycle
+  +--> file descriptor table
+  +--> environment
+  +--> current working directory
+  +--> signals
+  +--> pipes
+  +--> terminal association
 ```
 
-Đây là mental model sẽ lặp lại rất nhiều trong Embedded Linux.
-
-Sau này:
+Ở góc nhìn shell language:
 
 ```text
-application
-   |
-   +--> file descriptor
-   +--> pipe
-   +--> socket
-   +--> device node
-   +--> sysfs
+command
+  ↓
+syntax
+  ↓
+expansion
+  ↓
+descriptor wiring
+  ↓
+execution
+  ↓
+exit status
 ```
 
-đều tiếp tục dựa trên tư duy "process + file descriptor + byte stream + kernel object".
+Ở góc nhìn Unix philosophy:
 
-Topic 1 vì vậy không chỉ là học vài command.
+```text
+small programs
+     ↓
+standard streams
+     ↓
+composition
+     ↓
+pipeline
+     ↓
+larger behavior
+```
 
-Nó là bước đầu để hiểu cách Linux tổ chức **interaction giữa process và dữ liệu**.
-
----
-
-# 20. Các nguyên tắc cốt lõi
-
-1. **Terminal không phải shell.** Terminal cung cấp giao diện; shell parse và thực thi command.
-
-2. **Shell không gửi nguyên command line cho program.** Shell có thể expansion, globbing, quoting, pipeline và redirection trước khi program nhận argument.
-
-3. **Command có thể là builtin hoặc external executable.** Hiểu distinction này giúp giải thích `cd`, PATH và command resolution.
-
-4. **PATH là search path, không phải danh sách mọi program trong hệ thống.**
-
-5. **Current working directory là context của process.** Relative path chỉ có nghĩa khi biết context đó.
-
-6. **stdin/stdout/stderr là interface nền tảng của command-line program.**
-
-7. **Redirection thay đổi nơi file descriptor trỏ tới.** Nó không thay đổi logic chính của program.
-
-8. **Pipeline nối stdout của stage trước với stdin của stage sau.**
-
-9. **GNU/Linux command-line tools mạnh nhờ composition.** Một utility nhỏ có thể trở thành stage trong pipeline lớn hơn.
-
-10. **Quote variable khi cần giữ nó là một argument duy nhất.**
-
-11. **Exit status là interface cho automation.** Human-readable output không thay thế exit status.
-
-12. **Khi debug pipeline, kiểm tra từng stage từ trái sang phải.**
-
-13. **Không học thuộc option một cách máy móc.** Dùng `--help`, `man` và tài liệu chính thức để xác nhận behavior.
-
-14. **Topic 1 chỉ xây nền thao tác.** Filesystem internals, permission, inode, process lifecycle và system programming sẽ được tách thành các topic chuyên sâu sau.
+Ba mental model này bổ sung cho nhau.
 
 ---
 
-# Checklist hoàn thành Topic 1
+# 21. Các nguyên tắc cốt lõi
 
-Bạn có thể coi Topic 1 hoàn thành khi tự làm được các việc sau mà không cần copy nguyên command từ tài liệu:
+1. **Terminal và shell là hai lớp khác nhau.** Terminal vận chuyển/hiển thị I/O; shell là command interpreter.
 
-- [ ] Phân biệt terminal, shell và external program.
-- [ ] Giải thích được shell xử lý một simple command ở mức khái niệm.
-- [ ] Dùng `type` và `command -v` để xác định command.
-- [ ] Hiểu `PATH` và vì sao executable local thường chạy bằng `./app`.
-- [ ] Di chuyển bằng `pwd`, `cd`, `ls`.
-- [ ] Thao tác cơ bản bằng `mkdir`, `cp`, `mv`, `rm`.
-- [ ] Quan sát text bằng `cat`, `head`, `tail`, `wc`.
-- [ ] Phân biệt `grep` và `find`.
-- [ ] Dùng `ps`, `top`, `df`, `du`, `mount/findmnt` ở mức cơ bản.
-- [ ] Giải thích được stdin, stdout, stderr và fd 0/1/2.
-- [ ] Dùng `>`, `>>`, `<`, `2>` đúng mục đích.
-- [ ] Tạo pipeline có ít nhất ba stage.
-- [ ] Hiểu cơ bản single quote, double quote, globbing và variable expansion.
-- [ ] Kiểm tra exit status bằng `$?`.
-- [ ] Dùng `&&` và `||` theo success/failure.
-- [ ] Viết và chạy một Bash script đơn giản trên HOST.
-- [ ] Debug được `command not found`, sai path, sai quoting hoặc pipeline sai stage.
+2. **Shell bản thân là một process có state.** Nó có PID, environment, file descriptors và current working directory.
+
+3. **Một command line được shell parse trước khi program chạy.** Program thường không nhận nguyên chuỗi người dùng đã nhập.
+
+4. **Expansion có thể thay đổi argument vector.** Quoting vì vậy là semantic của command, không phải vấn đề format.
+
+5. **Builtin tồn tại vì một số operation phải thay đổi state của shell hiện tại.**
+
+6. **PATH là ordered search path cho executable.** Nó không phải database của command.
+
+7. **Relative path phụ thuộc current working directory của process.**
+
+8. **Environment được truyền từ parent sang child theo process execution model.**
+
+9. **File descriptor là abstraction trung tâm của Linux I/O.**
+
+10. **stdin/stdout/stderr chỉ là conventional file descriptor mappings: 0, 1 và 2.**
+
+11. **Redirection là việc thay đổi descriptor mapping trước khi command chạy.**
+
+12. **Pipeline dùng kernel pipe để nối stdout của process trước với stdin của process sau.**
+
+13. **Pipeline hỗ trợ streaming và backpressure, không chỉ là nối text sau khi command đầu hoàn tất.**
+
+14. **stderr được tách khỏi stdout để data stream và diagnostic stream có thể xử lý độc lập.**
+
+15. **Exit status là interface điều khiển cho automation.**
+
+16. **Command-line utilities mạnh vì chúng có thể compose qua standard streams.**
+
+17. **Error phải được phân tích theo layer: parsing → expansion → resolution → path → permission → redirection → process → program logic.**
+
+18. **Các abstraction của Topic 1 sẽ xuất hiện lại trong process, IPC, shell scripting, build system, device file và driver interaction.**
+
+19. **Embedded Linux phụ thuộc command line nhiều hơn desktop Linux vì serial console, SSH và shell thường là giao diện quản trị chính.**
+
+20. **Mục tiêu đúng không phải nhớ nhiều command, mà là hiểu command execution model.**
 
 ---
 
 # Tài liệu tham khảo
 
-Các tài liệu dưới đây được ưu tiên vì là tài liệu chính thức hoặc tài liệu reference được cộng đồng Linux sử dụng rộng rãi.
+Các nguồn dưới đây được ưu tiên vì là tài liệu chính thức hoặc reference kỹ thuật được cộng đồng Linux sử dụng rộng rãi.
 
 ## GNU Bash
 
 - [GNU Bash Reference Manual](https://www.gnu.org/software/bash/manual/)
-- [What is a shell? — GNU Bash](https://www.gnu.org/software/bash/manual/html_node/What-is-a-shell_003f.html)
-- [Shell Operation — GNU Bash](https://www.gnu.org/software/bash/manual/html_node/Shell-Operation.html)
-- [Pipelines — GNU Bash](https://www.gnu.org/software/bash/manual/html_node/Pipelines.html)
-- [Redirections — GNU Bash](https://www.gnu.org/software/bash/manual/html_node/Redirections.html)
+- [What is a shell?](https://www.gnu.org/software/bash/manual/html_node/What-is-a-shell_003f.html)
+- [Shell Operation](https://www.gnu.org/software/bash/manual/html_node/Shell-Operation.html)
+- [Shell Expansions](https://www.gnu.org/software/bash/manual/html_node/Shell-Expansions.html)
+- [Redirections](https://www.gnu.org/software/bash/manual/html_node/Redirections.html)
+- [Pipelines](https://www.gnu.org/software/bash/manual/html_node/Pipelines.html)
+- [Bourne Shell Builtins](https://www.gnu.org/software/bash/manual/html_node/Bourne-Shell-Builtins.html)
 
 Các phần này là nguồn chính cho:
 
 ```text
-shell
-command parsing
+shell model
+parsing
 expansion
+builtin
 pipeline
 redirection
 exit status
-shell scripting
 ```
+
+---
 
 ## GNU Coreutils
 
 - [GNU Coreutils Manual](https://www.gnu.org/software/coreutils/manual/coreutils.html)
 
-Các utility được dùng trong topic:
+Dùng làm reference cho nhóm utility:
 
 ```text
 pwd
@@ -2661,6 +2748,7 @@ ls
 cp
 mv
 rm
+mkdir
 cat
 head
 tail
@@ -2669,80 +2757,113 @@ df
 du
 ```
 
+---
+
 ## GNU grep
 
 - [GNU Grep Manual](https://www.gnu.org/software/grep/manual/grep.html)
 
-Dùng làm reference cho:
+Dùng cho:
 
 ```text
-grep
-pattern matching
-recursive search
-exit status của grep
+text pattern matching
+stream filtering
+grep exit semantics
 ```
+
+---
 
 ## GNU Findutils
 
 - [GNU Findutils Manual](https://www.gnu.org/software/findutils/manual/)
 
-Dùng làm reference cho:
+Dùng cho:
 
 ```text
-find
 filesystem traversal
 find expressions
+file selection
 ```
 
-## Linux man-pages / util-linux / procps-ng
+---
 
-- [pipe(7) — Linux manual page](https://man7.org/linux/man-pages/man7/pipe.7.html)
-- [ps(1) — Linux manual page](https://man7.org/linux/man-pages/man1/ps.1.html)
-- [top(1) — Linux manual page](https://man7.org/linux/man-pages/man1/top.1.html)
-- [mount(8) — Linux manual page](https://man7.org/linux/man-pages/man8/mount.8.html)
+## Linux man-pages
 
-Các reference này hỗ trợ mental model về:
+- [pipe(7)](https://man7.org/linux/man-pages/man7/pipe.7.html)
+- [execve(2)](https://man7.org/linux/man-pages/man2/execve.2.html)
+- [fork(2)](https://man7.org/linux/man-pages/man2/fork.2.html)
+- [dup2(2)](https://man7.org/linux/man-pages/man2/dup2.2.html)
+- [open(2)](https://man7.org/linux/man-pages/man2/open.2.html)
+- [read(2)](https://man7.org/linux/man-pages/man2/read.2.html)
+- [write(2)](https://man7.org/linux/man-pages/man2/write.2.html)
+- [chdir(2)](https://man7.org/linux/man-pages/man2/chdir.2.html)
+- [environ(7)](https://man7.org/linux/man-pages/man7/environ.7.html)
+- [pty(7)](https://man7.org/linux/man-pages/man7/pty.7.html)
+- [tty(4)](https://man7.org/linux/man-pages/man4/tty.4.html)
+
+Các manual page này hỗ trợ phần bản chất phía dưới shell:
 
 ```text
+process execution
+file descriptor
 pipe
-process observation
-interactive process monitoring
-filesystem mount
+environment
+working directory
+TTY / PTY
 ```
 
-## Cách tra cứu khi làm việc thực tế
+---
 
-Trên chính HOST:
+## procps-ng / util-linux
 
-```bash
-man bash
-help cd
-man ls
-man grep
-man find
-man ps
-man top
-man mount
-info coreutils
-```
+- [ps(1)](https://man7.org/linux/man-pages/man1/ps.1.html)
+- [top(1)](https://man7.org/linux/man-pages/man1/top.1.html)
+- [mount(8)](https://man7.org/linux/man-pages/man8/mount.8.html)
 
-Nguyên tắc ưu tiên nguồn:
+---
+
+## POSIX
+
+- [The Open Group Base Specifications](https://pubs.opengroup.org/onlinepubs/9699919799/)
+
+POSIX hữu ích để phân biệt:
 
 ```text
-official project documentation
-        ↓
-installed man/info pages
-        ↓
-kernel/man-pages documentation
-        ↓
-distribution documentation
-        ↓
-community discussion để tìm case thực tế
-        ↓
-luôn đối chiếu lại behavior bằng manual/version đang chạy
+portable shell behavior
+standard utility behavior
+GNU-specific extensions
 ```
 
-Community Q&A hữu ích để tìm triệu chứng và edge case, nhưng không nên dùng một câu trả lời cộng đồng làm specification nếu manual chính thức đã mô tả behavior.
+Khi behavior của Bash/GNU utility vượt POSIX, nên xem đó là implementation-specific hoặc GNU extension thay vì mặc định coi là universal UNIX behavior.
+
+---
+
+## Nguyên tắc sử dụng nguồn
+
+Thứ tự ưu tiên:
+
+```text
+official specification / project manual
+              ↓
+Linux man-pages
+              ↓
+distribution documentation
+              ↓
+implementation source/documentation
+              ↓
+community discussion
+```
+
+Community source hữu ích cho:
+
+```text
+edge case
+real-world failure
+debug symptom
+implementation experience
+```
+
+nhưng không nên thay thế specification/manual khi xác định behavior chính thức.
 
 ---
 
