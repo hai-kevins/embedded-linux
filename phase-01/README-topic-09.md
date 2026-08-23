@@ -1,40 +1,14 @@
 # Chủ đề 9 — Socket Programming trong Linux
 
-> **Phạm vi:** Linux/POSIX Socket Programming fundamentals — socket abstraction, `socket()`, `bind()`, `listen()`, `accept()`, `connect()`, `send()`/`recv()`, TCP vs UDP, IPv4/IPv6 socket address model, network byte order, `sockaddr`, `getaddrinfo()`, ports/endpoints, TCP connection lifecycle, graceful shutdown/error handling và Unix domain socket trong unified socket API.
+> **Phạm vi:** Linux/POSIX socket programming fundamentals: socket API, socket addresses, network byte order, IP/port, TCP vs UDP, server/client lifecycle, stream/datagram semantics, Unix-domain socket và graceful shutdown/error handling.
 >
-> Chương này chỉ trình bày **lý thuyết**. Không có lab, bài tập, chương trình mẫu hoàn chỉnh, hướng dẫn biên dịch, lệnh kiểm tra mạng hoặc thao tác thực hành.
+> Chương này chỉ trình bày **lý thuyết**. Không có lab, bài tập, chương trình mẫu hoàn chỉnh hoặc hướng dẫn thao tác thực hành.
 >
-> Mục tiêu của chương là xây mental model:
+> **Giới hạn chủ đề:** Không đi sâu vào non-blocking event loops, `select/poll/epoll`, advanced socket options, raw sockets, TLS/HTTP hoặc transport-algorithm internals; multiplexing thuộc topic tiếp theo.
 >
-> `application → socket API → transport protocol → IP → network interface`
+> **Nguyên tắc bố cục:** `##` chỉ dành cho các khối kiến thức lớn; `###/####` dùng cho concept chi tiết. Các phần trùng hoặc thuộc topic khác đã được loại khỏi chapter này.
 >
-> và:
->
-> `TCP server: socket → bind → listen → accept → connected socket → data → shutdown/close`
->
-> `TCP client: socket → connect → connected socket → data → shutdown/close`
->
-> `UDP: socket → optional bind/connect → send/receive datagrams`
->
-> Đồng thời phải phân biệt chính xác:
->
-> `socket descriptor ≠ TCP connection`
->
-> `listening socket ≠ accepted connected socket`
->
-> `TCP stream ≠ message queue`
->
-> `UDP connect() ≠ TCP connection handshake`
->
-> `host byte order ≠ network byte order`
->
-> `IP address ≠ port ≠ socket ≠ application process`
->
-> **Giới hạn chủ đề:** `O_NONBLOCK`, `select()`, `poll()`, `epoll()`, readiness model và event loop chỉ được nhắc ở mức liên hệ vì chúng thuộc Topic 10 — Non-blocking I/O & Multiplexing. Chương này cũng không đi sâu vào TLS, HTTP, QUIC, raw sockets, packet sockets, routing internals, congestion-control algorithms, advanced TCP tuning hoặc kernel network-driver internals.
->
-> **Cấu trúc tài liệu:** các mục `##` là những khối kiến thức lớn; concept chi tiết nằm ở `###/####` để giữ mục lục gọn, đồng nhất với Topic 01–08.
->
-> **Điều hướng:** [← Chủ đề 8 — IPC](README-topic-08.md) · [Chủ đề 10 — Non-blocking I/O & Multiplexing →](README-topic-10.md)
+> **Điều hướng:** [← Chủ đề 8 — IPC](README-topic-08.md) · [Chủ đề 10 →](README-topic-10.md)
 
 ---
 
@@ -42,13 +16,13 @@
 
 - [1. Socket Programming Fundamentals](#1-socket-programming-fundamentals)
 - [2. Socket Abstraction: Domain, Type và Protocol](#2-socket-abstraction-domain-type-và-protocol)
-- [3. Socket là File Descriptor — nhưng không phải Regular File](#3-socket-là-file-descriptor--nhưng-không-phải-regular-file)
+- [3. Socket là File Descriptor — nhưng không phải Regular File](#3-socket-là-file-descriptor-nhưng-không-phải-regular-file)
 - [4. Socket Address Model và `sockaddr`](#4-socket-address-model-và-sockaddr)
 - [5. Network Byte Order](#5-network-byte-order)
 - [6. Name Resolution với `getaddrinfo()`](#6-name-resolution-với-getaddrinfo)
 - [7. IP Address, Port và Endpoint](#7-ip-address-port-và-endpoint)
 - [8. `bind()` và Local Address Assignment](#8-bind-và-local-address-assignment)
-- [9. TCP và UDP — Hai Transport Models khác nhau](#9-tcp-và-udp--hai-transport-models-khác-nhau)
+- [9. TCP và UDP — Hai Transport Models khác nhau](#9-tcp-và-udp-hai-transport-models-khác-nhau)
 - [10. TCP Server Lifecycle](#10-tcp-server-lifecycle)
 - [11. TCP Client Lifecycle](#11-tcp-client-lifecycle)
 - [12. TCP Connection Establishment và State Model](#12-tcp-connection-establishment-và-state-model)
@@ -57,14 +31,12 @@
 - [15. TCP Graceful Shutdown, Half-close và Connection Termination](#15-tcp-graceful-shutdown-half-close-và-connection-termination)
 - [16. UDP Datagram Model](#16-udp-datagram-model)
 - [17. UDP `bind()`, `connect()`, `sendto()` và `recvfrom()` Semantics](#17-udp-bind-connect-sendto-và-recvfrom-semantics)
-- [18. `send()` / `recv()` Family và Message Metadata](#18-send--recv-family-và-message-metadata)
-- [19. Socket Options và Socket State](#19-socket-options-và-socket-state)
-- [20. Unix Domain Socket trong unified Socket API](#20-unix-domain-socket-trong-unified-socket-api)
-- [21. Blocking Semantics và Ranh giới với Topic 10](#21-blocking-semantics-và-ranh-giới-với-topic-10)
-- [22. Error Model và Tư duy Debug Socket](#22-error-model-và-tư-duy-debug-socket)
-- [23. Liên hệ với Embedded Linux](#23-liên-hệ-với-embedded-linux)
-- [24. Tổng kết và Mental Model](#24-tổng-kết-và-mental-model)
-- [25. Tài liệu tham khảo](#25-tài-liệu-tham-khảo)
+- [18. `send()` / `recv()` Family](#18-send-recv-family)
+- [19. Unix Domain Socket trong unified Socket API](#19-unix-domain-socket-trong-unified-socket-api)
+- [20. Error Model và Tư duy Debug Socket](#20-error-model-và-tư-duy-debug-socket)
+- [21. Liên hệ với Embedded Linux](#21-liên-hệ-với-embedded-linux)
+- [22. Tổng kết và Mental Model](#22-tổng-kết-và-mental-model)
+- [23. Tài liệu tham khảo](#23-tài-liệu-tham-khảo)
 
 ---
 
@@ -588,13 +560,7 @@ write()
 
 for data transmission.
 
-`send()` exists because sockets need additional per-call controls:
-
-```text
-flags
-destination in sendto()
-ancillary data in sendmsg()
-```
+`send()` exists because sockets need additional per-call controls such as flags, while `sendto()` additionally carries an explicit destination for datagram-style communication.
 
 ---
 
@@ -1255,30 +1221,7 @@ are separate transport namespaces.
 
 ---
 
-### 7.3 IANA port ranges
-
-RFC 6335/IANA divide transport port registry into:
-
-```text
-System Ports
-  0–1023
-
-User / Registered Ports
-  1024–49151
-
-Dynamic / Private Ports
-  49152–65535
-```
-
-Important nuance:
-
-> IANA's Dynamic/Private range is a registry classification. An operating system's local ephemeral-port allocator may use an implementation/configuration-specific range that is not identical to that registry interval.
-
-Linux ephemeral selection is governed by Linux networking configuration.
-
----
-
-### 7.4 Port does not belong permanently to a process
+### 7.3 Port does not belong permanently to a process
 
 Port binding is kernel socket/protocol state.
 
@@ -1301,7 +1244,7 @@ port != process ID
 
 ---
 
-### 7.5 TCP connection identity
+### 7.4 TCP connection identity
 
 A TCP connection is commonly identified by endpoint tuple:
 
@@ -1318,7 +1261,7 @@ Across protocol families, transport protocol itself is also part of overall demu
 
 ---
 
-### 7.6 One listening port can serve many simultaneous TCP connections
+### 7.5 One listening port can serve many simultaneous TCP connections
 
 Server may listen on:
 
@@ -1348,7 +1291,7 @@ only one TCP connection
 
 ---
 
-### 7.7 Wildcard address
+### 7.6 Wildcard address
 
 IPv4:
 
@@ -1369,7 +1312,7 @@ It should not be casually treated as a normal remote host destination.
 
 ---
 
-### 7.8 Loopback
+### 7.7 Loopback
 
 IPv4 loopback:
 
@@ -2862,30 +2805,6 @@ This connects Topic 5 signals with socket lifecycle.
 
 ---
 
-### 15.13 `SO_LINGER` is advanced close policy, not generic “graceful shutdown switch”
-
-Socket option:
-
-```text
-SO_LINGER
-```
-
-influences behavior around unsent data and `close()` according to socket/protocol implementation.
-
-It should not be confused with application-level graceful protocol shutdown.
-
-A robust application protocol often needs its own:
-
-```text
-request completed
-response completed
-peer acknowledged business state
-```
-
-semantics regardless of TCP close policy.
-
----
-
 ## 16. UDP Datagram Model
 
 ### 16.1 UDP is message-oriented
@@ -2976,68 +2895,6 @@ socket options
 ```
 
 “Connectionless” does not mean “stateless in every implementation layer”.
-
----
-
-### 16.6 UDP checksum
-
-UDP includes checksum mechanism.
-
-For IPv6, checksum requirements are stricter in standard operation because IPv6 header lacks IPv4-style header checksum.
-
-Application should not assume transport checksum provides cryptographic integrity or authentication.
-
-It is error detection, not security.
-
----
-
-### 16.7 Datagram size matters
-
-UDP preserves datagram boundaries, so one datagram must fit protocol/path constraints.
-
-Large datagrams can lead to:
-
-```text
-fragmentation
-loss sensitivity
-EMSGSIZE / path MTU issues
-```
-
-Linux UDP uses path MTU discovery by default and can return:
-
-```text
-EMSGSIZE
-```
-
-when attempted datagram exceeds discovered path MTU.
-
----
-
-### 16.8 Fragmentation increases loss sensitivity
-
-If one large IP datagram fragments into multiple pieces, losing one fragment can prevent complete original datagram reassembly.
-
-RFC 8085 therefore recommends careful message-size design and avoidance of problematic fragmentation patterns.
-
----
-
-### 16.9 UDP application must consider congestion control
-
-UDP itself has no inherent TCP-like congestion-control mechanism.
-
-RFC 8085 requires/recommends applications using UDP to behave responsibly under congestion.
-
-Thus:
-
-```text
-UDP means no built-in congestion control
-```
-
-not:
-
-```text
-application may transmit without limits
-```
 
 ---
 
@@ -3208,33 +3065,13 @@ Application chooses whether to maintain per-peer logical session state.
 
 ---
 
-### 17.10 Application-level session over UDP
-
-Application may construct:
-
-```text
-session ID
-sequence numbers
-ACKs
-timeouts
-retransmission
-authentication
-```
-
-above UDP.
-
-That creates application protocol state, not TCP state.
-
----
-
-## 18. `send()` / `recv()` Family và Message Metadata
+## 18. `send()` / `recv()` Family
 
 ### 18.1 Send family
 
 ```text
 send()
 sendto()
-sendmsg()
 ```
 
 represent increasing flexibility.
@@ -3267,46 +3104,24 @@ UDP
 
 ---
 
-### 18.4 `sendmsg()`
-
-Uses:
-
-```text
-struct msghdr
-```
-
-to support:
-
-```text
-destination address
-scatter/gather iovec data
-ancillary/control data
-flags
-```
-
-This is flexible low-level message interface.
-
----
-
-### 18.5 Receive family
+### 18.4 Receive family
 
 ```text
 recv()
 recvfrom()
-recvmsg()
 ```
 
 mirror receive needs.
 
 ---
 
-### 18.6 `recv()`
+### 18.5 `recv()`
 
 Receives data when peer identity is already known/not needed.
 
 ---
 
-### 18.7 `recvfrom()`
+### 18.6 `recvfrom()`
 
 Can return:
 
@@ -3318,51 +3133,7 @@ especially useful with datagram sockets.
 
 ---
 
-### 18.8 `recvmsg()`
-
-Can return:
-
-```text
-data
-source
-control/ancillary information
-message flags
-```
-
-Used by advanced APIs including Unix-domain fd passing and IP metadata features.
-
----
-
-### 18.9 `MSG_PEEK`
-
-Allows inspecting queued receive data without consuming it.
-
-Concept:
-
-```text
-receive queue:
-ABCDE
-
-peek 3:
-ABC returned
-queue remains ABCDE
-```
-
-This changes consumption semantics but does not create new message framing for TCP.
-
----
-
-### 18.10 `MSG_WAITALL`
-
-Requests receive operation to try to satisfy full amount, but it is not an unconditional promise.
-
-Signals, errors, disconnects, message boundaries and protocol conditions can still cause shorter return.
-
-Application must still inspect actual return value.
-
----
-
-### 18.11 Datagram truncation
+### 18.7 Datagram truncation
 
 If receive buffer smaller than datagram, datagram semantics can cause excess data to be discarded and truncation indicated according to socket/API flags.
 
@@ -3370,7 +3141,7 @@ This differs fundamentally from TCP stream where unread bytes remain part of str
 
 ---
 
-### 18.12 `send()` does not guarantee remote delivery
+### 18.8 `send()` does not guarantee remote delivery
 
 Linux `send(2)` explicitly notes no implicit indication of delivery failure is provided merely by successful send.
 
@@ -3378,155 +3149,9 @@ Transport/application confirmation must be considered separately.
 
 ---
 
-## 19. Socket Options và Socket State
+## 19. Unix Domain Socket trong unified Socket API
 
-### 19.1 Socket options configure object/protocol behavior
-
-APIs:
-
-```text
-setsockopt()
-getsockopt()
-```
-
-operate on levels such as:
-
-```text
-SOL_SOCKET
-IPPROTO_IP
-IPPROTO_IPV6
-IPPROTO_TCP
-```
-
-depending option.
-
----
-
-### 19.2 `SO_REUSEADDR`
-
-Requests reuse of local addresses according to protocol/OS semantics.
-
-Common reason relates to server rebinding/restart and address reuse.
-
-But exact behavior is:
-
-```text
-OS/protocol-specific in important edge cases
-```
-
-and should not be simplified to:
-
-```text
-"lets two arbitrary servers use same port"
-```
-
----
-
-### 19.3 `SO_REUSEPORT`
-
-Linux supports advanced same-address/port reuse/load-distribution semantics.
-
-This is Linux-specific/advanced and not part of core portable mental model.
-
-Do not confuse it with:
-
-```text
-SO_REUSEADDR
-```
-
----
-
-### 19.4 `SO_KEEPALIVE`
-
-Requests protocol-specific keepalive probes for connection-oriented sockets.
-
-For TCP, keepalive can help detect dead peer/path after long inactivity according to configured timers.
-
-It is not:
-
-```text
-application heartbeat
-```
-
-and default timers may be unsuitable for product-specific health requirements.
-
----
-
-### 19.5 Socket buffers
-
-Options:
-
-```text
-SO_SNDBUF
-SO_RCVBUF
-```
-
-control/request buffering parameters.
-
-Buffers affect:
-
-```text
-throughput
-backpressure
-memory use
-latency behavior
-```
-
-but are not simply application message queues.
-
----
-
-### 19.6 `SO_ERROR`
-
-Provides pending socket error state and commonly participates in completion/error inspection for asynchronous/nonblocking operations.
-
-Detailed nonblocking connection handling belongs Topic 10.
-
----
-
-### 19.7 `SO_TYPE`, `SO_DOMAIN`, `SO_PROTOCOL`
-
-Socket can expose properties describing:
-
-```text
-type
-domain
-protocol
-```
-
-through socket-option interfaces where supported.
-
-This reinforces that socket fd refers to typed protocol endpoint.
-
----
-
-### 19.8 `getsockname()` and `getpeername()`
-
-Conceptually:
-
-```text
-getsockname()
-  current local endpoint
-
-getpeername()
-  connected peer endpoint
-```
-
-Useful because kernel may choose local address/port implicitly.
-
----
-
-### 19.9 Options are part of socket state, not network-wide universal policy
-
-Changing one socket option normally changes behavior of that socket/open object.
-
-Some Linux sysctls set system-wide/default networking policy, but those are a separate layer.
-
----
-
-## 20. Unix Domain Socket trong unified Socket API
-
-### 20.1 Topic 8 already covered Unix-domain IPC semantics
+### 19.1 Topic 8 already covered Unix-domain IPC semantics
 
 Topic 9 only revisits it to show one key architectural point:
 
@@ -3544,7 +3169,7 @@ IP networking
 
 ---
 
-### 20.2 Same high-level lifecycle
+### 19.2 Same high-level lifecycle
 
 Unix stream server:
 
@@ -3566,7 +3191,7 @@ The API sequence resembles TCP server/client.
 
 ---
 
-### 20.3 Semantics come from domain + type
+### 19.3 Semantics come from domain + type
 
 Compare:
 
@@ -3588,7 +3213,7 @@ but address namespace/protocol path/lifecycle differ.
 
 ---
 
-### 20.4 Why this matters architecturally
+### 19.4 Why this matters architecturally
 
 Application can design a local service API with:
 
@@ -3612,158 +3237,9 @@ network transport reachability
 
 ---
 
-### 20.5 Unix socket can pass descriptors/credentials
+## 20. Error Model và Tư duy Debug Socket
 
-Unlike ordinary TCP connection, Unix-domain sockets can carry local ancillary information such as:
-
-```text
-SCM_RIGHTS
-  file descriptors
-
-SCM_CREDENTIALS / peer credential mechanisms
-```
-
-on Linux.
-
-This is specific to local Unix socket functionality, not TCP.
-
----
-
-## 21. Blocking Semantics và Ranh giới với Topic 10
-
-### 21.1 Default sockets are blocking
-
-Normal socket created without nonblocking state behaves so operations can wait.
-
-Examples:
-
-```text
-accept()
-  waits for connection
-
-connect()
-  waits for connection result
-
-recv()
-  waits for data/EOF/error
-
-send()
-  may wait for buffer space
-```
-
----
-
-### 21.2 Blocking is scheduling, not busy waiting
-
-When thread blocks in socket syscall:
-
-```text
-thread sleeps in kernel
-```
-
-and scheduler can run other tasks.
-
-This is different from application:
-
-```text
-while(no_data) { keep checking; }
-```
-
----
-
-### 21.3 Blocking simplifies sequential state reasoning
-
-Simple connection handler:
-
-```text
-wait for input
-process
-send output
-wait again
-```
-
-can be conceptually easy.
-
-But one blocked thread cannot simultaneously serve arbitrary unrelated sockets unless application introduces:
-
-```text
-multiple threads/processes
-```
-
-or:
-
-```text
-I/O multiplexing
-```
-
----
-
-### 21.4 `O_NONBLOCK`
-
-Socket open file description can have:
-
-```text
-O_NONBLOCK
-```
-
-When set, operations that would normally wait return immediately with progress/error such as:
-
-```text
-EAGAIN
-EWOULDBLOCK
-EINPROGRESS
-```
-
-depending operation.
-
----
-
-### 21.5 Why nonblocking is next topic
-
-Once socket is nonblocking, application needs to answer:
-
-```text
-When should I retry?
-Which socket is ready?
-How do I wait for many sockets efficiently?
-How do I manage timeouts?
-```
-
-This leads directly to:
-
-```text
-select()
-poll()
-epoll()
-readiness model
-event loop
-```
-
-Therefore detailed nonblocking design belongs Topic 10.
-
----
-
-### 21.6 `MSG_DONTWAIT`
-
-Linux send/recv family can support per-call nonblocking behavior.
-
-Difference:
-
-```text
-O_NONBLOCK
-  open-file-description state
-
-MSG_DONTWAIT
-  per-call behavior
-```
-
-Because O_NONBLOCK lives on open file description, duplicated/inherited descriptors referring to same open file description can observe shared nonblocking state.
-
----
-
-## 22. Error Model và Tư duy Debug Socket
-
-### 22.1 Socket errors occur at multiple layers
+### 20.1 Socket errors occur at multiple layers
 
 A failure can belong to:
 
@@ -3781,7 +3257,7 @@ Debugging must identify layer before guessing cause.
 
 ---
 
-### 22.2 Layered error mental model
+### 20.2 Layered error mental model
 
 ```text
 Application protocol valid?
@@ -3801,7 +3277,7 @@ Peer service listening/responding?
 
 ---
 
-### 22.3 `socket()` errors
+### 20.3 `socket()` errors
 
 Possible categories:
 
@@ -3816,7 +3292,7 @@ If socket creation itself fails, network reachability is not yet the issue.
 
 ---
 
-### 22.4 `bind()` — `EADDRINUSE`
+### 20.4 `bind()` — `EADDRINUSE`
 
 Means local address assignment conflicts with current binding/reuse state.
 
@@ -3831,7 +3307,7 @@ port allocation conflict
 
 ---
 
-### 22.5 `bind()` — `EADDRNOTAVAIL`
+### 20.5 `bind()` — `EADDRNOTAVAIL`
 
 Requested address is not locally assignable in current network context.
 
@@ -3843,7 +3319,7 @@ Does this address actually belong to this host/interface/namespace?
 
 ---
 
-### 22.6 `connect()` — `ECONNREFUSED`
+### 20.6 `connect()` — `ECONNREFUSED`
 
 Peer/network returns refusal indicating no acceptable listening endpoint/service path.
 
@@ -3857,7 +3333,7 @@ where expected connection establishment response never completed within timeout.
 
 ---
 
-### 22.7 `connect()` — `ENETUNREACH` / `EHOSTUNREACH`
+### 20.7 `connect()` — `ENETUNREACH` / `EHOSTUNREACH`
 
 These indicate routing/reachability class failures.
 
@@ -3865,7 +3341,7 @@ They are below application protocol layer.
 
 ---
 
-### 22.8 `accept()` blocks forever
+### 20.8 `accept()` blocks forever
 
 Possible conceptual reasons:
 
@@ -3892,7 +3368,7 @@ client connection reaches it
 
 ---
 
-### 22.9 `recv()` blocks
+### 20.9 `recv()` blocks
 
 Could simply mean:
 
@@ -3905,7 +3381,7 @@ Do not interpret every blocked receive as deadlock.
 
 ---
 
-### 22.10 `recv() == 0` on TCP
+### 20.10 `recv() == 0` on TCP
 
 Means orderly shutdown from peer's sending direction after buffered data is consumed.
 
@@ -3919,7 +3395,7 @@ in TCP stream semantics.
 
 ---
 
-### 22.11 `ECONNRESET`
+### 20.11 `ECONNRESET`
 
 Represents connection reset/abort class.
 
@@ -3941,7 +3417,7 @@ as different lifecycle outcomes.
 
 ---
 
-### 22.12 `EPIPE` and SIGPIPE
+### 20.12 `EPIPE` and SIGPIPE
 
 Sending on stream whose local/peer state no longer permits send can cause:
 
@@ -3957,7 +3433,7 @@ Signal behavior must be part of error architecture.
 
 ---
 
-### 22.13 `EINTR`
+### 20.13 `EINTR`
 
 Blocking socket call can be interrupted by signal.
 
@@ -3974,21 +3450,7 @@ Blind unconditional retry is not always correct.
 
 ---
 
-### 22.14 `EAGAIN` / `EWOULDBLOCK`
-
-For nonblocking socket:
-
-```text
-operation would block now
-```
-
-This is usually readiness state, not permanent failure.
-
-Detailed handling belongs Topic 10.
-
----
-
-### 22.15 UDP silent loss
+### 20.14 UDP silent loss
 
 UDP send success can be followed by:
 
@@ -4004,7 +3466,7 @@ Therefore absence of error does not prove datagram delivered.
 
 ---
 
-### 22.16 UDP asynchronous errors
+### 20.15 UDP asynchronous errors
 
 Linux may report asynchronous network errors from earlier UDP transmission.
 
@@ -4014,7 +3476,7 @@ This surprises programmers expecting every UDP send error to map synchronously t
 
 ---
 
-### 22.17 Message framing bug
+### 20.16 Message framing bug
 
 Symptoms:
 
@@ -4034,7 +3496,7 @@ Transport may be working perfectly.
 
 ---
 
-### 22.18 Byte-order bug
+### 20.17 Byte-order bug
 
 Symptoms:
 
@@ -4055,7 +3517,7 @@ presentation string
 
 ---
 
-### 22.19 Wrong address-family size/structure
+### 20.18 Wrong address-family size/structure
 
 Common class:
 
@@ -4076,7 +3538,7 @@ or family-aware storage semantics.
 
 ---
 
-### 22.20 Server accepts but application fails
+### 20.19 Server accepts but application fails
 
 Transport connection exists.
 
@@ -4096,7 +3558,7 @@ Socket success is only one layer.
 
 ---
 
-### 22.21 Many `TIME_WAIT` sockets
+### 20.20 Many `TIME_WAIT` sockets
 
 First interpretation:
 
@@ -4114,7 +3576,7 @@ leak
 
 ---
 
-### 22.22 Many `CLOSE_WAIT` sockets
+### 20.21 Many `CLOSE_WAIT` sockets
 
 Often suggests:
 
@@ -4127,9 +3589,9 @@ This is more likely application resource-management issue than TIME_WAIT itself.
 
 ---
 
-## 23. Liên hệ với Embedded Linux
+## 21. Liên hệ với Embedded Linux
 
-### 23.1 Embedded device as network server
+### 21.1 Embedded device as network server
 
 An embedded target may expose:
 
@@ -4145,7 +3607,7 @@ using TCP/UDP sockets.
 
 ---
 
-### 23.2 Embedded device as network client
+### 21.2 Embedded device as network client
 
 Device may connect outbound to:
 
@@ -4171,7 +3633,7 @@ Higher-level retry architecture builds on Topic 9 socket semantics.
 
 ---
 
-### 23.3 TCP control channel
+### 21.3 TCP control channel
 
 TCP is natural when application needs:
 
@@ -4187,7 +3649,7 @@ Application still needs explicit message framing.
 
 ---
 
-### 23.4 UDP telemetry/control
+### 21.4 UDP telemetry/control
 
 UDP can fit:
 
@@ -4210,7 +3672,7 @@ message size
 
 ---
 
-### 23.5 Local service vs network service
+### 21.5 Local service vs network service
 
 Same socket-style architecture can choose:
 
@@ -4226,7 +3688,7 @@ This helps architect service boundary separately from reachability boundary.
 
 ---
 
-### 23.6 Resource limits matter
+### 21.6 Resource limits matter
 
 Embedded target may have limited:
 
@@ -4245,43 +3707,7 @@ Unbounded connection architecture is dangerous.
 
 ---
 
-### 23.7 Backpressure
-
-Network producer/consumer mismatch appears as:
-
-```text
-send buffers fill
-send blocks/non-ready
-application queues grow
-```
-
-System must define bounded policy.
-
-Do not solve slow network by simply adding unbounded userspace queue.
-
----
-
-### 23.8 Link can disappear independently of application
-
-Ethernet/Wi-Fi/network path can change while process continues.
-
-Application must conceptually distinguish:
-
-```text
-socket exists
-```
-
-from:
-
-```text
-peer reachable
-connection healthy
-application protocol healthy
-```
-
----
-
-### 23.9 TCP keepalive vs application heartbeat
+### 21.7 TCP keepalive vs application heartbeat
 
 TCP keepalive probes transport path after inactivity.
 
@@ -4297,7 +3723,7 @@ They solve different problems.
 
 ---
 
-### 23.10 Graceful shutdown during service stop
+### 21.8 Graceful shutdown during service stop
 
 Embedded service managed by init/systemd may receive:
 
@@ -4325,7 +3751,7 @@ Complex synchronization belongs earlier Thread/Signal topics.
 
 ---
 
-### 23.11 Network byte order matters on heterogeneous systems
+### 21.9 Network byte order matters on heterogeneous systems
 
 Embedded devices can communicate with:
 
@@ -4352,7 +3778,7 @@ across peers.
 
 ---
 
-### 23.12 Protocol serialization is separate from socket transport
+### 21.10 Protocol serialization is separate from socket transport
 
 Socket transports:
 
@@ -4375,12 +3801,12 @@ This is especially important for long-lived embedded products.
 
 ---
 
-### 23.13 IPv4/IPv6 portability
+### 21.11 IPv4/IPv6 portability
 
 Embedded products may encounter:
 
 ```text
-IPv4-only lab
+IPv4-only environment
 dual-stack LAN
 IPv6-capable deployment
 ```
@@ -4389,1180 +3815,59 @@ Using generic address-resolution/address structures reduces protocol-family assu
 
 ---
 
-### 23.14 Reconnect architecture
-
-When client connection fails:
+## 22. Tổng kết và Mental Model
 
 ```text
-connection retry
+Application
+   ↓
+socket fd
+   ↓
+domain + type + protocol
+   ├─ AF_INET/AF_INET6 + SOCK_STREAM → TCP
+   ├─ AF_INET/AF_INET6 + SOCK_DGRAM  → UDP
+   └─ AF_UNIX                         → local socket IPC
 ```
 
-must not become:
+TCP server:
 
 ```text
-tight infinite busy loop
+socket → bind → listen → accept → connected socket → send/recv → shutdown/close
 ```
 
-Product design often needs:
-
-```text
-backoff
-state machine
-network-change awareness
-service-health limits
-```
-
-Detailed timers/event loops belong later topics.
+Các điểm cần giữ:
+- Socket là communication endpoint represented by a file descriptor.
+- Socket address gồm family-specific address data; Internet endpoints dùng IP + transport port.
+- Internet protocol integer fields dùng network byte order where specified.
+- TCP là reliable ordered full-duplex byte stream; nó không preserve application message boundaries.
+- `accept()` trả về connected socket mới; listening socket vẫn tiếp tục listen.
+- Stream `send()`/`recv()` có partial-I/O semantics và application phải tự framing.
+- UDP giữ datagram boundaries nhưng không guarantee delivery/order/duplicate suppression.
+- UDP `connect()` chỉ thiết lập peer/default-destination semantics, không tạo TCP-style handshake.
+- `shutdown()` điều khiển direction của connected communication; graceful close cần phân biệt EOF, FIN và reset/error.
 
 ---
 
-### 23.15 Multiple client service
+## 23. Tài liệu tham khảo
 
-Blocking single-connection server cannot concurrently service arbitrary many clients without additional architecture:
-
-```text
-process-per-connection
-thread-per-connection
-worker pool
-nonblocking event loop
-```
-
-Topic 10 introduces readiness/event-loop approach.
-
----
-
-## 24. Tổng kết và Mental Model
-
-### 24.1 Unified socket model
-
-```text
-                     Application
-                         |
-                         v
-                      socket()
-                         |
-       +-----------------+-----------------+
-       |                 |                 |
-       v                 v                 v
-    AF_INET           AF_INET6          AF_UNIX
-       |                 |                 |
-       +---------+-------+                 |
-                 |                         |
-           +-----+-----+             local protocol
-           |           |
-           v           v
-       SOCK_STREAM  SOCK_DGRAM
-           |           |
-           v           v
-          TCP         UDP
-```
+- POSIX.1-2024 Socket Interfaces: https://pubs.opengroup.org/onlinepubs/9799919799/
+- `socket(2)`: https://man7.org/linux/man-pages/man2/socket.2.html
+- `socket(7)`: https://man7.org/linux/man-pages/man7/socket.7.html
+- `bind(2)`: https://man7.org/linux/man-pages/man2/bind.2.html
+- `listen(2)`: https://man7.org/linux/man-pages/man2/listen.2.html
+- `accept(2)`: https://man7.org/linux/man-pages/man2/accept.2.html
+- `connect(2)`: https://man7.org/linux/man-pages/man2/connect.2.html
+- `send(2)`: https://man7.org/linux/man-pages/man2/send.2.html
+- `recv(2)`: https://man7.org/linux/man-pages/man2/recv.2.html
+- `shutdown(2)`: https://man7.org/linux/man-pages/man2/shutdown.2.html
+- `ip(7)`: https://man7.org/linux/man-pages/man7/ip.7.html
+- `ipv6(7)`: https://man7.org/linux/man-pages/man7/ipv6.7.html
+- `unix(7)`: https://man7.org/linux/man-pages/man7/unix.7.html
+- `tcp(7)`: https://man7.org/linux/man-pages/man7/tcp.7.html
+- `udp(7)`: https://man7.org/linux/man-pages/man7/udp.7.html
+- RFC 9293 — TCP: https://www.rfc-editor.org/rfc/rfc9293.html
+- RFC 768 — UDP: https://www.rfc-editor.org/rfc/rfc768.html
+- `getaddrinfo(3)`: https://man7.org/linux/man-pages/man3/getaddrinfo.3.html
 
 ---
 
-### 24.2 TCP server model
-
-```text
-socket
-   |
-bind
-   |
-listen
-   |
-   +--------------------------+
-   |                          |
-accept                       accept
-   |                          |
-   v                          v
-connected fd A           connected fd B
-   |                          |
- client A                   client B
-```
-
-Listening fd remains separate.
-
----
-
-### 24.3 TCP client model
-
-```text
-hostname/service
-      |
-getaddrinfo
-      |
-      v
-candidate address
-      |
-socket
-      |
-connect
-      |
-      v
-ESTABLISHED TCP socket
-      |
-send/recv byte stream
-      |
-shutdown/close
-```
-
----
-
-### 24.4 TCP stream model
-
-```text
-Application messages:
-
-[M1][M2][M3]
-
-        |
-      framing
-        |
-        v
-
-TCP byte stream:
-
-A B C D E F G H I ...
-
-        |
-        v
-
-Receiver must reconstruct:
-
-[M1][M2][M3]
-```
-
-TCP does not preserve send boundaries.
-
----
-
-### 24.5 UDP model
-
-```text
-Sender
-
-[D1]
-[D2]
-[D3]
-
-  |
- UDP/IP
-  |
-  v
-
-Receiver may observe:
-
-[D1]
-[D3]
-[D2]
-
-or some datagrams may be absent/duplicated
-depending path/conditions
-```
-
-Datagram boundaries remain distinct for datagrams that are delivered.
-
----
-
-### 24.6 Address model
-
-```text
-Transport Endpoint
-       |
-       +--> address family
-       |
-       +--> IP/local address
-       |
-       +--> transport port / local socket name
-```
-
-For IPv4 TCP/UDP:
-
-```text
-sockaddr_in
-  |
-  +--> AF_INET
-  +--> IPv4 address
-  +--> port in network byte order
-```
-
----
-
-### 24.7 TCP connection identity
-
-```text
-TCP connection
-   =
-(local IP, local port,
- remote IP, remote port)
-```
-
-within TCP protocol context.
-
-Therefore one listening service port can support many simultaneous peer connections.
-
----
-
-### 24.8 Graceful close model
-
-```text
-A                              B
-
-data ------------------------->
-
-shutdown write / FIN --------->
-
-    <---------------- remaining data
-
-    <---------------------- FIN
-
-ACK -------------------------->
-```
-
-TCP directions close independently.
-
----
-
-### 24.9 Error-layer model
-
-```text
-Application protocol
-        |
-Socket API/state
-        |
-TCP / UDP
-        |
-IP routing
-        |
-network interface
-        |
-physical/link network
-```
-
-A failure should be classified at the correct layer.
-
----
-
-### 24.10 Các nguyên tắc cốt lõi
-
-1. A socket is a communication endpoint represented to the process by a file descriptor.
-
-2. Socket API is a generic communication abstraction, not a TCP-only API.
-
-3. Socket semantics are determined by domain, type and protocol together.
-
-4. `AF_INET` represents IPv4 Internet sockets.
-
-5. `AF_INET6` represents IPv6 Internet sockets.
-
-6. `AF_UNIX` represents local Unix-domain sockets.
-
-7. `SOCK_STREAM` is connection-based byte-stream semantics.
-
-8. `SOCK_DGRAM` is datagram/message semantics.
-
-9. Internet `AF_INET/AF_INET6 + SOCK_STREAM` normally maps to TCP.
-
-10. Internet `AF_INET/AF_INET6 + SOCK_DGRAM` normally maps to UDP.
-
-11. Socket fd participates in the same descriptor table as other Linux file descriptors.
-
-12. Socket is not a regular file and has protocol-specific state instead of normal file-offset semantics.
-
-13. Duplicated/inherited descriptors can refer to the same underlying socket state.
-
-14. Closing one fd reference does not necessarily destroy the socket while other references remain.
-
-15. Socket addresses are protocol-family-specific.
-
-16. `sockaddr` is the generic socket-address interface type.
-
-17. `sockaddr_in` represents IPv4 socket address.
-
-18. `sockaddr_in6` represents IPv6 socket address.
-
-19. `sockaddr_storage` provides generic sufficiently large/aligned address storage.
-
-20. Socket APIs carry explicit address length using `socklen_t`.
-
-21. Internet network byte order is big-endian.
-
-22. `htons/htonl` convert host integers to network representation.
-
-23. `ntohs/ntohl` convert network integer representation to host order.
-
-24. Port numbers in IPv4/IPv6 socket structures are represented in network byte order.
-
-25. `inet_pton()` converts textual numeric IPv4/IPv6 address to binary address form.
-
-26. `inet_ntop()` converts binary address form to presentation text.
-
-27. `getaddrinfo()` is the preferred generic hostname/service-to-address abstraction for IPv4/IPv6-capable code.
-
-28. Name resolution success does not imply network reachability or service availability.
-
-29. IP address and transport port are distinct address components.
-
-30. TCP and UDP port namespaces are distinct transport-protocol contexts.
-
-31. Port is not a process ID and does not permanently belong to one process.
-
-32. IANA divides transport registry ports into System, User/Registered and Dynamic/Private ranges.
-
-33. OS ephemeral source-port allocation range is implementation/configuration-specific and need not exactly match IANA's Dynamic/Private registry range.
-
-34. `bind()` assigns a local address/name to a socket.
-
-35. Internet server typically binds to a stable local service endpoint.
-
-36. Internet client often lets kernel select local address and ephemeral port.
-
-37. Binding port zero can request automatic ephemeral local port assignment.
-
-38. Wildcard bind address means local-any-address binding semantics, not a normal remote host address.
-
-39. TCP provides reliable ordered full-duplex byte-stream transport.
-
-40. TCP does not preserve application message boundaries.
-
-41. TCP send-call boundaries do not correspond one-to-one to receive-call boundaries.
-
-42. TCP packet/segment boundaries do not correspond one-to-one to application send calls.
-
-43. Application using TCP must define framing if it has logical messages.
-
-44. TCP reliability does not prove remote application processed or persisted data.
-
-45. UDP preserves datagram boundaries.
-
-46. UDP does not guarantee delivery, order or duplicate suppression.
-
-47. UDP has no TCP-style connection-establishment handshake.
-
-48. UDP applications must account for congestion and message-size/path-MTU behavior.
-
-49. `socket()` creates endpoint; it does not make a TCP server by itself.
-
-50. TCP server lifecycle is `socket → bind → listen → accept`.
-
-51. `listen()` changes a connection-mode socket into passive/listening role.
-
-52. Listening socket is distinct from connected sockets returned by `accept()`.
-
-53. `accept()` creates/returns a new connected socket while original listener remains available for more connections.
-
-54. Backlog is a pending-connection queue parameter, not total server client limit.
-
-55. Linux TCP backlog semantics distinguish completed accept queue from incomplete SYN queue.
-
-56. TCP client lifecycle is typically `resolve → socket → connect`.
-
-57. `connect()` on TCP initiates transport connection establishment.
-
-58. TCP connection establishment uses a three-way handshake.
-
-59. TCP has a state machine beyond simple connected/not-connected Boolean state.
-
-60. Important TCP states include LISTEN, SYN-SENT, SYN-RECEIVED, ESTABLISHED, FIN-WAIT, CLOSE-WAIT, LAST-ACK and TIME-WAIT.
-
-61. `send()` on stream may make partial progress.
-
-62. `recv()` on stream may return fewer bytes than requested without error.
-
-63. `recv() == 0` on stream indicates orderly peer send-side shutdown after prior data is consumed.
-
-64. A zero-length UDP datagram is valid, so zero receive length has different interpretation for datagram sockets.
-
-65. Successful `send()` does not mean remote application already received/processed data.
-
-66. TCP has finite send/receive buffers and therefore backpressure.
-
-67. Blocking socket calls sleep rather than necessarily busy-wait.
-
-68. `shutdown()` controls communication directions; `close()` releases descriptor reference.
-
-69. `SHUT_WR` can perform send-side half-close while receive side remains available.
-
-70. TCP directions can close independently.
-
-71. FIN means no more bytes in that direction, not instant destruction of all connection state.
-
-72. TIME_WAIT is a normal TCP protocol state, not automatically a resource leak.
-
-73. Persistent CLOSE_WAIT often indicates local application has not completed close after peer FIN.
-
-74. TCP can terminate normally with FIN handshake or abortively via reset.
-
-75. Sending on broken stream can produce EPIPE and SIGPIPE.
-
-76. `MSG_NOSIGNAL` can suppress per-call SIGPIPE while still exposing EPIPE.
-
-77. UDP server does not use `listen()` or `accept()`.
-
-78. Unconnected UDP uses destination-per-datagram semantics such as `sendto()` and source-return semantics such as `recvfrom()`.
-
-79. UDP `connect()` configures a peer/default destination; it does not create a TCP-style reliable connection.
-
-80. Connected UDP can use `send()`/`recv()` but remains UDP.
-
-81. `sendmsg()`/`recvmsg()` support richer address/iovec/ancillary-data semantics.
-
-82. Socket options change endpoint/protocol behavior and must be interpreted by option level/protocol.
-
-83. `SO_REUSEADDR` does not simply mean arbitrary duplicate bind is allowed.
-
-84. `SO_KEEPALIVE` is transport keepalive, not equivalent to application heartbeat.
-
-85. `SO_SNDBUF`/`SO_RCVBUF` relate to socket buffering and resource/backpressure behavior.
-
-86. Unix-domain sockets use the same socket API but a different address family/local protocol path.
-
-87. AF_UNIX stream sockets also do not preserve message boundaries.
-
-88. AF_UNIX supports local-only capabilities such as file-descriptor/credential passing on Linux.
-
-89. Default socket behavior is blocking unless nonblocking state is enabled.
-
-90. Nonblocking sockets turn waits into readiness/error states such as EAGAIN/EWOULDBLOCK/EINPROGRESS.
-
-91. `O_NONBLOCK` is an open-file-description property and belongs to Topic 10 in detail.
-
-92. Socket debugging should separate descriptor, address, transport, IP/routing and application-protocol layers.
-
-93. `ECONNREFUSED` and timeout represent different failure classes.
-
-94. `ECONNRESET` is not the same as orderly TCP EOF.
-
-95. UDP send success cannot be treated as delivery acknowledgment.
-
-96. Message framing errors on TCP often indicate application-protocol bug rather than TCP corruption.
-
-97. Host/network byte-order confusion can create wrong ports/protocol fields.
-
-98. Embedded systems must serialize protocol fields explicitly rather than transmitting raw ABI-dependent C structures.
-
-99. Thread/process/network service architecture must bound socket descriptors, buffers and concurrent connections.
-
-100. Topic 9's core mental model is:
-
-```text
-Socket
-  =
-communication endpoint
-  +
-address
-  +
-protocol/type state
-  +
-file-descriptor reference
-```
-
-and:
-
-```text
-TCP:
-connection + ordered reliable byte stream
-
-UDP:
-independent datagrams + application-managed reliability/session policy
-```
-
----
-
-## 25. Tài liệu tham khảo
-
-Nguồn được ưu tiên theo thứ tự:
-
-```text
-POSIX.1-2024 / The Open Group
-        ↓
-IETF Internet Standards / RFC Editor
-        ↓
-Linux man-pages
-        ↓
-IANA registries
-        ↓
-recognized Linux/Embedded Linux training material
-        ↓
-reputable community discussion for edge cases
-```
-
-Community sources chỉ dùng để:
-
-```text
-nhận diện common bug
-tìm symptom/debug terminology
-đối chiếu real-world edge case
-```
-
-Exact socket/TCP/UDP semantics phải quay lại POSIX, RFC và Linux man-pages.
-
----
-
-### 25.1 Roadmap Scope
-
-Roadmap Topic “Socket Programming” yêu cầu các nội dung:
-
-```text
-socket/bind/listen/accept/connect
-TCP vs UDP
-byte order / sockaddr
-Unix domain socket
-graceful shutdown / error handling
-```
-
-README này giữ đúng trục trên, đồng thời thêm các concept bắt buộc để giải thích chúng chính xác:
-
-```text
-port/endpoint
-getaddrinfo
-TCP state machine
-stream framing
-partial I/O
-UDP connected semantics
-socket lifecycle
-```
-
----
-
-### 25.2 POSIX.1-2024 — Socket API
-
-#### `<sys/socket.h>`
-
-- https://pubs.opengroup.org/onlinepubs/9799919799.2024edition/basedefs/sys_socket.h.html
-
-Nguồn chuẩn cho:
-
-```text
-sockaddr
-sockaddr_storage
-socklen_t
-AF_INET
-AF_INET6
-AF_UNIX
-SOCK_STREAM
-SOCK_DGRAM
-MSG_* flags
-SHUT_RD/WR/RDWR
-socket API declarations
-```
-
----
-
-#### POSIX Socket General Information
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/functions/V2_chap02.html
-
-Nguồn cho:
-
-```text
-socket I/O mode
-O_NONBLOCK
-socket options
-connect nonblocking semantics
-send/recv I/O behavior
-```
-
----
-
-### 25.3 Linux Socket Core
-
-#### `socket(2)`
-
-- https://man7.org/linux/man-pages/man2/socket.2.html
-
-Nguồn Linux chính cho:
-
-```text
-socket endpoint creation
-domain/type/protocol
-AF_INET/AF_INET6/AF_UNIX
-SOCK_STREAM/SOCK_DGRAM
-socket as file descriptor
-stream full-duplex byte semantics
-send/recv/write/read relationships
-```
-
----
-
-#### `socket(7)`
-
-- https://man7.org/linux/man-pages/man7/socket.7.html
-
-Nguồn tổng quan cho:
-
-```text
-Linux socket layer
-socket options
-socket error state
-buffering
-signals
-protocol integration
-```
-
----
-
-### 25.4 Address Binding
-
-#### `bind(2)`
-
-- https://man7.org/linux/man-pages/man2/bind.2.html
-
-Nguồn cho:
-
-```text
-socket initially unassigned address
-bind assigns local name/address
-sockaddr family-specific address
-EADDRINUSE
-EADDRNOTAVAIL
-```
-
----
-
-#### `ip(7)`
-
-- https://man7.org/linux/man-pages/man7/ip.7.html
-
-Nguồn Linux cho IPv4 Internet socket addressing:
-
-```text
-sockaddr_in
-IP address + 16-bit port
-network byte order
-INADDR_ANY
-INADDR_LOOPBACK
-privileged port context
-ephemeral allocation context
-```
-
----
-
-#### `ipv6(7)`
-
-- https://man7.org/linux/man-pages/man7/ipv6.7.html
-
-Nguồn cho IPv6 Internet socket behavior and:
-
-```text
-sockaddr_in6
-IPv6-specific address fields
-scope/interface context
-```
-
----
-
-### 25.5 Generic Socket Address Types
-
-#### `sockaddr(3type)`
-
-- https://man7.org/linux/man-pages/man3/sockaddr.3type.html
-
-Nguồn cho:
-
-```text
-struct sockaddr
-struct sockaddr_storage
-socklen_t
-sa_family_t
-generic address storage
-```
-
----
-
-### 25.6 Network Byte Order
-
-#### `byteorder(3)`
-
-- https://man7.org/linux/man-pages/man3/byteorder.3.html
-
-Nguồn cho:
-
-```text
-htonl()
-htons()
-ntohl()
-ntohs()
-host order
-network order
-```
-
----
-
-#### `inet_pton(3)`
-
-- https://man7.org/linux/man-pages/man3/inet_pton.3.html
-
-Nguồn cho:
-
-```text
-IPv4/IPv6 presentation text
--> binary network address
-```
-
----
-
-#### POSIX `inet_ntop()` / `inet_pton()`
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/
-
-Nguồn portable cho textual/binary Internet address conversion.
-
----
-
-### 25.7 Name and Service Resolution
-
-#### `getaddrinfo(3)`
-
-- https://man7.org/linux/man-pages/man3/getaddrinfo.3.html
-
-Nguồn chính cho:
-
-```text
-hostname/service translation
-struct addrinfo
-AF_UNSPEC
-IPv4/IPv6-independent addressing
-AI_PASSIVE
-addresses for bind/connect
-```
-
----
-
-#### `getnameinfo(3)`
-
-- https://man7.org/linux/man-pages/man3/getnameinfo.3.html
-
-Nguồn cho generic socket-address-to-host/service representation.
-
----
-
-### 25.8 Listening and Accepting
-
-#### `listen(2)`
-
-- https://man7.org/linux/man-pages/man2/listen.2.html
-
-Nguồn cho:
-
-```text
-passive/listening socket
-backlog
-socket/bind/listen/accept lifecycle
-Linux completed accept queue
-Linux SYN backlog distinction
-somaxconn cap
-```
-
----
-
-#### POSIX `listen()`
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/
-
-Nguồn portable cho:
-
-```text
-connection-mode listening
-backlog as implementation queue hint/limit
-implementation-specific queue details
-```
-
----
-
-#### `accept(2)`
-
-- https://man7.org/linux/man-pages/man2/accept.2.html
-
-Nguồn cho:
-
-```text
-accept pending connection
-create new connected socket
-return new fd
-listener remains unaffected
-peer address return
-blocking behavior
-```
-
----
-
-### 25.9 Connecting
-
-#### `connect(2)`
-
-- https://man7.org/linux/man-pages/man2/connect.2.html
-
-Nguồn cho:
-
-```text
-stream connection initiation
-datagram peer association
-UDP default destination
-UDP peer receive association
-Internet socket implicit ephemeral local assignment
-connect errors
-```
-
----
-
-### 25.10 Sending and Receiving
-
-#### `send(2)`
-
-- https://man7.org/linux/man-pages/man2/send.2.html
-
-Nguồn cho:
-
-```text
-send/sendto/sendmsg
-connected socket send
-destination addressing
-partial/error semantics
-send buffering
-EPIPE/SIGPIPE
-MSG_NOSIGNAL
-ancillary-data capability
-```
-
----
-
-#### `recv(2)`
-
-- https://man7.org/linux/man-pages/man2/recv.2.html
-
-Nguồn cho:
-
-```text
-recv/recvfrom/recvmsg
-blocking receive
-partial receive
-stream orderly EOF -> return 0
-zero-length datagram nuance
-source address
-message metadata
-```
-
----
-
-### 25.11 Shutdown
-
-#### `shutdown(2)`
-
-- https://man7.org/linux/man-pages/man2/shutdown.2.html
-
-Nguồn cho:
-
-```text
-full-duplex connection partial shutdown
-SHUT_RD
-SHUT_WR
-SHUT_RDWR
-```
-
----
-
-### 25.12 TCP — Internet Standard
-
-#### RFC 9293 — Transmission Control Protocol (TCP)
-
-- https://www.rfc-editor.org/rfc/rfc9293.html
-- https://www.rfc-editor.org/info/rfc9293/
-
-Đây là current consolidated TCP Internet Standard replacing RFC 793 TCP specification portions.
-
-Nguồn chính cho:
-
-```text
-TCP connection state machine
-three-way handshake
-sequence-number model
-ESTABLISHED
-FIN close sequence
-half-closed connections
-TIME-WAIT
-RST/abort
-segmentation
-```
-
-RFC 9293 explicitly notes:
-
-```text
-individual TCP segments
-do not normally correspond one-for-one
-to application send/socket-write calls
-```
-
----
-
-#### Linux `tcp(7)`
-
-- https://man7.org/linux/man-pages/man7/tcp.7.html
-
-Nguồn Linux cho:
-
-```text
-reliable stream-oriented full-duplex TCP sockets
-Linux TCP socket options
-error behavior
-TCP implementation context
-```
-
----
-
-### 25.13 UDP — Standards and Best Current Practice
-
-#### RFC 768 — User Datagram Protocol
-
-- https://www.rfc-editor.org/rfc/rfc768.html
-
-Nguồn protocol foundation cho:
-
-```text
-datagram model
-source/destination ports
-length
-checksum
-delivery/duplicate guarantees not provided
-```
-
----
-
-#### RFC 8085 — UDP Usage Guidelines
-
-- https://www.rfc-editor.org/rfc/rfc8085.html
-- https://www.rfc-editor.org/info/rfc8085/
-
-IETF Best Current Practice cho UDP application/protocol design:
-
-```text
-UDP is minimal best-effort message transport
-congestion-control responsibility
-message sizing
-retransmission/timer guidance
-port/address considerations
-security considerations
-```
-
----
-
-#### Linux `udp(7)`
-
-- https://man7.org/linux/man-pages/man7/udp.7.html
-
-Nguồn Linux cho:
-
-```text
-connectionless unreliable datagram service
-reordering/duplication possibility
-connected UDP behavior
-path MTU discovery
-EMSGSIZE
-asynchronous errors
-```
-
----
-
-### 25.14 Ports and Service Names
-
-#### RFC 6335
-
-- https://www.rfc-editor.org/rfc/rfc6335.html
-- https://www.rfc-editor.org/info/rfc6335/
-
-Nguồn cho:
-
-```text
-transport port namespace
-System Ports 0–1023
-User Ports 1024–49151
-Dynamic/Private Ports 49152–65535
-service-name/port registry management
-```
-
----
-
-#### IANA Service Name and Transport Protocol Port Number Registry
-
-- https://www.iana.org/assignments/service-names-port-numbers/
-
-Authoritative current registry for service names and transport protocol port numbers.
-
-Important distinction:
-
-```text
-IANA Dynamic/Private port classification
-!=
-necessarily Linux configured ephemeral source-port allocator range
-```
-
----
-
-### 25.15 Unix Domain Socket
-
-#### `unix(7)`
-
-- https://man7.org/linux/man-pages/man7/unix.7.html
-
-Topic 8 is the main deep treatment.
-
-Topic 9 uses this source only to connect:
-
-```text
-AF_UNIX
-SOCK_STREAM/SOCK_DGRAM/SOCK_SEQPACKET
-bind/listen/accept/connect
-descriptor/credential passing
-```
-
-to unified socket API.
-
----
-
-### 25.16 POSIX Socket Function Index
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/idx/functions.html
-
-Useful authority index for current POSIX interfaces:
-
-```text
-socket
-bind
-listen
-accept
-connect
-send
-recv
-shutdown
-getaddrinfo
-inet_pton
-inet_ntop
-```
-
----
-
-### 25.17 Linux man-pages Project
-
-- https://www.kernel.org/doc/man-pages/
-- https://man7.org/linux/man-pages/
-
-Linux man-pages is the authoritative userspace/kernel interface documentation project for Linux APIs covered by this chapter.
-
----
-
-### 25.18 The Linux Programming Interface / man7.org
-
-- https://man7.org/tlpi/
-- https://man7.org/training/
-
-Michael Kerrisk's material is a reputable explanatory source for:
-
-```text
-socket API
-TCP/UDP servers and clients
-address conversion
-I/O semantics
-process/network programming
-```
-
-Exact semantics still defer to POSIX, RFCs and current Linux man-pages.
-
----
-
-### 25.19 Bootlin Embedded Linux Material
-
-- https://bootlin.com/training/embedded-linux/
-- https://bootlin.com/doc/training/embedded-linux/
-- https://bootlin.com/docs/
-
-Useful for placing socket programming in Embedded Linux system-development context:
-
-```text
-target networking
-userspace services
-client/server applications
-system integration
-```
-
-Protocol/API truth remains sourced from POSIX/IETF/Linux man-pages.
-
----
-
-### 25.20 Reputable Community Sources
-
-#### Unix & Linux Stack Exchange
-
-- https://unix.stackexchange.com/
-
-Useful for identifying real-world edge cases:
-
-```text
-TIME_WAIT vs CLOSE_WAIT
-bind/reuse behavior
-SIGPIPE
-socket fd inheritance
-Unix vs Internet sockets
-```
-
----
-
-#### Stack Overflow
-
-- https://stackoverflow.com/
-
-Useful for recognizing common mistakes:
-
-```text
-assuming send == recv boundary
-wrong byte order
-incorrect addrlen
-TCP partial I/O bugs
-UDP connect misunderstanding
-stale socket lifecycle
-```
-
-Community conclusions must be verified against upstream sources.
-
----
-
-### 25.21 Nguyên tắc kiểm chứng khi đọc tài liệu Socket
-
-Khi hai nguồn có vẻ mâu thuẫn, cần hỏi:
-
-```text
-1. POSIX guarantee hay Linux-specific behavior?
-2. AF_INET, AF_INET6 hay AF_UNIX?
-3. SOCK_STREAM hay SOCK_DGRAM?
-4. TCP hay UDP?
-5. Listening socket hay connected socket?
-6. Local endpoint hay remote endpoint?
-7. Address structure đang ở host order hay network order?
-8. Numeric address hay hostname-resolution result?
-9. Blocking hay nonblocking socket?
-10. File descriptor hay underlying socket/open-file state?
-11. TCP transport state hay application protocol state?
-12. Orderly FIN/EOF hay RST/reset?
-13. Partial I/O hay true message truncation?
-14. TCP stream framing hay UDP datagram boundary?
-15. Connected UDP hay TCP connection?
-16. IANA registry range hay OS ephemeral-port allocator range?
-17. Kernel/network namespace nào?
-18. Linux kernel/glibc version nào?
-```
-
-Socket programming nằm trên nhiều abstraction layers:
-
-```text
-application protocol
-socket API
-file-descriptor model
-transport protocol
-IP addressing/routing
-network namespace
-device/interface
-physical network
-```
-
-Các layer liên hệ chặt chẽ nhưng không đồng nhất.
-
----
-
-> **Điều hướng:** [← Chủ đề 8 — IPC](README-topic-08.md) · [Chủ đề 10 — Non-blocking I/O & Multiplexing →](README-topic-10.md)
+> **Điều hướng:** [← Chủ đề 8 — IPC](README-topic-08.md) · [Chủ đề 10 →](README-topic-10.md)

@@ -1,48 +1,14 @@
 # Chủ đề 8 — Interprocess Communication (IPC) trong Linux
 
-> **Phạm vi:** Linux/POSIX Interprocess Communication fundamentals — IPC model, unnamed pipe, FIFO (named pipe), POSIX message queue, shared memory và Unix domain socket.
+> **Phạm vi:** Linux/POSIX IPC fundamentals: unnamed pipe, FIFO, POSIX message queue, POSIX shared memory, shared-memory synchronization, blocking/backpressure và trade-off giữa các cơ chế.
 >
-> Chương này chỉ trình bày **lý thuyết**. Không có lab, bài tập, chương trình mẫu hoàn chỉnh, hướng dẫn biên dịch hoặc thao tác thực hành.
+> Chương này chỉ trình bày **lý thuyết**. Không có lab, bài tập, chương trình mẫu hoàn chỉnh hoặc hướng dẫn thao tác thực hành.
 >
-> Mục tiêu của chương là xây mental model:
+> **Giới hạn chủ đề:** Không đi sâu vào System V IPC internals, Unix-domain sockets, descriptor passing hoặc container namespaces; Unix-domain socket được học cùng Socket Programming ở Topic 9.
 >
-> `process isolation → need to exchange data/control → IPC object/channel → communication semantics → lifecycle + blocking + synchronization`
+> **Nguyên tắc bố cục:** `##` chỉ dành cho các khối kiến thức lớn; `###/####` dùng cho concept chi tiết. Các phần trùng hoặc thuộc topic khác đã được loại khỏi chapter này.
 >
-> và phân biệt chính xác:
->
-> `pipe/FIFO = byte stream`
->
-> `message queue = discrete messages`
->
-> `shared memory = common mapped memory, synchronization required`
->
-> `Unix domain socket = local socket communication with stream/message options`
->
-> Đồng thời phải hiểu rằng một IPC mechanism không chỉ khác nhau ở API. Chúng khác nhau ở:
->
-> `naming`
->
-> `message boundaries`
->
-> `directionality`
->
-> `copy/shared-memory model`
->
-> `blocking and backpressure`
->
-> `kernel persistence`
->
-> `object lifetime`
->
-> `security/permissions`
->
-> `synchronization responsibility`
->
-> **Giới hạn chủ đề:** chương này không đi sâu vào networking qua TCP/IP, advanced socket event loops (`select/poll/epoll`), `io_uring`, distributed IPC, D-Bus, RPC framework, netlink, shared-memory lock-free queue, zero-copy framework hoặc kernel IPC internals. System V IPC chỉ được dùng để đối chiếu với POSIX message queue/shared memory khi cần.
->
-> **Cấu trúc tài liệu:** các mục `##` là các khối kiến thức lớn; phần chi tiết nằm ở `###/####` để giữ mục lục gọn và thống nhất với Topic 01–07.
->
-> **Điều hướng:** [← Chủ đề 7 — Thread Synchronization](README-topic-07.md) · [Chủ đề 9 →](README-topic-09.md)
+> **Điều hướng:** [← Chủ đề 7 — Thread Synchronization](README-topic-07.md) · [Chủ đề 9 — Socket Programming →](README-topic-09.md)
 
 ---
 
@@ -51,21 +17,16 @@
 - [1. IPC Fundamentals](#1-ipc-fundamentals)
 - [2. Các chiều thiết kế của một IPC Mechanism](#2-các-chiều-thiết-kế-của-một-ipc-mechanism)
 - [3. Unnamed Pipe](#3-unnamed-pipe)
-- [4. FIFO — Named Pipe](#4-fifo--named-pipe)
+- [4. FIFO — Named Pipe](#4-fifo-named-pipe)
 - [5. POSIX Message Queue](#5-posix-message-queue)
-- [6. POSIX và System V Message Queue](#6-posix-và-system-v-message-queue)
-- [7. Shared Memory Fundamentals](#7-shared-memory-fundamentals)
-- [8. Synchronization trong Shared Memory](#8-synchronization-trong-shared-memory)
-- [9. POSIX và System V Shared Memory](#9-posix-và-system-v-shared-memory)
-- [10. Unix Domain Socket Fundamentals](#10-unix-domain-socket-fundamentals)
-- [11. Unix Socket Naming và Lifetime](#11-unix-socket-naming-và-lifetime)
-- [12. `socketpair()`, Full-duplex IPC và Ancillary Data](#12-socketpair-full-duplex-ipc-và-ancillary-data)
-- [13. IPC Blocking, Backpressure và Flow Control](#13-ipc-blocking-backpressure-và-flow-control)
-- [14. So sánh và lựa chọn IPC Mechanism](#14-so-sánh-và-lựa-chọn-ipc-mechanism)
-- [15. Error Model và Tư duy Debug IPC](#15-error-model-và-tư-duy-debug-ipc)
-- [16. Liên hệ với Embedded Linux](#16-liên-hệ-với-embedded-linux)
-- [17. Tổng kết và Mental Model](#17-tổng-kết-và-mental-model)
-- [18. Tài liệu tham khảo](#18-tài-liệu-tham-khảo)
+- [6. Shared Memory Fundamentals](#6-shared-memory-fundamentals)
+- [7. Synchronization trong Shared Memory](#7-synchronization-trong-shared-memory)
+- [8. IPC Blocking, Backpressure và Flow Control](#8-ipc-blocking-backpressure-và-flow-control)
+- [9. So sánh và lựa chọn IPC Mechanism](#9-so-sánh-và-lựa-chọn-ipc-mechanism)
+- [10. Error Model và Tư duy Debug IPC](#10-error-model-và-tư-duy-debug-ipc)
+- [11. Liên hệ với Embedded Linux](#11-liên-hệ-với-embedded-linux)
+- [12. Tổng kết và Mental Model](#12-tổng-kết-và-mental-model)
+- [13. Tài liệu tham khảo](#13-tài-liệu-tham-khảo)
 
 ---
 
@@ -165,12 +126,7 @@ independent long-running services
 client ↔ local server
 ```
 
-Một số IPC objects tự nhiên phù hợp với related processes:
-
-```text
-unnamed pipe
-socketpair
-```
+Một unnamed pipe tự nhiên phù hợp với related processes vì các endpoint thường được truyền qua descriptor inheritance.
 
 Một số có names để unrelated processes rendezvous:
 
@@ -287,14 +243,7 @@ Application defines structure.
 
 ### 2.2 Named vs unnamed
 
-Unnamed:
-
-```text
-pipe
-socketpair
-```
-
-usually requires processes to obtain endpoints through inheritance or descriptor transfer.
+Unnamed pipe thường yêu cầu các process nhận endpoint thông qua descriptor inheritance hoặc một setup có sẵn.
 
 Named:
 
@@ -592,9 +541,9 @@ and cannot be treated as seekable storage.
 
 ---
 
-### 3.1 Pipe I/O Semantics
+### 3.6 Pipe I/O Semantics
 
-#### 3.1.1 Pipe is a byte stream
+#### 3.6.1 Pipe is a byte stream
 
 Linux `pipe(7)` explicitly states:
 
@@ -629,7 +578,7 @@ Application must define framing if it needs logical messages.
 
 ---
 
-#### 3.1.2 FIFO order means byte order, not application records
+#### 3.6.2 FIFO order means byte order, not application records
 
 Bytes are consumed in order.
 
@@ -656,7 +605,7 @@ as permanent message metadata.
 
 ---
 
-#### 3.1.3 `read()` on pipe
+#### 3.6.3 `read()` on pipe
 
 Concept:
 
@@ -677,7 +626,7 @@ Blocking/nonblocking state changes exact result.
 
 ---
 
-#### 3.1.4 Empty pipe is not always EOF
+#### 3.6.4 Empty pipe is not always EOF
 
 Important distinction:
 
@@ -713,7 +662,7 @@ EOF is a **lifetime condition**, not merely buffer emptiness.
 
 ---
 
-#### 3.1.5 `lseek()` does not apply
+#### 3.6.5 `lseek()` does not apply
 
 Pipe represents a flowing stream, not a random-access byte-addressable regular file.
 
@@ -727,7 +676,7 @@ is not meaningful and fails.
 
 ---
 
-#### 3.1.6 Pipe is not a message protocol
+#### 3.6.6 Pipe is not a message protocol
 
 If application sends structured objects:
 
@@ -751,9 +700,9 @@ The pipe only provides ordered bytes.
 
 ---
 
-### 3.2 Pipe Lifetime, EOF và `SIGPIPE`
+### 3.7 Pipe Lifetime, EOF và `SIGPIPE`
 
-#### 3.2.1 Pipe lifetime depends on open references
+#### 3.7.1 Pipe lifetime depends on open references
 
 Kernel tracks references to both ends.
 
@@ -773,7 +722,7 @@ W > 0
 
 ---
 
-#### 3.2.2 EOF condition
+#### 3.7.2 EOF condition
 
 If:
 
@@ -792,7 +741,7 @@ This is why leaked write descriptors can cause a reader to wait unexpectedly.
 
 ---
 
-#### 3.2.3 Broken pipe condition
+#### 3.7.3 Broken pipe condition
 
 If:
 
@@ -818,7 +767,7 @@ This connects Topic 3 and Topic 5.
 
 ---
 
-#### 3.2.4 Closing one descriptor is not enough if duplicates exist
+#### 3.7.4 Closing one descriptor is not enough if duplicates exist
 
 Because:
 
@@ -843,7 +792,7 @@ EOF only occurs after **all** write-end references disappear.
 
 ---
 
-#### 3.2.5 Pipe lifecycle state machine
+#### 3.7.5 Pipe lifecycle state machine
 
 ```mermaid
 stateDiagram-v2
@@ -867,9 +816,9 @@ This is a simplified lifecycle model; kernel reference details are more complex.
 
 ---
 
-### 3.3 Pipe Capacity, Backpressure và Atomic Write
+### 3.8 Pipe Capacity, Backpressure và Atomic Write
 
-#### 3.3.1 Pipe has finite capacity
+#### 3.8.1 Pipe has finite capacity
 
 A pipe is not infinite storage.
 
@@ -901,7 +850,7 @@ return readiness/error result
 
 ---
 
-#### 3.3.2 Capacity is implementation-specific
+#### 3.8.2 Capacity is implementation-specific
 
 Linux pipe capacity has changed across kernel versions and can be affected by resource limits/configuration.
 
@@ -915,7 +864,7 @@ as a protocol assumption.
 
 ---
 
-#### 3.3.3 `PIPE_BUF` is not pipe capacity
+#### 3.8.3 `PIPE_BUF` is not pipe capacity
 
 Very important:
 
@@ -935,7 +884,7 @@ These are different concepts.
 
 ---
 
-#### 3.3.4 Atomic writes up to `PIPE_BUF`
+#### 3.8.4 Atomic writes up to `PIPE_BUF`
 
 POSIX requires writes up to the relevant `PIPE_BUF` limit to be atomic with respect to interleaving from other pipe writers.
 
@@ -955,7 +904,7 @@ not arbitrary byte interleaving inside those individual writes.
 
 ---
 
-#### 3.3.5 Writes larger than `PIPE_BUF`
+#### 3.8.5 Writes larger than `PIPE_BUF`
 
 A larger write can be interleaved with data from another writer.
 
@@ -972,7 +921,7 @@ Therefore `PIPE_BUF` can be important for multi-writer record framing.
 
 ---
 
-#### 3.3.6 Linux value vs POSIX requirement
+#### 3.8.6 Linux value vs POSIX requirement
 
 POSIX requires:
 
@@ -990,7 +939,7 @@ Application portability should rely on symbolic/system-defined value, not hard-c
 
 ---
 
-#### 3.3.7 Atomic write does not mean atomic application transaction
+#### 3.8.7 Atomic write does not mean atomic application transaction
 
 Even if one `write()` is atomic:
 
@@ -1011,7 +960,7 @@ another writer can potentially insert data between operations.
 
 ---
 
-#### 3.3.8 Backpressure is useful, not merely a limitation
+#### 3.8.8 Backpressure is useful, not merely a limitation
 
 Blocking when buffer fills can naturally constrain producer:
 
@@ -1138,9 +1087,9 @@ not seekable
 
 ---
 
-### 4.1 FIFO Open/Lifetime Semantics
+### 4.6 FIFO Open/Lifetime Semantics
 
-#### 4.1.1 Opening FIFO is itself synchronization
+#### 4.6.1 Opening FIFO is itself synchronization
 
 In blocking mode, opening one side normally waits for peer side.
 
@@ -1166,7 +1115,7 @@ Opening the FIFO can therefore participate in process coordination.
 
 ---
 
-#### 4.1.2 Blocking read-only open
+#### 4.6.2 Blocking read-only open
 
 POSIX semantics:
 
@@ -1179,7 +1128,7 @@ waits until a writer opens the FIFO.
 
 ---
 
-#### 4.1.3 Blocking write-only open
+#### 4.6.3 Blocking write-only open
 
 Likewise:
 
@@ -1192,7 +1141,7 @@ waits until a reader opens the FIFO.
 
 ---
 
-#### 4.1.4 Nonblocking open
+#### 4.6.4 Nonblocking open
 
 With nonblocking mode:
 
@@ -1212,7 +1161,7 @@ ENXIO
 
 ---
 
-#### 4.1.5 Linux read-write open is nonportable
+#### 4.6.5 Linux read-write open is nonportable
 
 Linux allows opening a FIFO:
 
@@ -1228,7 +1177,7 @@ Therefore portable IPC design should not rely on self-opening FIFO as both ends.
 
 ---
 
-#### 4.1.6 FIFO name lifetime vs data lifetime
+#### 4.6.6 FIFO name lifetime vs data lifetime
 
 The pathname can remain after processes close it:
 
@@ -1250,7 +1199,7 @@ buffered communication-data lifetime
 
 ---
 
-#### 4.1.7 Exactly one active pipe object per opened FIFO pathname on Linux
+#### 4.6.7 Exactly one active pipe object per opened FIFO pathname on Linux
 
 Linux `fifo(7)` explains kernel maintains one pipe object for a FIFO special file while it is opened by at least one process.
 
@@ -1347,9 +1296,9 @@ Thus it also implements backpressure.
 
 ---
 
-### 5.1 POSIX Message Queue
+### 5.6 POSIX Message Queue
 
-#### 5.1.1 POSIX message queue naming
+#### 5.6.1 POSIX message queue naming
 
 POSIX message queue is identified by a name.
 
@@ -1363,7 +1312,7 @@ Processes knowing same queue name can open same queue.
 
 ---
 
-#### 5.1.2 `mq_open()` returns `mqd_t`
+#### 5.6.2 `mq_open()` returns `mqd_t`
 
 Message queue descriptor:
 
@@ -1385,7 +1334,7 @@ Application should treat `mqd_t` as POSIX abstraction.
 
 ---
 
-#### 5.1.3 Linux implementation detail: `mqd_t` is fd-like
+#### 5.6.3 Linux implementation detail: `mqd_t` is fd-like
 
 On Linux, message queue descriptors are implemented as file descriptors and can integrate with Linux fd readiness mechanisms.
 
@@ -1403,7 +1352,7 @@ as a universal rule.
 
 ---
 
-#### 5.1.4 Open message queue description
+#### 5.6.4 Open message queue description
 
 Linux `mq_overview(7)` explains message queue descriptors refer to:
 
@@ -1428,7 +1377,7 @@ This resembles Topic 3 open-file-description thinking.
 
 ---
 
-#### 5.1.5 Queue attributes
+#### 5.6.5 Queue attributes
 
 Important attributes include concepts such as:
 
@@ -1450,7 +1399,7 @@ Exact limits are system/resource dependent.
 
 ---
 
-#### 5.1.6 Message priority
+#### 5.6.6 Message priority
 
 Each POSIX message has:
 
@@ -1474,7 +1423,7 @@ FIFO ordering applies among messages at same selected priority level.
 
 ---
 
-#### 5.1.7 Priority is queue selection metadata
+#### 5.6.7 Priority is queue selection metadata
 
 Application may model:
 
@@ -1490,9 +1439,9 @@ High-priority traffic can potentially delay lower-priority traffic if continuous
 
 ---
 
-### 5.2 Message Queue Blocking, Priority và Lifetime
+### 5.7 Message Queue Blocking, Priority và Lifetime
 
-#### 5.2.1 Empty queue receive
+#### 5.7.1 Empty queue receive
 
 Default blocking behavior:
 
@@ -1509,7 +1458,7 @@ unless interrupted or timeout/nonblocking rules apply.
 
 ---
 
-#### 5.2.2 Nonblocking receive
+#### 5.7.2 Nonblocking receive
 
 If:
 
@@ -1528,7 +1477,7 @@ No message is removed.
 
 ---
 
-#### 5.2.3 Full queue send
+#### 5.7.3 Full queue send
 
 If queue already contains maximum messages:
 
@@ -1552,7 +1501,7 @@ EAGAIN
 
 ---
 
-#### 5.2.4 Timed operations
+#### 5.7.4 Timed operations
 
 POSIX message queues provide timed send/receive variants.
 
@@ -1570,7 +1519,7 @@ This bounds blocking time.
 
 ---
 
-#### 5.2.5 Queue persistence
+#### 5.7.5 Queue persistence
 
 Linux POSIX message queues have kernel persistence.
 
@@ -1594,7 +1543,7 @@ This differs from unnamed pipe.
 
 ---
 
-#### 5.2.6 `mq_close()` vs `mq_unlink()`
+#### 5.7.6 `mq_close()` vs `mq_unlink()`
 
 Conceptual distinction:
 
@@ -1612,7 +1561,7 @@ Naming and open-reference lifetime are separate.
 
 ---
 
-#### 5.2.7 Message queue lifecycle state machine
+#### 5.7.7 Message queue lifecycle state machine
 
 ```mermaid
 stateDiagram-v2
@@ -1636,7 +1585,7 @@ This is a conceptual lifecycle; exact kernel reference management is implementat
 
 ---
 
-#### 5.2.8 Linux `/dev/mqueue` is implementation detail
+#### 5.7.8 Linux `/dev/mqueue` is implementation detail
 
 Linux can expose POSIX queues through:
 
@@ -1656,108 +1605,9 @@ It is not a portable POSIX requirement that every implementation represents queu
 
 ---
 
-## 6. POSIX và System V Message Queue
+## 6. Shared Memory Fundamentals
 
-### 6.1 System V IPC
-
-Linux supports older System V IPC mechanisms:
-
-```text
-message queues
-semaphores
-shared memory
-```
-
-System V message queue API includes concepts around:
-
-```text
-msgget()
-msgsnd()
-msgrcv()
-msgctl()
-```
-
----
-
-### 6.2 POSIX MQ and System V MQ solve similar problem
-
-Both provide:
-
-```text
-kernel-managed discrete messages
-```
-
-between processes.
-
-But APIs and naming/selection models differ.
-
----
-
-### 6.3 POSIX MQ
-
-Conceptually emphasizes:
-
-```text
-named queue
-mqd_t descriptor
-message priorities
-mq_* API
-```
-
----
-
-### 6.4 System V MQ
-
-Conceptually emphasizes:
-
-```text
-key / IPC identifier
-message type field
-System V IPC identifier namespace
-msg* APIs
-```
-
----
-
-### 6.5 Linux man-pages recommendation context
-
-`mq_overview(7)` describes POSIX message queues as a better-designed alternative API, while System V queues remain widely available, especially on older UNIX systems.
-
-For modern Linux learning:
-
-```text
-POSIX MQ
-```
-
-is usually the cleaner conceptual starting point.
-
----
-
-### 6.6 IPC namespaces
-
-Linux IPC namespaces isolate:
-
-```text
-System V IPC objects
-POSIX message queues
-```
-
-Processes in different IPC namespaces do not see the same such objects.
-
-This matters in:
-
-```text
-containers
-service isolation
-```
-
-but detailed namespace management belongs a later advanced topic.
-
----
-
-## 7. Shared Memory Fundamentals
-
-### 7.1 Shared memory changes the communication model
+### 6.1 Shared memory changes the communication model
 
 Pipe/message queue:
 
@@ -1783,7 +1633,7 @@ Processes directly access common mapped data.
 
 ---
 
-### 7.2 Shared memory removes message-transfer abstraction
+### 6.2 Shared memory removes message-transfer abstraction
 
 There is no inherent:
 
@@ -1806,7 +1656,7 @@ Application defines structure.
 
 ---
 
-### 7.3 Shared memory can reduce copying/IPC transition overhead
+### 6.3 Shared memory can reduce copying/IPC transition overhead
 
 After setup, data can be accessed from shared mapped pages rather than copied into and out of a kernel message/stream buffer for each logical transfer.
 
@@ -1830,7 +1680,7 @@ as universal rule.
 
 ---
 
-### 7.4 Shared memory provides data sharing, not coordination
+### 6.4 Shared memory provides data sharing, not coordination
 
 If Process A writes:
 
@@ -1852,7 +1702,7 @@ Therefore shared memory commonly requires separate synchronization.
 
 ---
 
-### 7.5 Shared memory structure
+### 6.5 Shared memory structure
 
 Concept:
 
@@ -1873,9 +1723,9 @@ Application defines memory layout.
 
 ---
 
-### 7.1 POSIX Shared Memory Lifecycle
+### 6.6 POSIX Shared Memory Lifecycle
 
-#### 7.1.1 POSIX shared-memory object
+#### 6.6.1 POSIX shared-memory object
 
 POSIX shared memory provides a named memory object.
 
@@ -1898,7 +1748,7 @@ process mapping
 
 ---
 
-#### 7.1.2 New object starts with size zero
+#### 6.6.2 New object starts with size zero
 
 Linux/POSIX documentation states newly created shared-memory object initially has:
 
@@ -1916,7 +1766,7 @@ before expected mapping/use.
 
 ---
 
-#### 7.1.3 `shm_open()` resembles `open()`
+#### 6.6.3 `shm_open()` resembles `open()`
 
 It returns a file descriptor referring to shared-memory object.
 
@@ -1930,7 +1780,7 @@ metadata operations
 
 ---
 
-#### 7.1.4 Mapping and descriptor lifetime are separate
+#### 6.6.4 Mapping and descriptor lifetime are separate
 
 After successful:
 
@@ -1959,7 +1809,7 @@ This mirrors general mmap reference semantics from Topic 3/4 memory concepts.
 
 ---
 
-#### 7.1.5 `shm_unlink()` removes the name
+#### 6.6.5 `shm_unlink()` removes the name
 
 Concept:
 
@@ -1975,7 +1825,7 @@ Object is finally destroyed when unlink has occurred and remaining references/ma
 
 ---
 
-#### 7.1.6 Linux persistence
+#### 6.6.6 Linux persistence
 
 Linux `shm_overview(7)` describes POSIX SHM objects as kernel-persistent until:
 
@@ -1991,7 +1841,7 @@ object has been unlinked and all mappings/references are gone
 
 ---
 
-#### 7.1.7 Linux `/dev/shm`
+#### 6.6.7 Linux `/dev/shm`
 
 Linux commonly implements POSIX shared-memory objects in:
 
@@ -2009,7 +1859,7 @@ This is Linux implementation behavior, not reason to treat shared-memory object 
 
 ---
 
-#### 7.1.8 Shared-memory lifecycle state machine
+#### 6.6.8 Shared-memory lifecycle state machine
 
 ```mermaid
 stateDiagram-v2
@@ -2034,9 +1884,9 @@ The diagram focuses naming/mapping lifetime rather than every kernel reference.
 
 ---
 
-### 7.2 `mmap()` và `MAP_SHARED`
+### 6.7 `mmap()` và `MAP_SHARED`
 
-#### 7.2.1 `mmap()` connects process address space to memory object
+#### 6.7.1 `mmap()` connects process address space to memory object
 
 POSIX:
 
@@ -2058,7 +1908,7 @@ memory object
 
 ---
 
-#### 7.2.2 `MAP_SHARED`
+#### 6.7.2 `MAP_SHARED`
 
 With:
 
@@ -2084,7 +1934,7 @@ Process B map
 
 ---
 
-#### 7.2.3 `MAP_PRIVATE` is not IPC shared-write mapping
+#### 6.7.3 `MAP_PRIVATE` is not IPC shared-write mapping
 
 `MAP_PRIVATE` means modifications are private to calling process mapping and do not modify underlying object in shared fashion.
 
@@ -2098,7 +1948,7 @@ for process communication.
 
 ---
 
-#### 7.2.4 Mapping addresses can differ between processes
+#### 6.7.4 Mapping addresses can differ between processes
 
 Important:
 
@@ -2116,7 +1966,7 @@ Therefore raw process-local pointers stored inside shared-memory structures can 
 
 ---
 
-#### 7.2.5 Prefer location-independent shared structures conceptually
+#### 6.7.5 Prefer location-independent shared structures conceptually
 
 Shared structure should use concepts such as:
 
@@ -2143,7 +1993,7 @@ Exact data-structure design is application-specific.
 
 ---
 
-#### 7.2.6 Object size matters
+#### 6.7.6 Object size matters
 
 Mapping can extend beyond current object size, but accessing pages beyond valid object backing can result in:
 
@@ -2157,7 +2007,7 @@ Therefore underlying shared object resizing is itself a synchronization/lifecycl
 
 ---
 
-#### 7.2.7 `close()` does not unmap
+#### 6.7.7 `close()` does not unmap
 
 Once mapping exists:
 
@@ -2177,9 +2027,9 @@ or process/address-space teardown.
 
 ---
 
-## 8. Synchronization trong Shared Memory
+## 7. Synchronization trong Shared Memory
 
-### 8.1 Shared memory without synchronization is incomplete for mutable state
+### 7.1 Shared memory without synchronization is incomplete for mutable state
 
 Two processes can concurrently write same memory.
 
@@ -2204,7 +2054,7 @@ race conditions
 
 ---
 
-### 8.2 Same synchronization principles as threads
+### 7.2 Same synchronization principles as threads
 
 Topic 7 applies conceptually:
 
@@ -2227,7 +2077,7 @@ when stored in shared mappings.
 
 ---
 
-### 8.3 `PTHREAD_PROCESS_SHARED`
+### 7.3 `PTHREAD_PROCESS_SHARED`
 
 POSIX synchronization objects such as mutex/condition/rwlock can be configured for process-shared use where supported.
 
@@ -2245,7 +2095,7 @@ Both processes map same synchronization object storage.
 
 ---
 
-### 8.4 POSIX semaphore
+### 7.4 POSIX semaphore
 
 A process-shared unnamed semaphore can also live in shared memory.
 
@@ -2259,7 +2109,7 @@ semaphore
 
 ---
 
-### 8.5 Data plane vs synchronization plane
+### 7.5 Data plane vs synchronization plane
 
 Useful architecture distinction:
 
@@ -2285,7 +2135,7 @@ when and by whom may it be read/written?
 
 ---
 
-### 8.6 Crash recovery
+### 7.6 Crash recovery
 
 If process dies while owning shared synchronization/resource state:
 
@@ -2294,13 +2144,11 @@ other processes may block
 shared invariant may be inconsistent
 ```
 
-Robust mutex from Topic 7 can detect selected owner-death cases.
-
-But application still must recover data invariant.
+Nếu một process chết giữa state transition, application vẫn phải có policy để phát hiện và phục hồi shared invariant khi cần.
 
 ---
 
-### 8.7 Shared memory does not provide event notification by itself
+### 7.7 Shared memory does not provide event notification by itself
 
 If producer changes memory:
 
@@ -2325,526 +2173,9 @@ Topic 8 stays focused on core IPC mechanisms, so these are conceptual complement
 
 ---
 
-## 9. POSIX và System V Shared Memory
+## 8. IPC Blocking, Backpressure và Flow Control
 
-### 9.1 POSIX shared memory
-
-Core API model:
-
-```text
-name
-  |
-shm_open()
-  |
-fd
-  |
-ftruncate()
-  |
-mmap()
-```
-
-It integrates naturally with file-descriptor/mmap model.
-
----
-
-### 9.2 System V shared memory
-
-Older System V model uses concepts around:
-
-```text
-shmget()
-shmat()
-shmdt()
-shmctl()
-```
-
-and IPC identifiers/keys.
-
----
-
-### 9.3 Both solve common-memory problem
-
-Both let processes access:
-
-```text
-same shared memory region
-```
-
-but setup, naming and lifecycle APIs differ.
-
----
-
-### 9.4 POSIX interface is often easier to connect to existing Linux concepts
-
-It reuses mental models already learned:
-
-```text
-name
-file descriptor
-ftruncate
-mmap
-unlink-like lifetime
-```
-
-System V is still important in legacy software and some existing systems.
-
----
-
-### 9.5 System V IPC namespace
-
-Linux IPC namespaces isolate System V IPC objects.
-
-POSIX shared memory is implemented through filesystem/tmpfs semantics and interacts more naturally with filesystem/mount namespace concepts rather than being one of the POSIX MQ/System V objects isolated by IPC namespace.
-
-Detailed namespace behavior belongs advanced container topics.
-
----
-
-## 10. Unix Domain Socket Fundamentals
-
-### 10.1 Local sockets
-
-Unix domain sockets use:
-
-```text
-AF_UNIX
-```
-
-also known as:
-
-```text
-AF_LOCAL
-```
-
-for communication between processes on the same machine.
-
-Mental model:
-
-```text
-Process A
-   |
-Unix socket endpoint
-   |
-   v
-local kernel socket subsystem
-   |
-   v
-Unix socket endpoint
-   |
-Process B
-```
-
----
-
-### 10.2 Same socket programming abstraction as networking
-
-Unix sockets reuse socket concepts:
-
-```text
-socket()
-bind()
-listen()
-accept()
-connect()
-send()/recv()
-read()/write()
-shutdown()
-close()
-```
-
-But address family is local-machine IPC rather than IP network.
-
-This makes Unix sockets attractive for:
-
-```text
-local client/server architecture
-```
-
-that may resemble network protocol design.
-
----
-
-### 10.3 Bidirectional communication
-
-Unlike portable pipe:
-
-```text
-Unix stream socket
-```
-
-is naturally full-duplex.
-
-Concept:
-
-```text
-Process A <==========> Process B
-          two-way
-```
-
-Both endpoints can send and receive.
-
----
-
-### 10.4 Connection-oriented and connectionless options
-
-Unix domain supports several socket types, notably:
-
-```text
-SOCK_STREAM
-SOCK_DGRAM
-SOCK_SEQPACKET
-```
-
-Each gives different communication semantics.
-
----
-
-### 10.1 Unix Socket Types và Message Boundaries
-
-#### 10.1.1 `SOCK_STREAM`
-
-Properties:
-
-```text
-connection-oriented
-reliable
-ordered
-bidirectional
-byte stream
-```
-
-Like pipe, it does **not** preserve application message boundaries.
-
-Application needs framing.
-
----
-
-#### 10.1.2 `SOCK_DGRAM`
-
-Unix-domain datagram socket preserves:
-
-```text
-datagram/message boundaries
-```
-
-Linux `unix(7)` also documents AF_UNIX datagram sockets as reliable and non-reordering on Linux.
-
-Important distinction:
-
-Generic Internet-style datagram intuition should not be blindly transferred to Linux AF_UNIX datagrams.
-
----
-
-#### 10.1.3 `SOCK_SEQPACKET`
-
-Properties:
-
-```text
-connection-oriented
-reliable
-ordered
-preserves record/message boundaries
-```
-
-This combines:
-
-```text
-connection semantics
-+
-message framing
-```
-
----
-
-#### 10.1.4 Comparison
-
-| Type | Connection | Bidirectional | Message boundary |
-|---|---:|---:|---:|
-| `SOCK_STREAM` | Yes | Yes | No |
-| `SOCK_DGRAM` | No connection requirement in datagram model | Yes in endpoint sense | Yes |
-| `SOCK_SEQPACKET` | Yes | Yes | Yes |
-
-Exact support/behavior should always be checked for target platform.
-
----
-
-#### 10.1.5 Stream framing problem
-
-For stream socket:
-
-```text
-send logical message A
-send logical message B
-```
-
-receiver sees ordered bytes, not guaranteed receive-call alignment.
-
-Exactly like pipe:
-
-```text
-send call boundaries
-  !=
-receive call boundaries
-```
-
----
-
-## 11. Unix Socket Naming và Lifetime
-
-### 11.1 Three Linux naming forms
-
-Linux `unix(7)` describes:
-
-```text
-unnamed
-pathname
-abstract namespace
-```
-
----
-
-### 11.2 Unnamed socket
-
-Sockets created by:
-
-```text
-socketpair()
-```
-
-are unnamed.
-
-No filesystem rendezvous name.
-
-Endpoints are handed/inherited directly.
-
----
-
-### 11.3 Pathname Unix socket
-
-Server can bind socket to filesystem pathname.
-
-Concept:
-
-```text
-/run/my-service.sock
-       |
-       v
-socket filesystem entry
-       |
-       v
-local server endpoint
-```
-
-Client knowing pathname can connect.
-
----
-
-### 11.4 Filesystem permissions
-
-Pathname socket creates filesystem object.
-
-On Linux, normal filesystem ownership/mode rules participate in access control.
-
-Creation mode is affected by:
-
-```text
-umask
-```
-
----
-
-### 11.5 Pathname entry lifetime
-
-Closing socket does not necessarily remove pathname entry.
-
-Application normally manages:
-
-```text
-unlink()
-```
-
-of pathname.
-
-Stale socket pathname after crash can therefore affect future bind attempts.
-
----
-
-### 11.6 Linux abstract namespace
-
-Linux-specific abstract Unix sockets use a name whose first `sun_path` byte is NUL.
-
-They are:
-
-```text
-not filesystem pathnames
-```
-
-Therefore:
-
-```text
-filesystem ownership/mode/umask
-```
-
-do not control them in same way.
-
----
-
-### 11.7 Abstract sockets are nonportable
-
-Abstract namespace is a Linux extension.
-
-Portable Unix-domain design should generally use standardized/pathname-compatible concepts unless Linux specificity is intentional.
-
----
-
-### 11.8 Abstract lifetime
-
-Linux abstract socket names disappear automatically when all references are closed.
-
-This differs from pathname socket file requiring filesystem cleanup.
-
----
-
-## 12. `socketpair()`, Full-duplex IPC và Ancillary Data
-
-### 12.1 `socketpair()`
-
-`socketpair()` creates:
-
-```text
-two connected socket endpoints
-```
-
-Concept:
-
-```text
-fd A <==========> fd B
-```
-
-On Linux, AF_UNIX is common domain for this.
-
----
-
-### 12.2 Similar use case to pipe, but bidirectional
-
-Pipe:
-
-```text
-A --------> B
-```
-
-Socket pair:
-
-```text
-A <=======> B
-```
-
-This makes socketpair useful for related-process bidirectional control/data channels.
-
----
-
-### 12.3 Socket pair can preserve messages depending type
-
-A socket pair may be created with socket type whose semantics determine:
-
-```text
-stream
-datagram
-sequenced packet
-```
-
-Thus it can offer stronger message semantics than a byte-stream pipe.
-
----
-
-### 12.4 File descriptor passing
-
-Linux/Unix domain sockets support ancillary data that can transfer file descriptors.
-
-This is one of their most powerful IPC properties.
-
-Mental model:
-
-```text
-Process A
-  owns fd X
-      |
-send ancillary fd
-      |
-      v
-Unix domain socket
-      |
-      v
-Process B
-  receives a new fd reference
-  to underlying kernel object
-```
-
-The integer fd number itself is not copied as universal identity.
-
-Receiver gets its own descriptor entry referring to transferred resource.
-
----
-
-### 12.5 What can be transferred conceptually?
-
-A descriptor may refer to objects such as:
-
-```text
-regular file
-pipe end
-socket
-device
-event object
-shared-memory fd
-```
-
-depending system/permissions/object semantics.
-
-This enables capability-like designs:
-
-```text
-broker opens privileged resource
-passes fd to less-privileged worker
-```
-
-Detailed security architecture is outside Topic 8.
-
----
-
-### 12.6 Credentials
-
-Linux Unix sockets also support peer/ancillary credential mechanisms such as:
-
-```text
-SO_PEERCRED
-SCM_CREDENTIALS
-```
-
-under Linux-specific semantics.
-
-This allows local services to reason about peer process credentials without inventing an application password merely to identify local OS principal.
-
----
-
-### 12.7 Ancillary data is an advanced extension of socket message model
-
-`sendmsg()/recvmsg()` use control messages to carry metadata such as:
-
-```text
-SCM_RIGHTS
-SCM_CREDENTIALS
-```
-
-The main Topic 8 point is:
-
-> Unix domain sockets can transport not only application bytes but selected kernel object references/metadata.
-
----
-
-## 13. IPC Blocking, Backpressure và Flow Control
-
-### 13.1 All buffered IPC channels face producer/consumer imbalance
+### 8.1 All buffered IPC channels face producer/consumer imbalance
 
 General model:
 
@@ -2864,7 +2195,7 @@ Different mechanisms implement this differently.
 
 ---
 
-### 13.2 Pipe/FIFO
+### 8.2 Pipe/FIFO
 
 Finite kernel pipe capacity.
 
@@ -2884,7 +2215,7 @@ depending request size/mode.
 
 ---
 
-### 13.3 POSIX Message Queue
+### 8.3 POSIX Message Queue
 
 Finite:
 
@@ -2908,23 +2239,7 @@ in nonblocking mode.
 
 ---
 
-### 13.4 Unix socket
-
-Socket send/receive buffering is finite.
-
-If peer does not read sufficiently:
-
-```text
-sender may eventually block
-```
-
-or receive nonblocking readiness result.
-
-Thus even local socket protocol needs flow-control thinking.
-
----
-
-### 13.5 Shared memory has no automatic backpressure
+### 8.4 Shared memory has no automatic backpressure
 
 A shared-memory buffer can be overwritten unless application protocol tracks:
 
@@ -2942,7 +2257,7 @@ This is both power and risk.
 
 ---
 
-### 13.6 Blocking is not always bad
+### 8.5 Blocking is not always bad
 
 Blocking can simplify control:
 
@@ -2962,7 +2277,7 @@ But blocking graph can deadlock if processes wait cyclically.
 
 ---
 
-### 13.7 Nonblocking does not eliminate flow-control responsibility
+### 8.6 Nonblocking does not eliminate flow-control responsibility
 
 Nonblocking simply changes:
 
@@ -2988,7 +2303,7 @@ apply backpressure upstream?
 
 ---
 
-### 13.8 IPC protocol should define overload behavior
+### 8.7 IPC protocol should define overload behavior
 
 A robust architecture must answer:
 
@@ -3007,9 +2322,9 @@ No IPC primitive can choose correct application policy automatically.
 
 ---
 
-## 14. So sánh và lựa chọn IPC Mechanism
+## 9. So sánh và lựa chọn IPC Mechanism
 
-### 14.1 High-level comparison
+### 9.1 High-level comparison
 
 | Mechanism | Data model | Named? | Direction | Message boundaries | Typical kernel persistence |
 |---|---|---:|---|---:|---|
@@ -3023,7 +2338,7 @@ No IPC primitive can choose correct application policy automatically.
 
 ---
 
-### 14.2 Pipe — natural strengths
+### 9.2 Pipe — natural strengths
 
 Good conceptual fit when:
 
@@ -3045,7 +2360,7 @@ rendezvous usually via inherited fd
 
 ---
 
-### 14.3 FIFO — natural strengths
+### 9.3 FIFO — natural strengths
 
 Good when:
 
@@ -3065,7 +2380,7 @@ still no message boundaries
 
 ---
 
-### 14.4 Message queue — natural strengths
+### 9.4 Message queue — natural strengths
 
 Good when:
 
@@ -3087,7 +2402,7 @@ persistence cleanup
 
 ---
 
-### 14.5 Shared memory — natural strengths
+### 9.5 Shared memory — natural strengths
 
 Good when:
 
@@ -3110,38 +2425,14 @@ no inherent wakeup
 
 ---
 
-### 14.6 Unix domain socket — natural strengths
-
-Good when:
-
-```text
-local client/server
-bidirectional communication
-network-like programming model
-stream or record semantics
-multiple clients
-fd/credential passing
-```
-
-Tradeoffs:
-
-```text
-protocol/framing still required for stream
-connection lifecycle
-socket pathname cleanup
-more complex API than pipe
-```
-
----
-
-### 14.7 Related vs unrelated processes
+### 9.6 Related vs unrelated processes
 
 A useful first decision:
 
 ```text
 Related processes?
    |
-   +--> pipe/socketpair can be natural
+   +--> unnamed pipe can be natural
 
 Unrelated independently started services?
    |
@@ -3155,7 +2446,7 @@ This is not an absolute rule, but a useful design heuristic.
 
 ---
 
-### 14.8 Data size and communication pattern
+### 9.7 Data size and communication pattern
 
 Conceptual guide:
 
@@ -3168,16 +2459,13 @@ continuous byte stream
 
 large shared datasets
   -> shared memory
-
-local service RPC-like channel
-  -> Unix domain socket
 ```
 
 Actual choice must include lifecycle/security/backpressure requirements.
 
 ---
 
-### 14.9 Do not choose solely by benchmark speed
+### 9.8 Do not choose solely by benchmark speed
 
 The “fastest” mechanism is not always the best architecture.
 
@@ -3198,9 +2486,9 @@ portability
 
 ---
 
-## 15. Error Model và Tư duy Debug IPC
+## 10. Error Model và Tư duy Debug IPC
 
-### 15.1 Debug by layers
+### 10.1 Debug by layers
 
 ```text
 1. Same IPC object/name?
@@ -3226,7 +2514,7 @@ portability
 
 ---
 
-### 15.2 Pipe reader waits forever
+### 10.2 Pipe reader waits forever
 
 Possible:
 
@@ -3241,7 +2529,7 @@ EOF needs all writer references closed.
 
 ---
 
-### 15.3 Pipe writer gets `EPIPE` / `SIGPIPE`
+### 10.3 Pipe writer gets `EPIPE` / `SIGPIPE`
 
 Interpret:
 
@@ -3259,7 +2547,7 @@ Full buffer has different blocking/EAGAIN behavior.
 
 ---
 
-### 15.4 Pipe messages appear merged
+### 10.4 Pipe messages appear merged
 
 Expected if application assumed:
 
@@ -3273,7 +2561,7 @@ Need application framing.
 
 ---
 
-### 15.5 FIFO open blocks unexpectedly
+### 10.5 FIFO open blocks unexpectedly
 
 Check:
 
@@ -3288,7 +2576,7 @@ Opening FIFO is part of synchronization.
 
 ---
 
-### 15.6 FIFO pathname exists but communication fails
+### 10.6 FIFO pathname exists but communication fails
 
 Path existence only means:
 
@@ -3309,7 +2597,7 @@ Same lesson as device-node existence from Topic 2.
 
 ---
 
-### 15.7 POSIX MQ send blocks
+### 10.7 POSIX MQ send blocks
 
 Likely:
 
@@ -3328,7 +2616,7 @@ resource limits
 
 ---
 
-### 15.8 MQ receive blocks
+### 10.8 MQ receive blocks
 
 Likely:
 
@@ -3346,7 +2634,7 @@ EAGAIN
 
 ---
 
-### 15.9 Message priority surprises ordering
+### 10.9 Message priority surprises ordering
 
 Receiver selects:
 
@@ -3360,7 +2648,7 @@ Check message priority before assuming queue corruption.
 
 ---
 
-### 15.10 Shared-memory changes not coherent logically
+### 10.10 Shared-memory changes not coherent logically
 
 Possible causes:
 
@@ -3375,7 +2663,7 @@ wrong offsets/layout
 
 ---
 
-### 15.11 Shared-memory process gets `SIGBUS`
+### 10.11 Shared-memory process gets `SIGBUS`
 
 Possible conceptual cause:
 
@@ -3388,7 +2676,7 @@ Object size lifecycle must be coordinated.
 
 ---
 
-### 15.12 Shared-memory raw pointer works in one process but not another
+### 10.12 Shared-memory raw pointer works in one process but not another
 
 Likely because:
 
@@ -3402,66 +2690,9 @@ Use relative/offset-based data structures when appropriate.
 
 ---
 
-### 15.13 Unix socket `connect()` fails despite pathname existing
+## 11. Liên hệ với Embedded Linux
 
-Possible:
-
-```text
-stale socket pathname
-server not listening
-permissions
-wrong socket type
-namespace/context mismatch
-```
-
-Filesystem name existence is not equivalent to live server.
-
----
-
-### 15.14 Unix stream protocol sees split/combined messages
-
-Expected stream behavior.
-
-Like pipe:
-
-```text
-send boundaries
-  !=
-receive boundaries
-```
-
-Application framing is required.
-
----
-
-### 15.15 Local socket gets `EPIPE`/SIGPIPE
-
-Stream peer has closed relevant connection side.
-
-This is local-socket lifecycle behavior, not network-routing failure.
-
----
-
-### 15.16 IPC works outside container but not inside
-
-Possible Linux namespace isolation:
-
-```text
-IPC namespace
-mount namespace
-network namespace
-filesystem namespace
-```
-
-affects different IPC types differently.
-
-Do not assume all IPC namespaces are shared across isolated environments.
-
----
-
-## 16. Liên hệ với Embedded Linux
-
-### 16.1 Multi-service embedded architecture
+### 11.1 Multi-service embedded architecture
 
 An embedded product may split:
 
@@ -3479,7 +2710,7 @@ IPC forms the internal communication fabric.
 
 ---
 
-### 16.2 Pipe for parent-child worker topology
+### 11.2 Pipe for parent-child worker topology
 
 Supervisor can create workers and connect simple streams:
 
@@ -3501,7 +2732,7 @@ child output capture
 
 ---
 
-### 16.3 FIFO for simple named endpoint
+### 11.3 FIFO for simple named endpoint
 
 A minimal embedded system can use FIFO when:
 
@@ -3515,7 +2746,7 @@ But FIFO is usually less expressive than Unix socket for complex local services.
 
 ---
 
-### 16.4 Message queue for control messages
+### 11.4 Message queue for control messages
 
 POSIX MQ can naturally represent:
 
@@ -3546,7 +2777,7 @@ Worker Service
 
 ---
 
-### 16.5 Shared memory for large sensor/audio/video data
+### 11.5 Shared memory for large sensor/audio/video data
 
 Large buffers can be expensive to copy repeatedly through message channels.
 
@@ -3564,7 +2795,7 @@ Control metadata can be exchanged separately.
 
 ---
 
-### 16.6 Shared-memory data plane + control channel
+### 11.6 Shared-memory data plane + control channel
 
 Common conceptual architecture:
 
@@ -3597,45 +2828,7 @@ availability/control notification
 
 ---
 
-### 16.7 Unix domain socket for local daemon/service
-
-A local service can expose:
-
-```text
-/run/device-service.sock
-```
-
-and multiple clients connect.
-
-Concept:
-
-```text
-Client A ---\
-Client B ----> Local Service
-Client C ---/
-```
-
-This resembles network client/server architecture but stays on same host.
-
----
-
-### 16.8 Unix socket and privilege separation
-
-One privileged service can open:
-
-```text
-device
-special file
-socket
-```
-
-then pass selected fd through Unix domain socket to less-privileged process under carefully designed security policy.
-
-This can reduce how much code needs broad privileges.
-
----
-
-### 16.9 Reliability and restart
+### 11.7 Reliability and restart
 
 IPC mechanism affects service restart behavior.
 
@@ -3662,7 +2855,7 @@ Supervisor/restart architecture needs cleanup policy.
 
 ---
 
-### 16.10 Memory budget
+### 11.8 Memory budget
 
 Embedded targets have limited:
 
@@ -3687,7 +2880,7 @@ regardless of API.
 
 ---
 
-### 16.11 Backpressure is part of system stability
+### 11.9 Backpressure is part of system stability
 
 A telemetry producer faster than uplink must have a policy.
 
@@ -3710,7 +2903,7 @@ IPC mechanism exposes this mismatch but cannot solve product policy automaticall
 
 ---
 
-### 16.12 Fault isolation vs throughput
+### 11.10 Fault isolation vs throughput
 
 Shared memory gives tight coupling:
 
@@ -3735,856 +2928,43 @@ security
 
 ---
 
-## 17. Tổng kết và Mental Model
-
-### 17.1 Overall IPC map
-
-```text
-                          PROCESS A
-                              |
-           +------------------+------------------+
-           |                  |                  |
-           v                  v                  v
-       Byte Stream         Messages         Shared Memory
-           |                  |                  |
-      +----+----+             |                  |
-      |         |             |                  |
-    Pipe       FIFO        POSIX MQ          POSIX SHM
-      |         |             |                  |
-      +---------+-------------+------------------+
-                          |
-                          v
-                    PROCESS B
-
-
-Unix Domain Socket:
-  local bidirectional endpoint model
-  with stream/datagram/seqpacket semantics
-```
-
----
-
-### 17.2 Naming map
-
-```text
-Unnamed:
-  pipe
-  socketpair
-
-Named by filesystem:
-  FIFO
-  pathname Unix socket
-
-Named IPC object:
-  POSIX message queue
-  POSIX shared memory
-
-Linux-specific non-filesystem local socket name:
-  abstract AF_UNIX socket
-```
-
----
-
-### 17.3 Data semantics map
-
-```text
-Pipe/FIFO
-  bytes
-  no message boundaries
-
-POSIX MQ
-  messages
-  priority
-
-Shared memory
-  arbitrary application-defined memory layout
-
-AF_UNIX SOCK_STREAM
-  bytes
-
-AF_UNIX SOCK_DGRAM
-  messages
-
-AF_UNIX SOCK_SEQPACKET
-  ordered records
-```
-
----
-
-### 17.4 Lifetime map
-
-```text
-Pipe
-  endpoint references determine life
-
-FIFO
-  filesystem name persists;
-  active pipe data does not become file contents
-
-POSIX MQ
-  named kernel object;
-  Linux kernel-persistent until unlink/shutdown
-
-POSIX SHM
-  named memory object;
-  unlink separates name lifetime from mapping/reference lifetime
-
-Pathname Unix socket
-  endpoint closes;
-  filesystem pathname may need unlink
-
-Abstract Unix socket
-  Linux-specific;
-  disappears when references close
-```
-
----
-
-### 17.5 Shared-memory synchronization map
-
-```text
-Shared Memory
-      |
-      v
-common bytes/pages
-      |
-      +--> data structure
-      |
-      +--> synchronization needed
-             |
-             +--> mutex
-             +--> semaphore
-             +--> condition variable
-             +--> application ownership protocol
-```
-
----
-
-### 17.6 Mechanism-selection mental model
-
-```text
-Need IPC
-  |
-  +--> related processes + simple byte stream?
-  |       -> Pipe
-  |
-  +--> named byte stream rendezvous?
-  |       -> FIFO
-  |
-  +--> discrete queued messages?
-  |       -> POSIX Message Queue
-  |
-  +--> large/common shared data?
-  |       -> Shared Memory
-  |
-  +--> local client/server or bidirectional protocol?
-          -> Unix Domain Socket
-```
-
-This is a learning heuristic, not an absolute decision tree.
-
----
-
-### 17.7 Các nguyên tắc cốt lõi
-
-1. IPC exists because isolated processes need controlled ways to exchange data and coordinate.
-
-2. IPC mechanisms differ in semantics, not merely function names.
-
-3. The first distinctions to ask are stream/message/shared-memory, named/unnamed, one-way/two-way, and persistence/lifetime.
-
-4. IPC data transfer and synchronization are related but distinct concerns.
-
-5. Unnamed pipe provides read and write endpoints.
-
-6. Portable pipe semantics should be treated as unidirectional.
-
-7. Pipe is a byte stream.
-
-8. Pipe does not preserve application message boundaries.
-
-9. `read()` size need not match previous `write()` size.
-
-10. Pipe EOF occurs when all writer references have disappeared and buffered data is exhausted.
-
-11. Pipe write with no readers generates SIGPIPE and normally fails with EPIPE if signal does not terminate caller.
-
-12. Descriptor leaks after fork can delay EOF/SIGPIPE lifecycle behavior.
-
-13. Pipe is not seekable.
-
-14. Pipe has finite capacity.
-
-15. Pipe capacity is not the same thing as `PIPE_BUF`.
-
-16. POSIX atomic-write guarantee applies to suitable writes no larger than `PIPE_BUF`.
-
-17. Larger multi-writer pipe writes may interleave.
-
-18. Backpressure is a core property of finite IPC channels.
-
-19. FIFO is a named pipe represented by a filesystem special file.
-
-20. FIFO pathname is a rendezvous point; communication data is not stored as regular filesystem contents.
-
-21. Pipe and FIFO have the same I/O semantics after they are opened.
-
-22. FIFO opening can block waiting for peer endpoint.
-
-23. FIFO filesystem permissions are part of access control.
-
-24. Linux FIFO `O_RDWR` self-open behavior is nonportable and should not be a generic POSIX assumption.
-
-25. Message queue preserves discrete messages.
-
-26. POSIX message queues use named kernel queue objects and `mqd_t` descriptors.
-
-27. POSIX MQ message priority affects receive ordering.
-
-28. Receiver gets oldest message among the highest available priority.
-
-29. Empty blocking MQ receive waits for a message.
-
-30. Full blocking MQ send waits for capacity.
-
-31. Nonblocking MQ operations can return EAGAIN when queue state would otherwise block.
-
-32. POSIX MQ has finite message-count and message-size attributes.
-
-33. On Linux POSIX MQ has kernel persistence until unlink/shutdown conditions.
-
-34. `mq_close()` and `mq_unlink()` affect descriptor/name lifetime differently.
-
-35. Linux implements MQ descriptors as file descriptors, but POSIX does not require this.
-
-36. System V message queue is an older alternative with different API/naming model.
-
-37. Shared memory lets processes map the same memory object.
-
-38. Shared memory has no inherent message framing.
-
-39. Shared memory has no inherent event notification.
-
-40. Shared memory has no automatic mutual exclusion.
-
-41. POSIX shared memory is created/opened with `shm_open()` and mapped with `mmap()`.
-
-42. New POSIX shared-memory object starts with size zero and is typically sized explicitly.
-
-43. `MAP_SHARED` is required for shared-write mapping semantics.
-
-44. Closing SHM fd after mapping does not remove the mapping.
-
-45. `shm_unlink()` removes the name while existing mappings can continue.
-
-46. Linux POSIX SHM is commonly implemented on tmpfs under `/dev/shm`.
-
-47. Same shared object may map to different virtual addresses in different processes.
-
-48. Raw absolute pointers stored in shared memory are therefore generally unsafe as cross-process references.
-
-49. Shared-memory data structures should use location-independent representation when needed.
-
-50. Access beyond valid backing object size can cause SIGBUS.
-
-51. Shared mutable memory requires process-shared synchronization/ownership rules.
-
-52. POSIX/System V shared memory solve similar problems with different APIs.
-
-53. Unix domain sockets provide local-machine socket IPC.
-
-54. AF_UNIX is also known as AF_LOCAL.
-
-55. Unix sockets are naturally bidirectional.
-
-56. `SOCK_STREAM` is a connection-oriented byte stream and does not preserve messages.
-
-57. `SOCK_DGRAM` preserves datagram boundaries.
-
-58. Linux AF_UNIX datagrams are reliable and ordered according to Linux `unix(7)` semantics.
-
-59. `SOCK_SEQPACKET` is connection-oriented and preserves ordered records.
-
-60. Unix sockets can be unnamed, pathname-named, or use Linux abstract namespace.
-
-61. Pathname Unix sockets participate in filesystem ownership/permission semantics.
-
-62. Pathname socket files may require explicit unlink cleanup.
-
-63. Linux abstract Unix sockets are nonportable and do not use filesystem permission semantics.
-
-64. Abstract socket names disappear when all open references disappear.
-
-65. `socketpair()` creates connected socket endpoints and is natural for related processes.
-
-66. Unix sockets can pass file descriptors using ancillary data.
-
-67. Unix sockets can expose peer/ancillary credentials using system-specific mechanisms.
-
-68. File-descriptor passing transfers access to an underlying kernel resource, not a globally meaningful integer fd number.
-
-69. Every bounded IPC buffer needs a backpressure policy.
-
-70. Nonblocking I/O does not remove the need for flow control; it only changes waiting behavior.
-
-71. Message/stream framing must match mechanism semantics.
-
-72. Names existing in filesystem do not prove live peer availability.
-
-73. IPC cleanup and restart policy must be designed explicitly.
-
-74. IPC namespaces can change visibility of System V IPC and POSIX MQ objects on Linux.
-
-75. Shared memory usually provides strongest coupling and highest synchronization responsibility.
-
-76. Unix domain sockets provide a flexible local service/client architecture.
-
-77. No IPC mechanism is universally “best” or “fastest” for every architecture.
-
-78. Mechanism choice should consider data model, lifecycle, security, backpressure, portability, throughput and fault isolation.
-
-79. Mental model cốt lõi:
+## 12. Tổng kết và Mental Model
 
 ```text
 Process A
    |
-   | IPC mechanism
-   v
-kernel/shared object
+   +--> Pipe/FIFO -------- bytes --------> Process B
    |
-   v
-Process B
+   +--> Message Queue ---- messages -----> Process B
+   |
+   +--> Shared Memory <--- shared pages --> Process B
+                              |
+                         synchronization
 ```
 
-with one of:
-
-```text
-bytes        -> Pipe / FIFO / Stream Socket
-messages     -> MQ / Datagram / Seqpacket Socket
-shared state -> Shared Memory + Synchronization
-```
+Các điểm cần giữ:
+- Pipe là unnamed ordered byte stream; portable model là one-way.
+- EOF của pipe phụ thuộc việc tất cả writer references đã đóng; write không còn reader có thể gây `SIGPIPE`/`EPIPE`.
+- FIFO giữ pipe I/O semantics nhưng có filesystem pathname để unrelated processes rendezvous.
+- POSIX message queue giữ message boundaries và có bounded queue semantics.
+- POSIX shared memory cho nhiều process map cùng memory object; nó không tự cung cấp synchronization hoặc event notification.
+- Shared-memory mutable state cần semaphore/mutex/condition hoặc ownership protocol phù hợp.
+- IPC choice phải dựa vào data model, lifetime, blocking/backpressure và synchronization cost.
 
 ---
 
-## 18. Tài liệu tham khảo
+## 13. Tài liệu tham khảo
 
-Nguồn được ưu tiên theo thứ tự:
-
-```text
-POSIX.1-2024 / The Open Group
-        ↓
-Linux man-pages
-        ↓
-Linux kernel/user ABI documentation
-        ↓
-The Linux Programming Interface / man7 training
-        ↓
-recognized Embedded Linux material
-        ↓
-reputable community discussion for edge cases
-```
-
-Community source chỉ dùng để:
-
-```text
-tìm symptom
-nhận diện common IPC bug
-đối chiếu real-world behavior
-```
-
-Exact semantics phải quay lại POSIX/Linux upstream references.
+- POSIX.1-2024 IPC interfaces: https://pubs.opengroup.org/onlinepubs/9799919799/
+- `pipe(7)`: https://man7.org/linux/man-pages/man7/pipe.7.html
+- `fifo(7)`: https://man7.org/linux/man-pages/man7/fifo.7.html
+- `mq_overview(7)`: https://man7.org/linux/man-pages/man7/mq_overview.7.html
+- `shm_overview(7)`: https://man7.org/linux/man-pages/man7/shm_overview.7.html
+- `shm_open(3)`: https://man7.org/linux/man-pages/man3/shm_open.3.html
+- `mmap(2)`: https://man7.org/linux/man-pages/man2/mmap.2.html
+- `sem_overview(7)`: https://man7.org/linux/man-pages/man7/sem_overview.7.html
+- The Linux Programming Interface: https://man7.org/tlpi/
 
 ---
 
-### 18.1 POSIX.1-2024 / The Open Group
-
-#### POSIX.1-2024
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/
-
-Đây là chuẩn chính cho portable semantics của:
-
-```text
-pipe
-FIFO
-message queues
-shared memory
-mmap
-sockets
-file descriptor behavior
-```
-
----
-
-### 18.2 Pipe
-
-#### POSIX `pipe()` / `pipe2()`
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/functions/pipe.html
-
-Nguồn cho:
-
-```text
-interprocess channel
-read/write descriptors
-FIFO byte order
-portable pipe direction model
-pipe2 descriptor/status flags
-```
-
----
-
-#### Linux `pipe(7)`
-
-- https://man7.org/linux/man-pages/man7/pipe.7.html
-
-Nguồn Linux chính cho:
-
-```text
-pipe and FIFO overview
-byte-stream semantics
-blocking read/write
-EOF
-SIGPIPE/EPIPE
-capacity
-PIPE_BUF
-nonblocking behavior
-unseekable nature
-```
-
----
-
-### 18.3 FIFO
-
-#### POSIX FIFO definition
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap03.html
-
-POSIX defines FIFO special file as a file type whose written data is read in first-in-first-out order.
-
----
-
-#### POSIX `mkfifo()`
-
-- https://pubs.opengroup.org/onlinepubs/9699919799.2018edition/functions/mkfifo.html
-
-Nguồn cho:
-
-```text
-FIFO special-file creation
-pathname
-permissions
-umask effect
-```
-
----
-
-#### Linux `fifo(7)`
-
-- https://man7.org/linux/man-pages/man7/fifo.7.html
-
-Nguồn cho:
-
-```text
-named-pipe semantics
-filesystem entry is rendezvous point
-data kept internally by kernel
-blocking open
-nonblocking open
-Linux O_RDWR FIFO extension
-same I/O semantics as pipe
-```
-
----
-
-### 18.4 POSIX Message Queues
-
-#### Linux `mq_overview(7)`
-
-- https://man7.org/linux/man-pages/man7/mq_overview.7.html
-
-Nguồn tổng quan chính:
-
-```text
-POSIX MQ
-queue names
-mqd_t
-mq_send/mq_receive
-priorities
-attributes
-kernel persistence
-Linux /dev/mqueue
-fork/open-message-queue-description semantics
-Linux fd implementation detail
-```
-
----
-
-#### `mq_open(3)`
-
-- https://man7.org/linux/man-pages/man3/mq_open.3.html
-
-Nguồn cho:
-
-```text
-create/open
-permissions
-O_NONBLOCK
-queue attributes
-descriptor creation
-```
-
----
-
-#### `mq_send(3)`
-
-- https://www.man7.org/linux/man-pages/man3/mq_send.3.html
-
-Nguồn cho:
-
-```text
-message sending
-priority
-full-queue blocking
-EAGAIN
-timed send
-```
-
----
-
-#### `mq_receive(3)`
-
-- https://man7.org/linux/man-pages/man3/mq_receive.3.html
-
-Nguồn cho:
-
-```text
-highest-priority message selection
-oldest message at selected priority
-empty-queue blocking
-O_NONBLOCK/EAGAIN
-timed receive
-```
-
----
-
-### 18.5 System V IPC
-
-#### `sysvipc(7)`
-
-- https://man7.org/linux/man-pages/man7/sysvipc.7.html
-
-Nguồn cho three classic System V IPC mechanisms:
-
-```text
-message queues
-semaphores
-shared memory
-```
-
-Topic 8 only uses this to compare older System V APIs with POSIX IPC.
-
----
-
-#### `ipc_namespaces(7)`
-
-- https://man7.org/linux/man-pages/man7/ipc_namespaces.7.html
-
-Nguồn Linux-specific cho:
-
-```text
-IPC namespace isolation
-System V IPC objects
-POSIX message queue namespaces
-/proc IPC-related state
-```
-
----
-
-### 18.6 POSIX Shared Memory
-
-#### `shm_overview(7)`
-
-- https://man7.org/linux/man-pages/man7/shm_overview.7.html
-
-Nguồn tổng quan chính:
-
-```text
-shared-memory communication
-shm_open
-ftruncate
-mmap
-munmap
-shm_unlink
-persistence
-/dev/shm
-need for synchronization
-System V comparison
-```
-
----
-
-#### `shm_open(3)`
-
-- https://man7.org/linux/man-pages/man3/shm_open.3.html
-
-Nguồn cho:
-
-```text
-named POSIX SHM
-new object size zero
-fd lifetime
-mmap relationship
-shm_unlink semantics
-Linux tmpfs implementation
-```
-
----
-
-#### POSIX `mmap()`
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/functions/mmap.html
-
-Nguồn cực kỳ quan trọng cho:
-
-```text
-mapping memory objects
-MAP_SHARED vs MAP_PRIVATE
-different mapping addresses
-shared memory objects
-mapping lifetime
-object-size access/SIGBUS caveat
-synchronization requirements
-```
-
----
-
-### 18.7 Unix Domain Sockets
-
-#### Linux `unix(7)`
-
-- https://man7.org/linux/man-pages/man7/unix.7.html
-
-Nguồn Linux chính cho:
-
-```text
-AF_UNIX / AF_LOCAL
-local IPC
-SOCK_STREAM
-SOCK_DGRAM
-SOCK_SEQPACKET
-pathname sockets
-unnamed sockets
-Linux abstract namespace
-filesystem permissions
-abstract lifetime
-SCM_RIGHTS
-SCM_CREDENTIALS
-```
-
----
-
-#### POSIX `<sys/socket.h>`
-
-- https://pubs.opengroup.org/onlinepubs/9799919799.2024edition/basedefs/sys_socket.h.html
-
-Nguồn cho standardized socket abstractions:
-
-```text
-AF_UNIX
-SOCK_STREAM
-SOCK_DGRAM
-SOCK_SEQPACKET
-socket address structures
-send/receive message flags
-```
-
----
-
-#### `socketpair(2)`
-
-- https://man7.org/linux/man-pages/man2/socketpair.2.html
-
-Nguồn cho:
-
-```text
-connected unnamed socket pair
-AF_UNIX support
-full connected endpoint model
-POSIX.1-2024 status
-```
-
----
-
-### 18.8 File I/O foundation
-
-#### `read(2)`
-
-- https://man7.org/linux/man-pages/man2/read.2.html
-
-#### `write(2)`
-
-- https://man7.org/linux/man-pages/man2/write.2.html
-
-#### `open(2)`
-
-- https://man7.org/linux/man-pages/man2/open.2.html
-
-These references connect IPC to Topic 3 concepts:
-
-```text
-blocking
-O_NONBLOCK
-partial I/O
-EOF
-file-descriptor lifecycle
-```
-
----
-
-### 18.9 Linux/UNIX System Programming — man7.org
-
-#### Michael Kerrisk — Linux/UNIX System Programming Fundamentals
-
-- https://www.man7.org/training/
-
-- https://www.man7.org/training/download/Linux_System_Programming-man7.org-mkerrisk-NDC-TechTown-2020.pdf
-
-The course material covers areas including:
-
-```text
-pipes
-FIFOs
-IPC
-file descriptors
-process communication
-```
-
-Michael Kerrisk is the longtime maintainer/author of Linux man-pages and author of *The Linux Programming Interface*.
-
-Exact semantics still defer to POSIX/man-pages.
-
----
-
-### 18.10 The Linux Programming Interface
-
-- https://man7.org/tlpi/
-
-Useful conceptual reference for:
-
-```text
-pipes/FIFOs
-System V IPC
-POSIX IPC
-sockets
-shared memory
-process communication
-```
-
----
-
-### 18.11 Bootlin
-
-#### Embedded Linux System Development
-
-- https://bootlin.com/training/embedded-linux/
-- https://bootlin.com/doc/training/embedded-linux/
-
-Used to place IPC in broader Embedded Linux userspace architecture:
-
-```text
-multiple processes/services
-device-facing applications
-system integration
-local communication
-```
-
-Exact IPC API semantics remain sourced from POSIX/man-pages.
-
----
-
-### 18.12 Reputable Community Sources
-
-#### Unix & Linux Stack Exchange
-
-- https://unix.stackexchange.com/
-
-Useful for identifying real-world cases:
-
-```text
-FIFO open hangs
-pipe EOF delayed by inherited fd
-stale Unix socket path
-shared-memory lifetime
-System V/POSIX IPC differences
-```
-
----
-
-#### Stack Overflow
-
-- https://stackoverflow.com/
-
-Useful for common design mistakes:
-
-```text
-assuming pipe write boundary is message boundary
-forgetting FIFO peer-open behavior
-MQ priority-order confusion
-raw pointers in shared memory
-missing shared-memory synchronization
-Unix stream framing bugs
-```
-
-Community answers must be verified against:
-
-```text
-POSIX.1-2024
-Linux man-pages
-upstream system documentation
-```
-
----
-
-### 18.13 Nguyên tắc kiểm chứng khi đọc tài liệu IPC
-
-Khi hai nguồn có vẻ mâu thuẫn, hỏi:
-
-```text
-1. POSIX guarantee hay Linux-specific behavior?
-2. Pipe, FIFO, MQ, SHM hay Unix socket?
-3. Byte stream hay message-oriented?
-4. Blocking hay O_NONBLOCK?
-5. Endpoint references còn tồn tại không?
-6. Name lifetime hay object/data lifetime?
-7. Related processes hay unrelated processes?
-8. Message queue POSIX hay System V?
-9. Shared memory POSIX hay System V?
-10. MAP_SHARED hay MAP_PRIVATE?
-11. Shared-memory synchronization đã đúng chưa?
-12. Unix socket pathname hay abstract namespace?
-13. SOCK_STREAM, SOCK_DGRAM hay SOCK_SEQPACKET?
-14. Same IPC namespace/mount/network namespace?
-15. Portable POSIX behavior hay Linux implementation extension?
-16. Kernel/glibc version nào?
-```
-
-Đây là đặc biệt quan trọng vì IPC nằm trên nhiều abstraction layers:
-
-```text
-process lifecycle
-file descriptors
-filesystem namespace
-kernel buffers
-memory mappings
-signals
-thread/process synchronization
-Linux namespaces
-application protocol
-```
-
-Các layer liên hệ chặt chẽ nhưng không đồng nhất.
-
----
-
-> **Điều hướng:** [← Chủ đề 7 — Thread Synchronization](README-topic-07.md) · [Chủ đề 9 →](README-topic-09.md)
+> **Điều hướng:** [← Chủ đề 7 — Thread Synchronization](README-topic-07.md) · [Chủ đề 9 — Socket Programming →](README-topic-09.md)

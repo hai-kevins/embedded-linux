@@ -1,26 +1,12 @@
 # Chủ đề 5 — Signal trong Linux
 
-> **Phạm vi:** Linux/POSIX signal fundamentals — signal concept, generation, pending/delivery, signal disposition, signal mask, process-directed và thread-directed signals, standard và real-time signals, `sigaction()`, `sigprocmask()`, `kill()`, `raise()`, `pause()`, `sigsuspend()`, synchronous signal waiting, signal-handler execution, async-signal-safety, `EINTR`, `SA_RESTART`, `SIGCHLD` và mối liên hệ với process lifecycle.
+> **Phạm vi:** Linux/POSIX signal fundamentals: signal lifecycle, dispositions, standard signals, `sigaction()`, signal mask/pending state, `kill()/raise()`, handler safety và signal-interrupted system calls.
 >
-> Chương này chỉ trình bày **lý thuyết**. Không có lab, bài tập, lệnh thực hành hoặc hướng dẫn thao tác.
+> Chương này chỉ trình bày **lý thuyết**. Không có lab, bài tập, chương trình mẫu hoàn chỉnh hoặc hướng dẫn thao tác thực hành.
 >
-> Mục tiêu của chương là xây mental model:
+> **Giới hạn chủ đề:** Không đi sâu vào real-time signal queues, job-control internals, signalfd, multithreaded signal architecture hoặc dùng signal như một IPC data channel.
 >
-> `event → signal generation → pending state → mask/filter → delivery → disposition → handler/default action`
->
-> và:
->
-> `signal disposition = process-wide`
->
-> `signal mask = per-thread`
->
-> `pending signals = có thể process-directed hoặc thread-directed`
->
-> Đây là nền tảng trực tiếp cho Multithreading, Synchronization, Daemon, IPC, Socket, child-process management, event-driven system và Linux service/application architecture.
->
-> **Giới hạn chủ đề:** chương này chưa đi sâu vào POSIX threads, thread synchronization, `signalfd()`-based event loop, `pidfd_send_signal()`, POSIX timers, `ptrace`, seccomp, namespaces, kernel signal internals hoặc real-time scheduling. Các phần đó chỉ được nhắc khi cần để giữ mental model đúng.
->
-> **Cấu trúc tài liệu:** các mục `##` là khối kiến thức lớn; các concept chi tiết được đặt ở `###`/`####` để giữ mục lục gọn nhưng không giảm chiều sâu nội dung.
+> **Nguyên tắc bố cục:** `##` chỉ dành cho các khối kiến thức lớn; `###/####` dùng cho concept chi tiết. Các phần trùng hoặc thuộc topic khác đã được loại khỏi chapter này.
 >
 > **Điều hướng:** [← Chủ đề 4 — Process](README-topic-04.md) · [Chủ đề 6 — Multithreading →](README-topic-06.md)
 
@@ -31,24 +17,18 @@
 - [1. Signal Fundamentals và Lifecycle](#1-signal-fundamentals-và-lifecycle)
 - [2. Disposition, Default Action và Special Signals](#2-disposition-default-action-và-special-signals)
 - [3. Standard Signals và Fault Signals](#3-standard-signals-và-fault-signals)
-- [4. Process/Thread Signal State và Inheritance](#4-processthread-signal-state-và-inheritance)
+- [4. Signal State Model: Disposition, Mask và Pending](#4-signal-state-model-disposition-mask-và-pending)
 - [5. `sigaction()` và Handler Configuration](#5-sigaction-và-handler-configuration)
-- [6. Signal Sets, Masks và Pending State](#6-signal-sets-masks-và-pending-state)
+- [6. Signal-set APIs: `sigset_t`, `sigprocmask()` và `sigpending()`](#6-signal-set-apis-sigsett-sigprocmask-và-sigpending)
 - [7. Sending Signals và Permission Model](#7-sending-signals-và-permission-model)
-- [8. Waiting for Signals và Race-free Suspension](#8-waiting-for-signals-và-race-free-suspension)
-- [9. Signal-handler Execution Model](#9-signal-handler-execution-model)
-- [10. Async-signal-safety và Handler Design](#10-async-signal-safety-và-handler-design)
-- [11. Signals, System Calls và `EINTR`](#11-signals-system-calls-và-eintr)
-- [12. Standard vs Real-time Signals](#12-standard-vs-real-time-signals)
-- [13. Process Groups, TTY và Job-control Signals](#13-process-groups-tty-và-job-control-signals)
-- [14. `SIGCHLD`, Zombie và Child Lifecycle](#14-sigchld-zombie-và-child-lifecycle)
-- [15. Signal và IPC Boundaries](#15-signal-và-ipc-boundaries)
-- [16. Signals trong Multithreaded Applications](#16-signals-trong-multithreaded-applications)
-- [17. Signal Models và Diagrams](#17-signal-models-và-diagrams)
-- [18. Error Model và Debugging](#18-error-model-và-debugging)
-- [19. Liên hệ với Embedded Linux](#19-liên-hệ-với-embedded-linux)
-- [20. Tổng kết và Mental Model](#20-tổng-kết-và-mental-model)
-- [21. Tài liệu tham khảo](#21-tài-liệu-tham-khảo)
+- [8. Signal-handler Execution Model](#8-signal-handler-execution-model)
+- [9. Async-signal-safety và Handler Design](#9-async-signal-safety-và-handler-design)
+- [10. Signals, System Calls và `EINTR`](#10-signals-system-calls-và-eintr)
+- [11. Signal Lifecycle Diagrams](#11-signal-lifecycle-diagrams)
+- [12. Error Model và Debugging](#12-error-model-và-debugging)
+- [13. Liên hệ với Embedded Linux](#13-liên-hệ-với-embedded-linux)
+- [14. Tổng kết và Mental Model](#14-tổng-kết-và-mental-model)
+- [15. Tài liệu tham khảo](#15-tài-liệu-tham-khảo)
 
 ---
 
@@ -101,8 +81,7 @@ Nó chủ yếu mang:
 
 ```text
 signal identity
-optional metadata
-optional small payload for selected interfaces/real-time signals
+optional metadata for interfaces that define it
 ```
 
 Do đó signal phù hợp với:
@@ -261,8 +240,6 @@ Sources có thể gồm:
 ```text
 kill()
 raise()
-pthread_kill()
-sigqueue()
 terminal driver
 timer expiration
 child-process state transition
@@ -768,7 +745,7 @@ trên mọi architecture/context.
 
 ---
 
-## 4. Process/Thread Signal State và Inheritance
+## 4. Signal State Model: Disposition, Mask và Pending
 
 ### 4.1 Signal disposition là process-wide
 
@@ -836,17 +813,7 @@ cho tới khi eligible for delivery.
 
 > Each thread has an independent signal mask.
 
-Single-threaded program có thể dùng:
-
-```text
-sigprocmask()
-```
-
-Multithreaded POSIX program thường dùng:
-
-```text
-pthread_sigmask()
-```
+Program thay đổi signal mask bằng các signal-mask APIs phù hợp; trong phạm vi chapter này, interface cốt lõi là `sigprocmask()`.
 
 Mental model:
 
@@ -917,134 +884,6 @@ delivered
 `sigpending()` cho caller biết pending blocked signals theo interface semantics.
 
 Pending state không phải general-purpose ordered queue cho standard signals.
-
----
-
-### 4.6 Process-directed signal
-
-
-Signal có thể target entire process.
-
-Examples:
-
-```text
-kill(pid, sig)
-kernel event targeted to process
-terminal group signal
-```
-
-Process-directed signal pending at process level until delivery to an eligible thread.
-
----
-
-### 4.7 Thread-directed signal
-
-
-Signal có thể target specific thread.
-
-Sources có thể gồm:
-
-```text
-hardware exception on current thread
-pthread_kill()
-tgkill()/tkill-style mechanisms
-```
-
-Mental model:
-
-```text
-Process
- |
- +--> Thread A <--- thread-directed signal
- |
- +--> Thread B
-```
-
-Thread-directed pending state belongs to target thread.
-
----
-
-### 4.8 Kernel chọn thread nào để nhận process-directed signal?
-
-
-`signal(7)`:
-
-> Process-directed signal can be delivered to any one thread that does not currently block the signal.
-
-Nếu nhiều eligible threads:
-
-```text
-kernel chooses one
-```
-
-Application không nên dựa vào “thread nào cũng được nên chắc main thread”.
-
-Nếu application muốn deterministic signal handling:
-
-```text
-block signals in worker threads
-dedicated signal-waiting thread
-```
-
-là một common architecture.
-
-Chi tiết sẽ học ở Topic 6.
-
----
-
-### 4.9 `fork()` và signal state
-
-
-Child sau `fork()`:
-
-```text
-inherits copy of parent's signal dispositions
-inherits copy of parent's signal mask
-pending signal set starts empty
-```
-
-theo relevant POSIX/Linux semantics.
-
-Mental model:
-
-```text
-Parent
- disposition table ----copy----> Child
- signal mask ----------copy----> Child
- pending signals ------X-------> not inherited
-```
-
----
-
-### 4.10 `execve()` và signal state
-
-
-Signal mask được preserved across `execve()`.
-
-Signal dispositions:
-
-```text
-ignored dispositions remain ignored
-caught dispositions reset to default
-```
-
-theo POSIX/Linux exec semantics.
-
-Mental model:
-
-```text
-Before exec:
-SIGUSR1 -> handler
-SIGPIPE -> ignored
-mask    -> SIGTERM blocked
-
-After exec:
-SIGUSR1 -> default
-SIGPIPE -> ignored
-mask    -> SIGTERM still blocked
-```
-
-Đây là direct continuation từ Topic 4.
 
 ---
 
@@ -1211,51 +1050,7 @@ Detailed interface list xem `signal(7)`.
 
 ---
 
-### 5.6 `SA_SIGINFO`
-
-
-Bật extended handler interface.
-
-`siginfo_t` có thể chứa metadata như:
-
-```text
-sending PID
-sending UID
-signal code/source
-fault address
-child status
-queued value
-timer metadata
-```
-
-Field validity phụ thuộc signal/source.
-
-Không phải mọi field meaningful cho mọi signal.
-
----
-
-### 5.7 `SA_NODEFER`, `SA_RESETHAND`, `SA_ONSTACK`
-
-
-#### 5.7.1 `SA_NODEFER`
-
-Current signal không tự động được add vào mask khi handler đang chạy.
-
-Có thể tạo recursive/nested same-signal handler.
-
-#### 5.7.2 `SA_RESETHAND`
-
-Reset disposition về default khi handler is entered according to semantics.
-
-#### 5.7.3 `SA_ONSTACK`
-
-Run handler on alternate signal stack nếu configured.
-
-Useful cho cases nơi normal stack có thể compromised/limited, nhưng design chi tiết thuộc advanced signal handling.
-
----
-
-### 5.8 Vì sao `signal()` không nên là interface mặc định
+### 5.6 Vì sao `signal()` không nên là interface mặc định
 
 
 Linux `signal(2)` man-page cảnh báo behavior lịch sử của `signal()` thay đổi giữa Unix versions.
@@ -1284,7 +1079,7 @@ signal    = legacy/simple interface with history caveats
 
 ---
 
-## 6. Signal Sets, Masks và Pending State
+## 6. Signal-set APIs: `sigset_t`, `sigprocmask()` và `sigpending()`
 
 ### 6.1 `sigset_t` và signal sets
 
@@ -1307,9 +1102,7 @@ test membership
 
 Không nên assume internal representation là one integer bitmask có size cố định.
 
-Linux real-time signals từng yêu cầu signal-set size mở rộng.
-
-Application dùng API abstractions.
+Application phải dùng các `sigset_t` APIs thay vì phụ thuộc vào representation bên trong.
 
 ---
 
@@ -1357,37 +1150,7 @@ new = set
 
 ---
 
-### 6.3 `pthread_sigmask()` và multithreaded program
-
-
-Once program is multithreaded, signal mask is per-thread.
-
-POSIX specifies:
-
-```text
-pthread_sigmask()
-```
-
-for thread signal masks.
-
-Mental model:
-
-```text
-Thread A
-  mask A
-
-Thread B
-  mask B
-
-Thread C
-  mask C
-```
-
-Process-level `sigprocmask()` semantics in multithreaded context are not the preferred portable abstraction.
-
----
-
-### 6.4 `sigpending()`
+### 6.3 `sigpending()`
 
 
 `sigpending()` returns set of signals that:
@@ -1508,28 +1271,7 @@ raise()
 
 ---
 
-### 7.4 `pthread_kill()` và thread-directed signaling
-
-
-`pthread_kill(thread, sig)` sends signal to specified POSIX thread in same process context.
-
-Mental model:
-
-```text
-Process
- |
- +--> Thread A
- |
- +--> Thread B <--- pthread_kill(..., SIGUSR1)
-```
-
-Signal disposition remains process-wide.
-
-Only target delivery is thread-directed.
-
----
-
-### 7.5 Signal permission model
+### 7.4 Signal permission model
 
 
 A process cannot arbitrarily signal every other process.
@@ -1564,208 +1306,9 @@ kernel permission check
 
 ---
 
-## 8. Waiting for Signals và Race-free Suspension
+## 8. Signal-handler Execution Model
 
-### 8.1 `pause()` và race condition kinh điển
-
-
-`pause()` sleeps until signal causes handler execution or termination.
-
-Naive synchronization pattern:
-
-```text
-check flag
-if not set:
-    pause()
-```
-
-has race:
-
-```text
-check flag = false
-     |
-signal arrives
-handler sets flag
-     |
-return to code
-     |
-pause()
-     |
-no future signal
-     |
-sleep forever
-```
-
-ASCII:
-
-```text
-Main                       Signal
-
-check condition false
-                            arrives
-                            handler sets condition
-pause()
-<---- blocks forever
-```
-
-This is a **check-then-sleep race**.
-
----
-
-### 8.2 `sigsuspend()` — atomic mask replacement + wait
-
-
-`sigsuspend()` solves classic race by atomically:
-
-```text
-temporarily replace signal mask
-+
-suspend execution
-```
-
-Concept:
-
-```text
-1. block signal before checking shared condition
-2. inspect condition safely
-3. sigsuspend(old/unblocked mask)
-      |
-      | atomic mask switch + sleep
-      v
-4. signal delivered
-5. handler runs
-6. sigsuspend returns EINTR
-7. original mask restored
-```
-
-Mental model:
-
-```text
-No vulnerable gap between:
-"unblock signal"
-and
-"sleep"
-```
-
----
-
-### 8.3 Synchronously waiting for signals
-
-
-Instead of asynchronous handler, program can block signals and wait synchronously.
-
-Linux/POSIX mechanisms:
-
-```text
-sigwait()
-sigwaitinfo()
-sigtimedwait()
-```
-
-Linux additionally:
-
-```text
-signalfd()
-```
-
-Concept:
-
-```text
-block chosen signals
-      |
-      v
-wait interface
-      |
-      v
-signal arrives
-      |
-      v
-function returns signal information
-```
-
-This transforms:
-
-```text
-asynchronous control transfer
-```
-
-into:
-
-```text
-synchronous event retrieval
-```
-
-which can simplify application architecture.
-
----
-
-### 8.4 `sigwaitinfo()` / `sigtimedwait()` / `sigwait()`
-
-
-#### 8.4.1 `sigwaitinfo()`
-
-Wait for one signal from set and return information.
-
-#### 8.4.2 `sigtimedwait()`
-
-Same model with timeout.
-
-#### 8.4.3 `sigwait()`
-
-POSIX thread-oriented abstraction returning selected signal number.
-
-Important design rule:
-
-> Signals intended for synchronous waiting are normally blocked first, so they do not get asynchronously delivered to ordinary handlers/threads.
-
----
-
-### 8.5 Asynchronous handler vs synchronous signal acceptance
-
-
-Two architectures:
-
-#### 8.5.1 Handler model
-
-```text
-normal code
-   |
-signal arrives
-   |
-handler interrupts normal flow
-```
-
-#### 8.5.2 Synchronous wait model
-
-```text
-signal blocked
-   |
-dedicated control flow waits
-   |
-signal arrives
-   |
-wait returns event
-```
-
-Comparison:
-
-```text
-Handler
-  + immediate integration with traditional signal semantics
-  - async-signal-safety constraints
-  - interrupted code/reentrancy complexity
-
-Synchronous wait
-  + ordinary synchronous code context
-  + easier state handling
-  - requires intentional signal-mask architecture
-```
-
----
-
-## 9. Signal-handler Execution Model
-
-### 9.1 Signal-handler execution model
+### 8.1 Signal-handler execution model
 
 
 When kernel delivers signal with user handler, `signal(7)` describes conceptual steps.
@@ -1792,47 +1335,7 @@ Kernel constructs a return path to restore interrupted execution state.
 
 ---
 
-### 9.2 Signal frame và `sigreturn()` ở mức mental model
-
-
-Kernel stores sufficient user-context state:
-
-```text
-registers
-instruction pointer
-stack pointer
-signal mask
-architecture context
-```
-
-Concept:
-
-```text
-Interrupted context
-      |
-      v
-[signal frame on user stack]
-      |
-      v
-handler
-      |
-      v
-signal trampoline
-      |
-      v
-sigreturn
-      |
-      v
-restore context
-```
-
-Applications normally do **not** call `sigreturn()` directly.
-
-It is a kernel/libc ABI mechanism.
-
----
-
-### 9.3 Handler có chạy “song song” với code bị interrupt không?
+### 8.2 Handler có chạy “song song” với code bị interrupt không?
 
 
 Trong a single thread:
@@ -1867,7 +1370,7 @@ Therefore global/shared state becomes a concurrency concern.
 
 ---
 
-### 9.4 Handler reentrancy và nested signals
+### 8.3 Handler reentrancy và nested signals
 
 
 While handler runs, other signals can be delivered if unblocked.
@@ -1896,9 +1399,9 @@ This is one reason arbitrary library calls inside handlers are dangerous.
 
 ---
 
-## 10. Async-signal-safety và Handler Design
+## 9. Async-signal-safety và Handler Design
 
-### 10.1 Async-signal-safety
+### 9.1 Async-signal-safety
 
 
 POSIX defines a set of functions that must be async-signal-safe.
@@ -1927,7 +1430,7 @@ Do not infer safety from:
 
 ---
 
-### 10.2 Vì sao nhiều libc function không an toàn trong signal handler?
+### 9.2 Vì sao nhiều libc function không an toàn trong signal handler?
 
 
 Example conceptual problem:
@@ -1965,7 +1468,7 @@ Signal handler can interrupt these operations at arbitrary point.
 
 ---
 
-### 10.3 Signal handler nên làm gì ở mức thiết kế?
+### 9.3 Signal handler nên làm gì ở mức thiết kế?
 
 
 Good mental model:
@@ -1997,7 +1500,7 @@ Do not build large business logic inside handler.
 
 ---
 
-### 10.4 `volatile sig_atomic_t`
+### 9.4 `volatile sig_atomic_t`
 
 
 C standard provides:
@@ -2032,7 +1535,7 @@ For threads, use proper atomics/synchronization.
 
 ---
 
-### 10.5 `errno` trong signal handler
+### 9.5 `errno` trong signal handler
 
 
 Handler may call functions that alter `errno`.
@@ -2057,9 +1560,9 @@ handler executes in same thread context.
 
 ---
 
-## 11. Signals, System Calls và `EINTR`
+## 10. Signals, System Calls và `EINTR`
 
-### 11.1 Signal interrupting system calls
+### 10.1 Signal interrupting system calls
 
 
 A thread blocked in syscall/library function may receive handler-triggering signal.
@@ -2096,7 +1599,7 @@ No one-line universal rule.
 
 ---
 
-### 11.2 `EINTR`
+### 10.2 `EINTR`
 
 
 `EINTR`:
@@ -2131,7 +1634,7 @@ Do not blindly retry every `EINTR` forever.
 
 ---
 
-### 11.3 `SA_RESTART` không restart mọi syscall
+### 10.3 `SA_RESTART` không restart mọi syscall
 
 
 `signal(7)` lists Linux interfaces that are:
@@ -2166,7 +1669,7 @@ Exact current list should be checked in `signal(7)`.
 
 ---
 
-### 11.4 Partial I/O và signal interruption
+### 10.4 Partial I/O và signal interruption
 
 
 Suppose `read()`/`write()` transfers some bytes before signal.
@@ -2202,519 +1705,9 @@ Therefore robust I/O code must prioritize actual return value over assuming “s
 
 ---
 
-## 12. Standard vs Real-time Signals
+## 11. Signal Lifecycle Diagrams
 
-### 12.1 Signal coalescing với standard signals
-
-
-Standard signals are generally **not queued as multiple instances**.
-
-If same standard signal generated multiple times while pending:
-
-```text
-one pending bit/state may represent it
-```
-
-Concept:
-
-```text
-SIGUSR1 generated
-SIGUSR1 generated again
-SIGUSR1 generated again
-while blocked
-
-pending:
-SIGUSR1
-```
-
-After unblocking, handler may run once rather than three times.
-
-Therefore:
-
-> Standard signals should not be used as a lossless event counter.
-
----
-
-### 12.2 Real-time signals
-
-
-POSIX real-time signals add stronger semantics.
-
-Linux range:
-
-```text
-SIGRTMIN ... SIGRTMAX
-```
-
-Exact usable range can be affected by libc threading implementation, so application should use runtime macros rather than hard-coded numbers.
-
-Properties include:
-
-```text
-queueing multiple instances
-defined ordering
-optional payload via sigqueue
-```
-
----
-
-### 12.3 Real-time signals có queueing semantics
-
-
-If same real-time signal generated multiple times:
-
-```text
-instances can queue
-```
-
-Concept:
-
-```text
-RT signal 1
-RT signal 1
-RT signal 1
-
-pending queue:
-[1][1][1]
-```
-
-Contrast with standard signal coalescing.
-
-Queue capacity is finite and resource-limited.
-
-Linux uses:
-
-```text
-RLIMIT_SIGPENDING
-```
-
-for per-real-user-ID queued signal limit context.
-
----
-
-### 12.4 Ordering của real-time signals
-
-
-POSIX/Linux real-time signals provide ordering guarantees.
-
-If multiple different real-time signals pending, lower-numbered real-time signal has higher delivery priority on Linux/POSIX ordering described by `signal(7)`.
-
-Multiple instances of same signal are delivered in order queued.
-
-Important Linux nuance:
-
-When both standard and real-time signals pending, Linux currently gives priority to standard signals; POSIX leaves that relative priority unspecified.
-
----
-
-### 12.5 `sigqueue()` và payload
-
-
-`sigqueue()` can send:
-
-```text
-signal
-+
-union sigval payload
-```
-
-Payload can be retrieved through `siginfo_t` when `SA_SIGINFO`/synchronous acceptance used.
-
-Concept:
-
-```text
-sender
-  |
-sigqueue(signal, value)
-  |
-  v
-pending queued RT signal
-  |
-  v
-receiver
-  |
-siginfo_t.si_value
-```
-
-Still not a substitute for large IPC payload.
-
----
-
-### 12.6 Standard signals vs real-time signals
-
-
-| Property | Standard signal | Real-time signal |
-|---|---|---|
-| Multiple pending instances | usually coalesced | queued |
-| Ordering of same signal | not count-preserving | queued order |
-| Payload | limited/source-specific | `sigqueue()` payload supported |
-| Range | named standard signals | `SIGRTMIN..SIGRTMAX` |
-| Use | lifecycle/control/faults | richer queued notifications |
-
-Mental model:
-
-```text
-Standard signals
-  state/event notification
-
-Real-time signals
-  queued event instances
-```
-
----
-
-## 13. Process Groups, TTY và Job-control Signals
-
-### 13.1 Signal và process groups
-
-
-Signals can target process groups.
-
-This is critical for shell/job control.
-
-Mental model:
-
-```text
-Process Group PGID 500
- |
- +--> process A
- +--> process B
- +--> process C
-```
-
-Signal to group:
-
-```text
-SIGINT
-  |
-  v
-A, B, C according to target semantics
-```
-
-This is why pipeline processes can react together to terminal Ctrl+C.
-
----
-
-### 13.2 Terminal-generated signals và foreground process group
-
-
-TTY has foreground process group concept.
-
-Terminal driver can generate signals from special characters.
-
-Concept:
-
-```text
-User presses Ctrl+C
-       |
-       v
-terminal/TTY line discipline
-       |
-       v
-SIGINT
-       |
-       v
-foreground process group
-```
-
-Shell itself may not receive the signal if it is not foreground group during child job execution.
-
-This links Topics 1, 4 and 5.
-
----
-
-### 13.3 `SIGINT`, `SIGTSTP`, `SIGHUP` trong terminal/session model
-
-
-#### 13.3.1 `SIGINT`
-
-Interactive interrupt, usually Ctrl+C.
-
-#### 13.3.2 `SIGTSTP`
-
-Interactive terminal stop request, typically Ctrl+Z.
-
-Unlike `SIGSTOP`, it can be caught/ignored.
-
-#### 13.3.3 `SIGHUP`
-
-Historically terminal hangup.
-
-Modern software also uses it by convention for:
-
-```text
-reload configuration
-session disconnect handling
-```
-
-but application-specific meaning after catch is convention, not kernel universal rule.
-
----
-
-## 14. `SIGCHLD`, Zombie và Child Lifecycle
-
-### 14.1 `SIGCHLD`, zombie và `wait()`
-
-
-Full lifecycle:
-
-```text
-Child
-  |
- exits
-  |
-  v
-Kernel retains child status
-  |
-  +--> Child becomes zombie until reaped
-  |
-  +--> SIGCHLD generated for parent
-  |
-  v
-Parent wait()/waitpid()
-  |
-  v
-status collected
-  |
-  v
-zombie reaped
-```
-
-Important:
-
-```text
-SIGCHLD = notification
-wait = state collection/reaping mechanism
-```
-
----
-
-### 14.2 `SIGCHLD` disposition nuances
-
-
-`SIGCHLD` has special POSIX/Linux behavior.
-
-Linux `sigaction(2)` supports flags:
-
-```text
-SA_NOCLDSTOP
-SA_NOCLDWAIT
-```
-
-#### 14.2.1 `SA_NOCLDSTOP`
-
-Do not notify parent for child stop/continue events via SIGCHLD in specified cases.
-
-#### 14.2.2 `SA_NOCLDWAIT`
-
-Children that terminate do not become zombies under relevant semantics.
-
-Explicitly setting disposition:
-
-```text
-SIG_IGN
-```
-
-for SIGCHLD also has special semantics and differs from merely leaving default disposition despite default action being displayed as “ignore”.
-
-This is a famous subtlety.
-
----
-
-## 15. Signal và IPC Boundaries
-
-### 15.1 Signal pending không phải message queue tổng quát
-
-
-Signal state is compact control notification.
-
-For standard signals:
-
-```text
-coalescing
-```
-
-means information can be lost if interpreted as count.
-
-Even real-time signals:
-
-```text
-small payload
-finite queue
-special delivery semantics
-```
-
-Therefore signal system is not equivalent to:
-
-```text
-POSIX message queue
-socket
-pipe
-shared memory
-```
-
----
-
-### 15.2 Signal không nên thay thế IPC data channel
-
-
-Better architecture:
-
-```text
-Signal
-  "something happened"
-
-Pipe/socket/shared memory
-  actual structured data
-```
-
-Example conceptual:
-
-```text
-producer
-   |
-   +--> signal: "new state available"
-   |
-   +--> shared data / IPC channel: content
-```
-
-But often event-capable IPC itself makes extra signal unnecessary.
-
----
-
-### 15.3 Signal vs pipe/eventfd/socket
-
-
-| Mechanism | Main abstraction |
-|---|---|
-| Signal | asynchronous control notification |
-| Pipe | byte-stream IPC |
-| eventfd | counter/event fd |
-| Socket | bidirectional IPC/network communication |
-| Shared memory | shared data region |
-
-Signals are uniquely integrated with:
-
-```text
-process lifecycle
-terminal/job control
-fault delivery
-kernel events
-```
-
-but have strict handler constraints.
-
----
-
-## 16. Signals trong Multithreaded Applications
-
-### 16.1 Signals trong multithreaded application: mental model cần chuẩn bị
-
-
-Remember three rules:
-
-```text
-disposition
-  process-wide
-
-mask
-  per-thread
-
-process-directed signal
-  delivered to one eligible thread
-```
-
-This creates architecture challenge:
-
-```text
-Which thread handles SIGTERM?
-Which thread receives SIGCHLD?
-What if worker is in unsafe state?
-```
-
-Common strategy:
-
-```text
-block control signals before creating threads
-threads inherit blocked mask
-dedicated signal thread waits synchronously
-```
-
-Topic 6 will expand.
-
----
-
-### 16.2 Một dedicated signal-handling thread
-
-
-Conceptual architecture:
-
-```text
-                Process
-                   |
-       +-----------+-----------+
-       |           |           |
-     Worker A    Worker B   Signal Thread
-       |           |           |
- signals blocked  blocked      |
-                               |
-                        sigwaitinfo()
-                               |
-                            events
-                               |
-                        normal thread logic
-```
-
-Advantages:
-
-```text
-no async handler for routine control signals
-ordinary synchronization primitives can be used
-centralized shutdown/reload state
-```
-
-Fault signals like `SIGSEGV` are different and should not be blindly redirected into same model.
-
----
-
-### 16.3 `signalfd()` ở mức khái niệm
-
-
-Linux-specific `signalfd()` converts selected signal notifications into readable fd events.
-
-Mental model:
-
-```text
-blocked signal set
-       |
-       v
-signalfd
-       |
-       v
-file descriptor
-       |
-       +--> read()
-       +--> poll/epoll integration
-```
-
-This is powerful for event loops because signal handling becomes descriptor-based.
-
-But:
-
-```text
-signalfd is Linux-specific
-not POSIX portable
-```
-
-and selected signals must be masked appropriately to avoid traditional delivery.
-
-Detailed usage is outside Topic 5 core.
-
----
-
-## 17. Signal Models và Diagrams
-
-### 17.1 Signal lifecycle state machine
+### 11.1 Signal lifecycle state machine
 
 
 ```mermaid
@@ -2759,7 +1752,7 @@ kernel internal state
 
 ---
 
-### 17.2 Handler execution sequence
+### 11.2 Handler execution sequence
 
 
 ```mermaid
@@ -2783,7 +1776,7 @@ Sơ đồ mô tả high-level delivery model, không phải exact architecture i
 
 ---
 
-### 17.3 Signal mask transformation khi handler chạy
+### 11.3 Signal mask transformation khi handler chạy
 
 
 ASCII:
@@ -2823,9 +1816,9 @@ This explains why same signal normally does not recursively re-enter its own han
 
 ---
 
-## 18. Error Model và Debugging
+## 12. Error Model và Debugging
 
-### 18.1 Error model và tư duy debug Signal
+### 12.1 Error model và tư duy debug Signal
 
 
 Debug by layers:
@@ -2833,7 +1826,7 @@ Debug by layers:
 ```text
 1. Was signal generated?
       ↓
-2. Correct target PID/process group/thread?
+2. Correct target process/process group?
       ↓
 3. Sender has permission?
       ↓
@@ -2852,7 +1845,7 @@ Debug by layers:
 10. Process terminated/stopped/reaped?
 ```
 
-#### 18.1.1 “Handler không chạy”
+#### 12.1.1 “Handler không chạy”
 
 Possible causes:
 
@@ -2866,7 +1859,7 @@ signal coalesced
 handler disposition replaced by exec
 ```
 
-#### 18.1.2 “Signal gửi nhiều lần nhưng handler ít lần”
+#### 12.1.2 “Signal gửi nhiều lần nhưng handler ít lần”
 
 For standard signal:
 
@@ -2876,7 +1869,7 @@ coalescing is expected
 
 Do not treat standard signal as event counter.
 
-#### 18.1.3 “Process hangs after adding signal handler”
+#### 12.1.3 “Process hangs after adding signal handler”
 
 Possible classes:
 
@@ -2888,7 +1881,7 @@ wrong mask
 signal recursively re-enters
 ```
 
-#### 18.1.4 “read() suddenly returns -1”
+#### 12.1.4 “read() suddenly returns -1”
 
 Check:
 
@@ -2898,7 +1891,7 @@ SA_RESTART?
 partial transfer happened?
 ```
 
-#### 18.1.5 “SIGTERM không dừng process”
+#### 12.1.5 “SIGTERM không dừng process”
 
 Possible:
 
@@ -2910,7 +1903,7 @@ wrong target
 permission/namespace issue
 ```
 
-#### 18.1.6 “SIGKILL không dừng ngay”
+#### 12.1.6 “SIGKILL không dừng ngay”
 
 `SIGKILL` cannot be caught/blocked, but a task in certain kernel uninterruptible states may not complete termination until it reaches a point where kernel can act on pending fatal signal.
 
@@ -2918,14 +1911,14 @@ Therefore “not instant in wall-clock time” does not mean process caught SIGK
 
 ---
 
-## 19. Liên hệ với Embedded Linux
+## 13. Liên hệ với Embedded Linux
 
-### 19.1 Liên hệ với Embedded Linux
+### 13.1 Liên hệ với Embedded Linux
 
 
 Signals appear everywhere in Embedded Linux userspace.
 
-#### 19.1.1 Graceful service shutdown
+#### 13.1.1 Graceful service shutdown
 
 Service manager sends:
 
@@ -2955,7 +1948,7 @@ Complex cleanup should occur in normal control flow, not large async handler.
 
 ---
 
-#### 19.1.2 Reload configuration
+#### 13.1.2 Reload configuration
 
 Some daemons conventionally use:
 
@@ -2971,7 +1964,7 @@ Kernel only delivers signal; application defines reload semantics.
 
 ---
 
-#### 19.1.3 Child workers
+#### 13.1.3 Child workers
 
 Supervisor/daemon:
 
@@ -2988,7 +1981,7 @@ Failure to reap creates zombies.
 
 ---
 
-#### 19.1.4 UART/TTY interactive applications
+#### 13.1.4 UART/TTY interactive applications
 
 Terminal-generated:
 
@@ -3014,7 +2007,7 @@ signal delivery
 
 ---
 
-#### 19.1.5 Pipes and sockets
+#### 13.1.5 Pipes and sockets
 
 Broken communication can lead to:
 
@@ -3027,7 +2020,7 @@ Network/IPC software must define intentional handling policy.
 
 ---
 
-#### 19.1.6 Watchdog/service architecture
+#### 13.1.6 Watchdog/service architecture
 
 Signals can coordinate:
 
@@ -3042,7 +2035,7 @@ but hardware watchdog servicing itself should not be designed around unsafe comp
 
 ---
 
-#### 19.1.7 Fault diagnostics
+#### 13.1.7 Fault diagnostics
 
 Signals like:
 
@@ -3068,7 +2061,7 @@ but signal handler is not a magic way to safely recover arbitrary corrupted proc
 
 ---
 
-#### 19.1.8 Headless systems
+#### 13.1.8 Headless systems
 
 Embedded Linux often lacks GUI.
 
@@ -3086,896 +2079,45 @@ making them central to process control.
 
 ---
 
-## 20. Tổng kết và Mental Model
-
-### 20.1 Mô hình tư duy tổng hợp
-
-
-```text
-                        SIGNAL SOURCE
-                             |
-          +------------------+------------------+
-          |                  |                  |
-       process             kernel            hardware/
-       kill()             event              terminal
-          |                  |                  |
-          +------------------+------------------+
-                             |
-                             v
-                      SIGNAL GENERATED
-                             |
-                             v
-                 +------------------------+
-                 | target process/thread? |
-                 +------------------------+
-                             |
-                             v
-                       MASK CHECK
-                        /       \
-                    blocked    unblocked
-                      |           |
-                      v           v
-                   PENDING    DELIVERABLE
-                      |           |
-                      +------->---+
-                                  |
-                                  v
-                            DISPOSITION
-                       /         |         \
-                      /          |          \
-                   DEFAULT     IGNORE      HANDLER
-                     |                       |
-       +-------------+---------+             |
-       |             |         |             |
-     Term          Stop       Cont           |
-       |             |         |             v
-       v             v         v      temporary control
-   terminate       stopped   running     transfer
-                                             |
-                                             v
-                                      handler returns
-                                             |
-                                             v
-                                     interrupted code
-                                         resumes
-```
-
-Process/thread signal state:
-
-```text
-PROCESS
- |
- +--> signal dispositions  [shared]
- |
- +--> process-directed pending signals
- |
- +--> Thread A
- |      |
- |      +--> signal mask [per-thread]
- |      +--> thread-directed pending
- |
- +--> Thread B
-        |
-        +--> signal mask [per-thread]
-        +--> thread-directed pending
-```
-
-Signal-handler safety:
-
-```text
-normal code
-   |
- may hold libc lock
-   |
-signal arrives
-   |
-handler
-   |
-   +--> unsafe libc call
-          |
-          v
-    reentrancy/deadlock risk
-
-
-Preferred mental model:
-
-handler
-   |
-minimal async-safe notification
-   |
-return
-   |
-normal code performs complex work
-```
-
----
-
-### 20.2 Các nguyên tắc cốt lõi
-
-
-1. Signal là event-notification/control mechanism, không phải general data stream.
-
-2. Signal generation, pending và delivery là ba khái niệm khác nhau.
-
-3. Generated signal chưa chắc được delivered ngay.
-
-4. Blocked signal có thể trở thành pending.
-
-5. Ignored signal và blocked signal không giống nhau.
-
-6. Signal disposition có thể là default, ignore hoặc user handler.
-
-7. Signal disposition là process-wide.
-
-8. Signal mask là per-thread.
-
-9. Process-directed signal và thread-directed signal là hai target models khác nhau.
-
-10. Process-directed signal được delivered tới một eligible thread không block signal.
-
-11. Thread-directed signal chỉ target specific thread.
-
-12. `SIGKILL` và `SIGSTOP` không thể catch, block hoặc ignore.
-
-13. Symbolic signal names nên được dùng thay hard-coded numbers.
-
-14. Signal numbers có architecture differences.
-
-15. `SIGINT`, `SIGTERM` và `SIGKILL` không phải ba “mức kill” giống nhau.
-
-16. `SIGTERM` cho phép graceful shutdown path nếu application catch it.
-
-17. `SIGKILL` không cho user-space cleanup handler.
-
-18. `SIGCHLD` là child-state notification; `wait()` mới collect/reap child status.
-
-19. `SIGPIPE` liên hệ broken pipe/stream write và `EPIPE`.
-
-20. Synchronous fault signals như `SIGSEGV` gắn với execution faults nhưng exact fault-to-signal mapping có architecture nuances.
-
-21. Child sau `fork()` inherit dispositions và mask, nhưng pending signal set không được copy như normal pending state.
-
-22. Signal mask được preserved across exec.
-
-23. Caught signal dispositions reset to default across exec; ignored dispositions remain ignored according to POSIX/Linux exec semantics.
-
-24. `sigaction()` là preferred interface để configure signal disposition.
-
-25. `signal()` có historical portability semantics và không nên là default design API.
-
-26. `sa_mask` add extra blocked signals during handler execution.
-
-27. Current handled signal is normally blocked during its own handler unless `SA_NODEFER`.
-
-28. `SA_SIGINFO` enables richer handler metadata.
-
-29. `SA_RESTART` does not restart every interrupted syscall.
-
-30. `sigset_t` is an abstract signal-set type; do not assume fixed integer representation.
-
-31. `sigprocmask()` controls mask in single-threaded process context.
-
-32. `pthread_sigmask()` is the correct POSIX abstraction for masks in multithreaded programs.
-
-33. `sigpending()` observes pending blocked signals; it does not consume them.
-
-34. `kill()` means send signal, not necessarily terminate.
-
-35. `kill(pid, 0)` can perform existence/permission checking without actual signal delivery.
-
-36. `raise()` sends signal to self/calling execution context.
-
-37. `pthread_kill()` sends thread-directed signal to selected thread.
-
-38. Signal sending is subject to kernel permission checks.
-
-39. `pause()` by itself can participate in a check-then-sleep race.
-
-40. `sigsuspend()` atomically changes mask and sleeps, solving classic signal-wait race.
-
-41. Signals can be accepted synchronously using `sigwait*()` family.
-
-42. Asynchronous handlers create reentrancy/async-signal-safety constraints.
-
-43. Synchronous signal-waiting can simplify multithreaded event handling.
-
-44. Handler execution is kernel-mediated control transfer, not an ordinary application function call.
-
-45. Kernel saves interrupted context and restores it through signal-return machinery.
-
-46. Handler on one thread can run concurrently with other threads.
-
-47. Signal handlers can nest when other signals remain unblocked.
-
-48. Many libc functions are not async-signal-safe.
-
-49. A handler should generally perform minimal safe work and defer complex logic.
-
-50. `volatile sig_atomic_t` is useful for signal-handler communication but is not a substitute for thread synchronization primitives.
-
-51. `errno` may need preservation inside a signal handler.
-
-52. Signals can interrupt blocking system calls.
-
-53. `EINTR` means interruption by signal semantics, not hardware failure.
-
-54. Retry policy after `EINTR` must consider operation semantics, deadlines and partial progress.
-
-55. A signal can arrive after partial I/O, so syscall may return a positive byte count instead of `EINTR`.
-
-56. Standard signals generally coalesce while pending and are not a lossless event counter.
-
-57. Real-time signals can queue multiple instances.
-
-58. Real-time signals have defined ordering semantics and can carry `sigqueue()` payload.
-
-59. Real-time signal queues are finite/resource-limited.
-
-60. Signal is not a replacement for pipe/socket/shared-memory data transfer.
-
-61. Process groups let one signal target a set of related processes.
-
-62. Terminal Ctrl+C commonly generates SIGINT for foreground process group through TTY semantics.
-
-63. `SIGTSTP` differs from uncatchable `SIGSTOP`.
-
-64. SIGHUP's “reload config” meaning is application convention, not universal kernel semantics.
-
-65. SIGCHLD default/ignore semantics have special POSIX/Linux nuances.
-
-66. In multithreaded applications, remember: dispositions shared, masks per-thread.
-
-67. A dedicated signal-wait thread is a common architecture for deterministic process-control signal handling.
-
-68. `signalfd()` integrates Linux signals into file-descriptor event loops but is Linux-specific.
-
-69. “Signal sent” does not guarantee “handler ran immediately”.
-
-70. “Handler did not run” can be due to mask, disposition, target selection, coalescing or process lifecycle.
-
-71. Signal handling and process lifecycle are tightly coupled: fork/exec/exit/wait all affect signal state.
-
-72. Embedded Linux services commonly use signals for shutdown, reload and child supervision.
-
-73. Complex cleanup belongs in normal execution context whenever possible, not arbitrary async handler context.
-
-74. Mental model cốt lõi:
+## 14. Tổng kết và Mental Model
 
 ```text
 event
   ↓
 signal generated
   ↓
-pending if blocked
+pending?
   ↓
-delivery when eligible
+mask allows delivery
   ↓
-default / ignore / handler
+disposition
+  ├─ default
+  ├─ ignore
+  └─ handler
 ```
 
-và trong multithreaded process:
-
-```text
-disposition = process-wide
-mask        = per-thread
-pending     = process-directed and/or thread-directed
-```
+Các điểm cần giữ:
+- Signal là asynchronous notification mechanism, không phải normal function call.
+- Disposition quyết định default/ignore/handler; `SIGKILL` và `SIGSTOP` không thể catch/ignore/block theo normal rules.
+- Signal mask quyết định signal nào tạm thời bị block.
+- `sigaction()` là interface chuẩn để thiết lập handler/disposition và handler mask.
+- `kill()` gửi signal theo PID-target semantics; `raise()` gửi signal cho chính execution context theo POSIX semantics.
+- Handler chạy trong context bị interrupt nên chỉ được gọi async-signal-safe operations theo contract.
+- Signal có thể interrupt blocking syscall và dẫn tới `EINTR`; `SA_RESTART` không phải blanket guarantee cho mọi syscall.
 
 ---
 
-## 21. Tài liệu tham khảo
-
-
-Nguồn được ưu tiên theo thứ tự:
-
-```text
-POSIX / The Open Group
-        ↓
-Linux man-pages
-        ↓
-Linux Kernel Documentation
-        ↓
-glibc / upstream documentation
-        ↓
-recognized Linux/Embedded Linux training
-        ↓
-reputable community discussion for edge cases
-```
-
-Community sources chỉ nên dùng để:
-
-```text
-tìm edge case
-nhận diện symptom
-đối chiếu real-world design
-tìm keyword quay lại upstream documentation
-```
-
-Không dùng community answer thay POSIX/man-pages khi xác định signal semantics.
-
----
-
-### Linux man-pages — Signal overview
-
-#### `signal(7)`
-
-- https://man7.org/linux/man-pages/man7/signal.7.html
-
-Đây là nguồn trung tâm của Topic 5.
-
-Dùng cho:
-
-```text
-signal disposition
-generation / pending / delivery
-process-directed vs thread-directed signals
-signal mask
-fork/exec inheritance
-standard signal table
-real-time signals
-synchronous signal acceptance
-system-call interruption
-SA_RESTART behavior overview
-```
-
-Các mental model quan trọng được lấy trực tiếp từ semantics của `signal(7)`:
-
-```text
-blocked signal becomes pending
-each thread has independent signal mask
-process-directed signal may be delivered to an eligible thread
-signal mask inherited by fork and preserved across exec
-```
-
----
-
-### POSIX / The Open Group
-
-#### POSIX.1-2024
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/
-
-Các phần liên quan:
-
-```text
-Signal Concepts
-sigaction()
-sigprocmask()
-pthread_sigmask()
-kill()
-raise()
-pause()
-sigsuspend()
-sigpending()
-sigwait()
-sigwaitinfo()
-sigtimedwait()
-```
-
-POSIX được dùng để phân biệt:
-
-```text
-portable signal semantics
-vs
-Linux-specific extensions
-```
-
-#### `sigaction()`
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/functions/sigaction.html
-
-#### `sigprocmask()`
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/functions/sigprocmask.html
-
-#### `kill()`
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/functions/kill.html
-
-#### `sigsuspend()`
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/functions/sigsuspend.html
-
-#### `sigwait()`
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/functions/sigwait.html
-
----
-
-### Linux man-pages — signal disposition
-
-#### `sigaction(2)`
-
-- https://man7.org/linux/man-pages/man2/sigaction.2.html
-
-Nguồn cho:
-
-```text
-SIG_DFL
-SIG_IGN
-sa_handler
-sa_sigaction
-sa_mask
-sa_flags
-SA_RESTART
-SA_SIGINFO
-SA_NODEFER
-SA_RESETHAND
-SA_NOCLDSTOP
-SA_NOCLDWAIT
-SA_ONSTACK
-```
-
-#### `signal(2)`
-
-- https://man7.org/linux/man-pages/man2/signal.2.html
-
-Nguồn quan trọng cho cảnh báo:
-
-```text
-historical signal() semantics vary
-use sigaction() instead
-```
-
----
-
-### Linux man-pages — masks and pending signals
-
-#### `sigprocmask(2)`
-
-- https://man7.org/linux/man-pages/man2/sigprocmask.2.html
-
-Nguồn cho:
-
-```text
-SIG_BLOCK
-SIG_UNBLOCK
-SIG_SETMASK
-signal-mask manipulation
-fork/exec mask inheritance context
-SIGKILL/SIGSTOP blocking restriction
-```
-
-#### `pthread_sigmask(3)`
-
-- https://man7.org/linux/man-pages/man3/pthread_sigmask.3.html
-
-Nguồn cho multithreaded per-thread signal-mask semantics.
-
-#### `sigpending(2)`
-
-- https://man7.org/linux/man-pages/man2/sigpending.2.html
-
-Nguồn cho pending-signal inspection.
-
-#### Signal-set operations
-
-- https://man7.org/linux/man-pages/man3/sigsetops.3.html
-
-Nguồn cho:
-
-```text
-sigemptyset
-sigfillset
-sigaddset
-sigdelset
-sigismember
-```
-
----
-
-### Linux man-pages — sending signals
-
-#### `kill(2)`
-
-- https://man7.org/linux/man-pages/man2/kill.2.html
-
-Nguồn cho:
-
-```text
-PID target semantics
-process-group targeting
-permission checks
-signal 0
-EPERM / ESRCH
-```
-
-#### `raise(3)`
-
-- https://man7.org/linux/man-pages/man3/raise.3.html
-
-Nguồn cho self-signal semantics.
-
-#### `pthread_kill(3)`
-
-- https://man7.org/linux/man-pages/man3/pthread_kill.3.html
-
-Nguồn cho thread-directed signaling.
-
-#### `sigqueue(3)`
-
-- https://man7.org/linux/man-pages/man3/sigqueue.3.html
-
-Nguồn cho real-time signal queue payload.
-
----
-
-### Linux man-pages — waiting for signals
-
-#### `pause(2)`
-
-- https://man7.org/linux/man-pages/man2/pause.2.html
-
-Nguồn cho basic suspend-until-signal semantics.
-
-#### `sigsuspend(2)`
-
-- https://man7.org/linux/man-pages/man2/sigsuspend.2.html
-
-Nguồn cho:
-
-```text
-atomic temporary mask replacement
-wait for signal
-classic race-free signal waiting pattern
-```
-
-#### `sigwaitinfo(2)` / `sigtimedwait(2)`
-
-- https://man7.org/linux/man-pages/man2/sigwaitinfo.2.html
-
-Nguồn cho synchronous signal acceptance.
-
-#### `sigwait(3)`
-
-- https://man7.org/linux/man-pages/man3/sigwait.3.html
-
-POSIX-thread signal waiting abstraction.
-
----
-
-### Async-signal-safety
-
-#### `signal-safety(7)`
-
-- https://man7.org/linux/man-pages/man7/signal-safety.7.html
-
-Nguồn trung tâm cho:
-
-```text
-async-signal-safe functions
-reentrancy risks
-stdio example
-errno preservation
-POSIX-required safe function list
-```
-
-Điểm thiết kế:
-
-```text
-handler should use only async-signal-safe operations
-or arrange architecture so complex work occurs outside handler
-```
-
----
-
-### Process lifecycle relationships
-
-#### `fork(2)`
-
-- https://man7.org/linux/man-pages/man2/fork.2.html
-
-Dùng để đối chiếu signal state qua fork:
-
-```text
-signal mask copied
-pending set empty in child
-signal dispositions inherited
-```
-
-#### `execve(2)`
-
-- https://man7.org/linux/man-pages/man2/execve.2.html
-
-Dùng cho:
-
-```text
-caught signal dispositions reset
-ignored dispositions preserved
-signal mask preserved
-```
-
-#### `wait(2)` / `waitpid(2)`
-
-- https://man7.org/linux/man-pages/man2/waitpid.2.html
-
-Nguồn cho:
-
-```text
-SIGCHLD relationship
-zombie lifecycle
-child state changes
-wait/reap
-```
-
----
-
-### Terminal and job-control relationships
-
-#### `termios(3)`
-
-- https://man7.org/linux/man-pages/man3/termios.3.html
-
-Nguồn cho terminal special characters và generated signals như:
-
-```text
-VINTR  → SIGINT
-VSUSP  → SIGTSTP
-VQUIT  → SIGQUIT
-```
-
-#### `credentials(7)`
-
-- https://man7.org/linux/man-pages/man7/credentials.7.html
-
-Nguồn cho:
-
-```text
-process groups
-sessions
-controlling terminal context
-```
-
-#### `getpgrp(2)` / process-group interfaces
-
-- https://man7.org/linux/man-pages/man2/getpgrp.2.html
-
-Dùng để nối signal targeting với shell/job control.
-
----
-
-### Real-time signals
-
-#### `signal(7)` — Real-time signals section
-
-- https://man7.org/linux/man-pages/man7/signal.7.html
-
-Nguồn cho:
-
-```text
-SIGRTMIN..SIGRTMAX
-queueing
-ordering
-payload
-RLIMIT_SIGPENDING
-glibc/NPTL reserved real-time signals
-```
-
-#### `getrlimit(2)`
-
-- https://man7.org/linux/man-pages/man2/getrlimit.2.html
-
-Nguồn cho:
-
-```text
-RLIMIT_SIGPENDING
-```
-
----
-
-### Linux-specific file-descriptor signal handling
-
-#### `signalfd(2)`
-
-- https://man7.org/linux/man-pages/man2/signalfd.2.html
-
-Nguồn cho concept:
-
-```text
-signal set
-      ↓
-signalfd
-      ↓
-file descriptor
-      ↓
-read/poll/epoll
-```
-
-Đây là Linux-specific interface, không phải POSIX generic signal mechanism.
-
----
-
-### Linux Kernel Documentation
-
-#### Kernel documentation index
-
-- https://docs.kernel.org/
-
-Signal behavior user ABI được mô tả tốt nhất trong POSIX + Linux man-pages.
-
-Kernel documentation được dùng bổ sung để hiểu context:
-
-```text
-scheduler
-TTY subsystem
-process/task model
-driver/event context
-```
-
-#### TTY subsystem
-
-- https://docs.kernel.org/driver-api/tty/
-
-Dùng để liên hệ:
-
-```text
-terminal input
-line discipline
-terminal-generated signals
-```
-
----
-
-### GNU C Library
-
-#### GNU C Library Manual — Signal Handling
-
-- https://www.gnu.org/software/libc/manual/html_node/Signal-Handling.html
-- https://www.gnu.org/software/libc/manual/
-
-Nguồn bổ sung cho:
-
-```text
-signal concepts
-handler design
-signal sets
-blocking
-waiting
-process signal generation
-```
-
-Exact Linux semantics vẫn ưu tiên Linux man-pages.
-
----
-
-### Bootlin
-
-#### Embedded Linux System Development
-
-- https://bootlin.com/training/embedded-linux/
-- https://bootlin.com/doc/training/embedded-linux/
-
-Dùng để đối chiếu signal trong broader Embedded Linux userspace context:
-
-```text
-process management
-services
-shell/terminal
-daemon lifecycle
-application debugging
-```
-
-#### Bootlin Linux Kernel / Driver Development
-
-- https://bootlin.com/training/kernel/
-- https://bootlin.com/doc/training/linux-kernel/
-
-Có giá trị để hiểu userspace signal concept trong wider:
-
-```text
-kernel task
-scheduler
-driver
-TTY
-process lifecycle
-```
-
----
-
-### The Linux Programming Interface / man7.org
-
-- https://man7.org/tlpi/
-- https://man7.org/training/
-
-Michael Kerrisk là maintainer lâu năm của Linux man-pages và tác giả *The Linux Programming Interface*.
-
-Đây là nguồn giải thích uy tín cho:
-
-```text
-signal concepts
-signal handlers
-signal masks
-pending signals
-synchronous waiting
-real-time signals
-process groups
-child process handling
-```
-
-Exact semantics vẫn ưu tiên POSIX/man-pages.
-
----
-
-### Reputable community references
-
-#### Unix & Linux Stack Exchange
-
-- https://unix.stackexchange.com/
-
-Có giá trị để nghiên cứu edge cases:
-
-```text
-why signal handler did not run
-SIGCHLD/zombie behavior
-SA_RESTART surprises
-SIGPIPE
-terminal-generated signals
-signal masks in threads
-```
-
-#### Stack Overflow
-
-- https://stackoverflow.com/
-
-Hữu ích để nhận diện coding/design mistakes như:
-
-```text
-printf in signal handler
-pause race
-EINTR loop bugs
-signal + pthread interactions
-```
-
-Nhưng conclusion phải quay lại đối chiếu:
-
-```text
-POSIX
-Linux man-pages
-glibc docs
-kernel docs
-```
-
----
-
-### Nguyên tắc kiểm chứng khi đọc tài liệu Signal
-
-Khi hai nguồn có vẻ mâu thuẫn, hỏi:
-
-```text
-1. POSIX behavior hay Linux-specific?
-2. Standard signal hay real-time signal?
-3. Signal process-directed hay thread-directed?
-4. Signal đang blocked, pending hay delivered?
-5. Disposition process-wide là gì?
-6. Thread mask hiện tại là gì?
-7. Single-threaded hay multithreaded?
-8. Handler installed bằng sigaction flags nào?
-9. Syscall có SA_RESTART support không?
-10. I/O đã partial-progress chưa?
-11. Signal synchronous fault hay asynchronous notification?
-12. Process group/session/terminal context nào?
-13. fork/exec đã xảy ra chưa?
-14. Signal number có architecture/libc difference không?
-15. Kernel/glibc version nào?
-```
-
-Đây là quan trọng vì cùng câu:
-
-```text
-"process received SIGTERM"
-```
-
-chưa đủ để biết:
-
-```text
-handler có chạy không?
-thread nào nhận?
-signal đang blocked không?
-signal pending không?
-disposition là gì?
-process sẽ terminate không?
-syscall có bị EINTR không?
-```
+## 15. Tài liệu tham khảo
+
+- POSIX.1-2024 signal interfaces: https://pubs.opengroup.org/onlinepubs/9799919799/
+- `signal(7)`: https://man7.org/linux/man-pages/man7/signal.7.html
+- `sigaction(2)`: https://man7.org/linux/man-pages/man2/sigaction.2.html
+- `sigprocmask(2)`: https://man7.org/linux/man-pages/man2/sigprocmask.2.html
+- `sigpending(2)`: https://man7.org/linux/man-pages/man2/sigpending.2.html
+- `kill(2)`: https://man7.org/linux/man-pages/man2/kill.2.html
+- `raise(3)`: https://man7.org/linux/man-pages/man3/raise.3.html
+- `signal-safety(7)`: https://man7.org/linux/man-pages/man7/signal-safety.7.html
+- The Linux Programming Interface: https://man7.org/tlpi/
 
 ---
 

@@ -1,20 +1,12 @@
 # Chủ đề 2 — Linux File System
 
-> **Phạm vi:** Linux filesystem fundamentals — nền tảng về namespace, file types, inode, permissions, mount và các công cụ quan sát filesystem cho Embedded Linux.
+> **Phạm vi:** Linux filesystem fundamentals: cây thư mục từ `/`, file types, pathname, inode/block, permissions, mount, pseudo-filesystems và các góc nhìn quan sát filesystem.
 >
-> Chương này chỉ trình bày **lý thuyết**. Không có lab, bài tập hoặc hướng dẫn thao tác thực hành.
+> Chương này chỉ trình bày **lý thuyết**. Không có lab, bài tập, chương trình mẫu hoàn chỉnh hoặc hướng dẫn thao tác thực hành.
 >
-> Chương này tập trung vào bản chất của filesystem trong Linux: cây thư mục bắt đầu từ `/` được hình thành như thế nào, pathname được kernel phân giải ra sao, directory entry liên hệ với inode như thế nào, inode và data block khác nhau ở đâu, permission `r/w/x` có ý nghĩa gì đối với file và directory, mount thực chất làm gì, và vì sao `ls`, `stat`, `file`, `df`, `du` cho các góc nhìn khác nhau về cùng một hệ thống.
+> **Giới hạn chủ đề:** Không đi sâu vào `open/read/write/lseek`, filesystem-driver implementation, page cache, journaling hoặc VFS locking.
 >
-> Mục tiêu của chương **không phải học thuộc cây thư mục hoặc thuộc lòng lệnh**. Mục tiêu là hình thành mental model:
->
-> `pathname → VFS lookup → dentry → inode → filesystem → storage / RAM / kernel object`
->
-> Mental model này sẽ được dùng lại ở File I/O, process, device file, root filesystem, BusyBox, Buildroot, Linux Device Model, driver interaction, board bring-up và debugging.
->
-> **Giới hạn chủ đề:** chưa đi sâu vào `open/read/write/lseek`, implementation chi tiết của ext4, journaling, page cache, filesystem driver hay VFS locking. Những phần đó thuộc các topic/layer sau.
->
-> **Cấu trúc tài liệu:** các mục `##` là khối kiến thức lớn; các concept chi tiết được đặt ở `###`/`####` để giữ mục lục gọn nhưng không giảm chiều sâu nội dung.
+> **Nguyên tắc bố cục:** `##` chỉ dành cho các khối kiến thức lớn; `###/####` dùng cho concept chi tiết. Các phần trùng hoặc thuộc topic khác đã được loại khỏi chapter này.
 >
 > **Điều hướng:** [← Chủ đề 1 — Basic Linux Command Line](README-topic-01.md) · [Chủ đề 3 — File I/O →](README-topic-03.md)
 
@@ -919,7 +911,7 @@ Ví dụ:
 ln -s releases/v2 current
 ```
 
-##### Symlink có inode riêng
+##### 5.2.3.1 Symlink có inode riêng
 
 ```text
 name "current"
@@ -936,7 +928,7 @@ target lookup
 
 Target có object/inode riêng.
 
-##### Dangling symlink
+##### 5.2.3.2 Dangling symlink
 
 Symlink vẫn có thể tồn tại khi target không tồn tại:
 
@@ -953,11 +945,11 @@ lstat(link)  có thể thấy link object
 stat(link)   follow final symlink và có thể ENOENT
 ```
 
-##### Relative symlink target
+##### 5.2.3.3 Relative symlink target
 
 Relative target được giải tương đối với directory chứa symlink khi follow link, không phải đơn giản theo cwd nơi lệnh `ln` từng được chạy.
 
-##### Symlink loop
+##### 5.2.3.4 Symlink loop
 
 ```text
 a -> b
@@ -1452,7 +1444,7 @@ Giải mã:
 └─── owner  = 7 = rwx
 ```
 
-##### Không dùng `chmod 777` như “universal fix”
+##### 7.4.2.1 Không dùng `chmod 777` như “universal fix”
 
 `777` không sửa được các lỗi như:
 
@@ -1533,7 +1525,7 @@ created_mode = requested_mode & ~umask
 
 chỉ xét permission bits phù hợp.
 
-##### Regular file example
+##### 7.4.6.1 Regular file example
 
 Program thường request kiểu:
 
@@ -1553,7 +1545,7 @@ kết quả:
 0644 = rw-r--r--
 ```
 
-##### Directory example
+##### 7.4.6.2 Directory example
 
 `mkdir` thường request:
 
@@ -1567,11 +1559,11 @@ với `0022`:
 0755
 ```
 
-##### Umask không thêm execute bit
+##### 7.4.6.3 Umask không thêm execute bit
 
 Nếu requested mode là `0666`, x bits không tồn tại từ đầu. `umask` chỉ loại bit, không thêm bit.
 
-##### Process inheritance
+##### 7.4.6.4 Process inheritance
 
 Shell có umask; child process thường kế thừa state này.
 
@@ -2367,502 +2359,43 @@ Topic 2 cung cấp vocabulary và abstraction nền cho phần Boot Architecture
 
 ## 14. Tổng kết và Mental Model
 
-### 14.1 Mô hình tư duy tổng hợp
-
-
-Toàn Topic 2 có thể cô đọng thành ba mental model.
-
-#### 14.1.1 Namespace → object
-
-```text
-pathname
-   |
-   v
-path-component lookup
-   |
-   v
-dentry/cache
-   |
-   v
-inode
-   |
-   +--> file type
-   +--> owner/group
-   +--> permissions
-   +--> size/timestamps
-   |
-   v
-filesystem semantics / data mapping
-```
-
-#### 14.1.2 VFS → filesystem implementation
-
-```text
-                              USERSPACE
-                                  |
-                         pathname / operation
-                                  |
-                                  v
-                         +------------------+
-                         |       VFS        |
-                         +------------------+
-                                  |
-                    pathname + mount traversal
-                                  |
-                    +-------------+-------------+
-                    |                           |
-                    v                           v
-                 dentry                     mount tree
-                    |
-                    v
-                  inode
-                    |
-       +------------+-------------+----------------+
-       |            |             |                |
-       v            v             v                v
-     type         mode          owner           metadata
-       |
-       v
-filesystem-specific implementation
-       |
- +-----+----------------+-------------------+
- |                      |                   |
- v                      v                   v
-ext4                   tmpfs            procfs/sysfs
- |                      |                   |
- v                      v                   v
-storage                 RAM              kernel state
-```
-
-#### 14.1.3 Unified mount namespace
-
-```text
-                           /
-                           |
-          +----------------+----------------+
-          |                |                |
-        /etc             /home            /proc
-          |                |                |
-       rootfs          same/other FS      procfs
-                                            |
-                                           /sys
-                                            |
-                                          sysfs
-```
-
-Ba model bổ sung nhau:
-
-```text
-namespace model
-object/metadata model
-mount/filesystem model
-```
-
-Nếu chỉ nhớ `/etc`, `/usr`, `/var` mà không hiểu ba model trên, kiến thức filesystem sẽ rất dễ vỡ khi sang RootFS/Buildroot/Driver.
-
----
-
-### 14.2 Các nguyên tắc cốt lõi
-
-
-1. Linux trình bày một pathname namespace thống nhất bắt đầu từ `/`, dù phía dưới có thể là nhiều filesystem.
-
-2. FHS nói về hierarchy/placement; ext4/XFS/tmpfs/procfs nói về filesystem type/implementation. Hai lớp khác nhau.
-
-3. Pathname là route qua namespace, không phải identity trực tiếp của inode.
-
-4. Absolute path bắt đầu từ process root; relative path thường bắt đầu từ current working directory.
-
-5. Kernel resolve pathname theo từng component và cần search permission trên directory prefixes.
-
-6. Directory là filesystem object có inode và cung cấp name lookup/entries cho namespace.
-
-7. VFS là abstraction giúp cùng một userspace interface làm việc với nhiều filesystem implementation.
-
-8. Dentry và inode khác nhau: dentry liên quan name lookup/cache; inode đại diện filesystem object + metadata.
-
-9. Filename/pathname không nằm đơn giản trong inode; một inode có thể có nhiều hard-link names.
-
-10. Inode number không phải global unique ID toàn hệ thống; phải đặt trong filesystem/device context.
-
-11. Inode metadata gồm type, mode, UID/GID, size, timestamps, link count và block-related accounting.
-
-12. `ctime` là status/inode change time, không phải Unix creation time.
-
-13. Logical file size và allocated storage không nhất thiết bằng nhau.
-
-14. Filesystem allocation block, `st_blocks` accounting và `st_blksize` I/O hint là các khái niệm khác nhau.
-
-15. Core file types gồm regular, directory, symlink, character device, block device, FIFO và socket.
-
-16. File extension không quyết định inode file type.
-
-17. Device node là entry point tới kernel device interface, không phải regular file chứa hardware data.
-
-18. FIFO/socket cho thấy filesystem namespace còn dùng để đặt tên IPC endpoint.
-
-19. Classic permission model dùng owner/group/others và `r/w/x`.
-
-20. `r/w/x` trên directory có semantics: list entries, modify entries, search/traverse.
-
-21. Unlink/rename liên quan parent directory entries nên permission của parent rất quan trọng.
-
-22. `chmod` thay mode bits; `chown` thay ownership; `umask` là creation mask của process.
-
-23. `umask` loại permission từ requested mode, không thêm permission.
-
-24. Mount gắn filesystem tree vào namespace tại mount point; nó không copy file vào directory.
-
-25. Block device, partition, filesystem và mount point là bốn abstraction khác nhau.
-
-26. `/proc` và `/sys` là pseudo-filesystem interfaces tới kernel state/objects.
-
-27. `/dev` cung cấp device nodes và liên hệ trực tiếp với device/driver model.
-
-28. `ls -l`, `stat`, `file` trả lời các câu hỏi khác nhau: listing/mode, metadata chi tiết, content/format identification.
-
-29. `df` nhìn filesystem-wide accounting; `du` nhìn reachable file-tree usage.
-
-30. `df` và `du` khác nhau không tự động nghĩa tool nào sai.
-
-31. Unlink một open file có thể làm pathname biến mất trong khi inode/data vẫn tồn tại tới khi reference cuối cùng được giải phóng.
-
-32. Debug filesystem nên đi theo layer: path → type → symlink → mount → traversal permission → ownership/mode → filesystem state → capacity/policy.
-
-33. Trong Embedded Linux, rootfs, `/dev`, `/proc`, `/sys`, mount và permissions là nền trực tiếp cho boot, driver interaction và bring-up.
-
-34. Mental model quan trọng nhất của Topic 2:
-
 ```text
 pathname
    ↓
-VFS lookup
+namespace lookup
    ↓
-dentry
+dentry/name
    ↓
-inode
+inode/object metadata
    ↓
-filesystem semantics
+filesystem
    ↓
-storage / RAM / kernel / device
+storage / RAM-backed / kernel-backed object
 ```
+
+Các điểm cần giữ:
+- Linux presents một namespace thống nhất bắt đầu từ `/`.
+- Pathname là chuỗi tên để lookup; inode không lưu pathname theo cách “mỗi file có đúng một tên”.
+- File types gồm regular file, directory, symlink, char/block device, FIFO và socket.
+- Metadata, ownership và permission là thuộc tính của filesystem object; directory permissions có semantics riêng.
+- Mount gắn một filesystem vào một mount point trong namespace.
+- `/proc`, `/sys` và nhiều `/dev` views là kernel-facing/pseudo-filesystem interfaces.
+- `df` trả lời filesystem-wide space; `du` trả lời usage của file/tree được duyệt.
 
 ---
 
 ## 15. Tài liệu tham khảo
 
-
-Các nguồn được ưu tiên theo thứ tự:
-
-```text
-official specification / project documentation
-              ↓
-Linux kernel documentation
-              ↓
-Linux man-pages
-              ↓
-official utility manuals
-              ↓
-recognized Embedded Linux training material
-              ↓
-community discussion for edge cases
-```
-
-Community source hữu ích cho bug symptom, edge case và kinh nghiệm debug, nhưng không thay thế upstream documentation khi xác định semantics chính thức.
-
-### Linux Kernel Documentation
-
-#### Overview of the Linux Virtual File System
-
-- https://docs.kernel.org/filesystems/vfs.html
-
-Nguồn chính cho:
-
-```text
-VFS abstraction
-superblock
-inode object
-dentry/dcache
-file object
-filesystem registration/mounting concepts
-```
-
-#### Pathname lookup
-
-- https://docs.kernel.org/filesystems/path-lookup.html
-
-Dùng cho:
-
-```text
-absolute/relative path
-component lookup
-dentry cache
-mount traversal
-symlink walking
-```
-
-Topic 2 chỉ dùng mental model cơ bản; không đi sâu RCU/locking.
-
-#### sysfs — The filesystem for exporting kernel objects
-
-- https://docs.kernel.org/filesystems/sysfs.html
-
-Dùng cho:
-
-```text
-sysfs as RAM-based filesystem
-kernel object hierarchy
-attributes
-/sys/devices
-/sys/bus
-/sys/class
-```
-
-#### The /proc Filesystem
-
-- https://docs.kernel.org/filesystems/proc.html
-
-Dùng cho:
-
-```text
-/proc as process/system/kernel interface
-/proc/filesystems
-/proc/interrupts
-runtime diagnostics
-```
-
----
-
-### Linux man-pages project
-
-#### `pathname(7)`
-
-- https://man7.org/linux/man-pages/man7/pathname.7.html
-
-Nguồn cho pathname encoding, separator và filename component rules.
-
-#### `path_resolution(7)`
-
-- https://man7.org/linux/man-pages/man7/path_resolution.7.html
-
-Nguồn cho absolute/relative lookup, root/cwd, component walk, search permission và symlink limits.
-
-#### `inode(7)`
-
-- https://man7.org/linux/man-pages/man7/inode.7.html
-
-Nguồn chính cho inode metadata, file types, mode bits, UID/GID, timestamps, size và block accounting.
-
-#### `stat(2)`
-
-- https://man7.org/linux/man-pages/man2/stat.2.html
-
-Dùng cho `stat/fstat/lstat/fstatat`, metadata retrieval và symlink dereference behavior.
-
-#### `chmod(2)`
-
-- https://man7.org/linux/man-pages/man2/chmod.2.html
-
-Dùng cho file mode/permission semantics.
-
-#### `chown(2)`
-
-- https://man7.org/linux/man-pages/man2/chown.2.html
-
-Dùng cho ownership changes, privilege rules và ownership của object mới.
-
-#### `umask(2)`
-
-- https://man7.org/linux/man-pages/man2/umask.2.html
-
-Nguồn cho file-mode creation mask và công thức requested mode bị mask bởi umask.
-
-#### `symlink(7)`
-
-- https://man7.org/linux/man-pages/man7/symlink.7.html
-
-Dùng cho symbolic-link handling và liên hệ với hard links/path resolution.
-
-#### `link(2)`
-
-- https://man7.org/linux/man-pages/man2/link.2.html
-
-Dùng làm reference cho hard-link concept.
-
-#### `mount(2)`
-
-- https://man7.org/linux/man-pages/man2/mount.2.html
-
-Dùng cho kernel-level mount semantics.
-
-#### `proc(5)`, `proc_filesystems(5)`, `filesystems(5)`
-
-- https://man7.org/linux/man-pages/man5/procfs.5.html
-- https://man7.org/linux/man-pages/man5/proc_filesystems.5.html
-- https://man7.org/linux/man-pages/man5/filesystems.5.html
-
-Dùng cho procfs, supported filesystem types và `nodev` interpretation.
-
----
-
-### Filesystem Hierarchy Standard
-
-#### FHS current specification
-
-- https://specifications.freedesktop.org/fhs/latest/
-
-#### Linux Foundation FHS archive
-
-- https://refspecs.linuxfoundation.org/fhs
-
-Dùng cho purpose của root hierarchy, `/usr`, `/var`, `/etc`, `/dev`, `/tmp`.
-
-Lưu ý:
-
-```text
-FHS = placement/hierarchy standard
-not ext4 inode/block specification
-```
-
----
-
-### GNU Coreutils
-
-- https://www.gnu.org/software/coreutils/manual/
-
-Reference cho:
-
-```text
-ls
-stat
-chmod
-chown
-df
-du
-ln
-readlink
-```
-
-`file(1)` không thuộc GNU Coreutils; đó là utility/project riêng.
-
----
-
-### `file(1)` / libmagic
-
-- https://www.darwinsys.com/file/
-
-Dùng để phân biệt:
-
-```text
-filesystem inode type
-vs
-content/format identification
-```
-
-Trên máy thực tế nên kiểm tra:
-
-```bash
-man file
-file --version
-```
-
-vì distribution có thể ship version khác nhau.
-
----
-
-### util-linux
-
-#### `mount(8)`
-
-- https://man7.org/linux/man-pages/man8/mount.8.html
-
-Reference cho userspace mount command/options.
-
-#### `findmnt(8)`
-
-- https://man7.org/linux/man-pages/man8/findmnt.8.html
-
-Dùng để quan sát mount topology rõ ràng hơn việc tự parse output text của `mount`.
-
----
-
-### Bootlin Embedded Linux training
-
-#### Embedded Linux System Development
-
-- https://bootlin.com/training/embedded-linux/
-- https://bootlin.com/doc/training/embedded-linux/
-
-Bootlin được dùng để đối chiếu scope Embedded Linux thực tế cho:
-
-```text
-root filesystem
-minimal userspace
-block filesystems
-tmpfs
-filesystem images
-storage/mount organization
-BeagleBone Black labs
-```
-
-Tài liệu Bootlin minh họa rõ mối quan hệ:
-
-```text
-kernel filesystem support
-SD-card partitions
-ext4 / SquashFS
-root filesystem
-tmpfs
-```
-
-Những phần này sẽ trở lại mạnh hơn ở RootFS, BusyBox, Buildroot và Board Bring-up.
-
----
-
-### POSIX / The Open Group
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/
-
-Dùng khi cần phân biệt:
-
-```text
-portable POSIX semantics
-Linux-specific behavior
-GNU-specific utility behavior
-```
-
-Roadmap tập trung Linux/Embedded Linux nên Linux semantics là trọng tâm, nhưng POSIX vẫn là reference quan trọng.
-
----
-
-### Nguyên tắc sử dụng nguồn
-
-Khi nguồn không thống nhất, ưu tiên:
-
-```text
-upstream specification/docs
-        ↓
-Linux kernel docs / Linux man-pages
-        ↓
-upstream utility manual
-        ↓
-vendor/distribution docs
-        ↓
-recognized engineering training material
-        ↓
-community discussion
-```
-
-Community discussion nên dùng để:
-
-```text
-tìm edge case
-tìm symptom thực tế
-học kinh nghiệm debug
-tìm keyword để quay lại upstream manual/source
-```
-
-không dùng làm nguồn duy nhất để khẳng định kernel/filesystem semantics.
+- Linux Kernel VFS documentation: https://docs.kernel.org/filesystems/vfs.html
+- Linux path lookup documentation: https://docs.kernel.org/filesystems/path-lookup.html
+- `inode(7)`: https://man7.org/linux/man-pages/man7/inode.7.html
+- `path_resolution(7)`: https://man7.org/linux/man-pages/man7/path_resolution.7.html
+- `pathname(7)`: https://man7.org/linux/man-pages/man7/pathname.7.html
+- `stat(2)`: https://man7.org/linux/man-pages/man2/stat.2.html
+- `mount(2)`: https://man7.org/linux/man-pages/man2/mount.2.html
+- Filesystem Hierarchy Standard: https://refspecs.linuxfoundation.org/FHS_3.0/fhs/index.html
+- GNU Coreutils Manual: https://www.gnu.org/software/coreutils/manual/
+- Bootlin Embedded Linux training: https://bootlin.com/training/embedded-linux/
 
 ---
 

@@ -1,32 +1,14 @@
 # Chủ đề 7 — Thread Synchronization trong Linux
 
-> **Phạm vi:** POSIX/Linux thread synchronization fundamentals — race condition, data race, critical section, memory synchronization, mutex, condition variable, semaphore, read-write lock, barrier, one-time initialization, spin lock, robust/process-shared synchronization, deadlock, starvation, livelock, priority inversion và Linux futex ở mức implementation model.
+> **Phạm vi:** POSIX thread synchronization fundamentals: race/atomicity, mutex, semaphore, condition variable, producer–consumer reasoning, barrier, deadlock, starvation và priority inversion ở mức nền tảng.
 >
-> Chương này chỉ trình bày **lý thuyết**. Không có lab, bài tập, chương trình mẫu hoàn chỉnh, hướng dẫn biên dịch hoặc thao tác thực hành.
+> Chương này chỉ trình bày **lý thuyết**. Không có lab, bài tập, chương trình mẫu hoàn chỉnh hoặc hướng dẫn thao tác thực hành.
 >
-> Mục tiêu của chương là xây mental model:
+> **Giới hạn chủ đề:** Không đi sâu vào robust mutex, rwlock, spinlock, futex internals, process-shared synchronization hoặc real-time locking protocols; IPC thuộc Topic 8.
 >
-> `shared mutable state → concurrent access → ordering problem → synchronization protocol`
+> **Nguyên tắc bố cục:** `##` chỉ dành cho các khối kiến thức lớn; `###/####` dùng cho concept chi tiết. Các phần trùng hoặc thuộc topic khác đã được loại khỏi chapter này.
 >
-> và:
->
-> `mutex = ownership + mutual exclusion`
->
-> `condition variable = wait for a predicate/state transition`
->
-> `semaphore = counted availability/event resource`
->
-> `rwlock = multiple readers or one writer`
->
-> `barrier = phase rendezvous`
->
-> Đồng thời phải hiểu rằng synchronization không chỉ ngăn hai thread “chạm vào cùng biến” mà còn tạo **memory synchronization/visibility ordering** giữa các thread theo POSIX memory synchronization rules.
->
-> **Giới hạn chủ đề:** chương này chưa đi sâu vào C11/C++ atomic memory orders, lock-free algorithms, RCU, sequence lock, kernel spinlock internals, raw `futex()` programming, PREEMPT_RT implementation internals hay formal concurrency verification. Các nội dung này chỉ được nhắc để đặt đúng mental model.
->
-> **Cấu trúc tài liệu:** `##` là các khối kiến thức lớn; chi tiết đi xuống `###/####` để giữ mục lục gọn, đồng nhất với Topic 01–06.
->
-> **Điều hướng:** [← Chủ đề 6 — Multithreading](README-topic-06.md) · [Chủ đề 8 →](README-topic-08.md)
+> **Điều hướng:** [← Chủ đề 6 — Multithreading](README-topic-06.md) · [Chủ đề 8 — IPC →](README-topic-08.md)
 
 ---
 
@@ -35,30 +17,24 @@
 - [1. Vì sao Thread Synchronization tồn tại?](#1-vì-sao-thread-synchronization-tồn-tại)
 - [2. Race Condition, Data Race và Critical Section](#2-race-condition-data-race-và-critical-section)
 - [3. Memory Synchronization và Visibility](#3-memory-synchronization-và-visibility)
-- [4. Mutex — Mutual Exclusion](#4-mutex--mutual-exclusion)
+- [4. Mutex — Mutual Exclusion](#4-mutex-mutual-exclusion)
 - [5. Mutex Lifecycle và Lock Operations](#5-mutex-lifecycle-và-lock-operations)
-- [6. Mutex Types và Attributes](#6-mutex-types-và-attributes)
-- [7. Robust Mutex và Owner Failure](#7-robust-mutex-và-owner-failure)
-- [8. Condition Variable — Chờ trạng thái, không “giữ dữ liệu”](#8-condition-variable--chờ-trạng-thái-không-giữ-dữ-liệu)
-- [9. Predicate, Spurious Wakeup và Lost Wakeup](#9-predicate-spurious-wakeup-và-lost-wakeup)
-- [10. Signal, Broadcast và Timed Condition Wait](#10-signal-broadcast-và-timed-condition-wait)
-- [11. Semaphore](#11-semaphore)
-- [12. Mutex, Condition Variable và Semaphore khác nhau thế nào?](#12-mutex-condition-variable-và-semaphore-khác-nhau-thế-nào)
-- [13. Read-Write Lock](#13-read-write-lock)
-- [14. Barrier và Phase Synchronization](#14-barrier-và-phase-synchronization)
-- [15. One-time Initialization với `pthread_once()`](#15-one-time-initialization-với-pthread_once)
-- [16. Spin Lock — Busy Waiting](#16-spin-lock--busy-waiting)
-- [17. Deadlock](#17-deadlock)
-- [18. Starvation và Livelock](#18-starvation-và-livelock)
-- [19. Lock Ordering, Granularity và Contention](#19-lock-ordering-granularity-và-contention)
-- [20. Priority Inversion và Real-time Mutex Protocols](#20-priority-inversion-và-real-time-mutex-protocols)
-- [21. Process-shared Synchronization](#21-process-shared-synchronization)
-- [22. Cancellation, Signals và Synchronization Objects](#22-cancellation-signals-và-synchronization-objects)
-- [23. Linux Futex — Implementation Model](#23-linux-futex--implementation-model)
-- [24. Error Model và Tư duy Debug Synchronization](#24-error-model-và-tư-duy-debug-synchronization)
-- [25. Liên hệ với Embedded Linux](#25-liên-hệ-với-embedded-linux)
-- [26. Tổng kết và Mental Model](#26-tổng-kết-và-mental-model)
-- [27. Tài liệu tham khảo](#27-tài-liệu-tham-khảo)
+- [6. Mutex Types](#6-mutex-types)
+- [7. Condition Variable — Chờ trạng thái, không “giữ dữ liệu”](#7-condition-variable-chờ-trạng-thái-không-giữ-dữ-liệu)
+- [8. Predicate, Spurious Wakeup và Lost Wakeup](#8-predicate-spurious-wakeup-và-lost-wakeup)
+- [9. Signal, Broadcast và Timed Condition Wait](#9-signal-broadcast-và-timed-condition-wait)
+- [10. Semaphore](#10-semaphore)
+- [11. Mutex, Condition Variable và Semaphore khác nhau thế nào?](#11-mutex-condition-variable-và-semaphore-khác-nhau-thế-nào)
+- [12. Producer–Consumer Model](#12-producerconsumer-model)
+- [13. Barrier và Phase Synchronization](#13-barrier-và-phase-synchronization)
+- [14. Deadlock](#14-deadlock)
+- [15. Starvation và Livelock](#15-starvation-và-livelock)
+- [16. Lock Ordering, Granularity và Contention](#16-lock-ordering-granularity-và-contention)
+- [17. Priority Inversion và Priority Inheritance Overview](#17-priority-inversion-và-priority-inheritance-overview)
+- [18. Error Model và Tư duy Debug Synchronization](#18-error-model-và-tư-duy-debug-synchronization)
+- [19. Liên hệ với Embedded Linux](#19-liên-hệ-với-embedded-linux)
+- [20. Tổng kết và Mental Model](#20-tổng-kết-và-mental-model)
+- [21. Tài liệu tham khảo](#21-tài-liệu-tham-khảo)
 
 ---
 
@@ -162,9 +138,7 @@ Từ đó mới chọn primitive:
 mutex
 condition variable
 semaphore
-rwlock
 barrier
-...
 ```
 
 ---
@@ -436,8 +410,6 @@ pthread_cond_wait()
 pthread_cond_signal()
 pthread_cond_broadcast()
 
-pthread_rwlock_*()
-
 pthread_barrier_wait()
 
 sem_wait()
@@ -445,8 +417,6 @@ sem_post()
 
 pthread_create()
 pthread_join()
-
-pthread_once()
 ```
 
 with operation-specific semantics.
@@ -540,7 +510,7 @@ stateDiagram-v2
     Unlocked --> [*]: destroy when legal
 ```
 
-Exact relock/non-owner behavior depends on mutex type and robustness attributes.
+Exact relock/non-owner behavior depends on mutex type.
 
 ---
 
@@ -560,14 +530,7 @@ Thread A owns mutex
 Thread A unlocks
 ```
 
-This ownership enables semantics such as:
-
-```text
-recursive locking
-error checking
-robust owner-death detection
-priority inheritance protocols
-```
+This ownership is what distinguishes mutex semantics from a simple counter and allows the implementation to reason about which thread currently owns the critical section.
 
 ---
 
@@ -656,8 +619,6 @@ On successful normal acquisition:
 ```text
 calling thread becomes owner
 ```
-
-Robust mutex has additional successful-but-recovery-needed `EOWNERDEAD` semantics discussed later.
 
 ---
 
@@ -774,30 +735,17 @@ error number
   failure/special condition
 ```
 
-rather than:
+rather than the common system-call pattern:
 
 ```text
 -1 + errno
 ```
 
-Robust mutex makes this especially important because:
-
-```text
-EOWNERDEAD
-```
-
-means:
-
-```text
-mutex was acquired
-but protected state requires recovery
-```
-
-not simply “nothing happened”.
+Therefore the return value of each Pthreads synchronization call must be checked according to that API's contract.
 
 ---
 
-## 6. Mutex Types và Attributes
+## 6. Mutex Types
 
 ### 6.1 Why mutex type exists
 
@@ -905,177 +853,9 @@ or another specific type.
 
 ---
 
-### 6.6 Mutex attributes
+## 7. Condition Variable — Chờ trạng thái, không “giữ dữ liệu”
 
-`pthread_mutexattr_t` can configure properties such as:
-
-```text
-type
-process-shared state
-robustness
-protocol
-priority ceiling
-```
-
-depending supported POSIX options.
-
-Attribute object is:
-
-```text
-configuration
-```
-
-not the mutex itself.
-
----
-
-### 6.7 `PTHREAD_PROCESS_PRIVATE`
-
-Synchronization object is intended for threads within one process.
-
-This is common default for mutexes/condition variables/rwlocks.
-
----
-
-### 6.8 `PTHREAD_PROCESS_SHARED`
-
-When synchronization object lives in appropriate shared memory and is configured process-shared, it can synchronize threads in different processes.
-
-This is discussed in Section 21.
-
----
-
-## 7. Robust Mutex và Owner Failure
-
-### 7.1 The owner-death problem
-
-Normal mutex:
-
-```text
-Thread A locks mutex
-      |
-Thread A terminates unexpectedly
-      |
-mutex remains locked / protected state may be inconsistent
-```
-
-A waiter may block forever with a stalled mutex.
-
----
-
-### 7.2 Robust mutex concept
-
-With:
-
-```text
-PTHREAD_MUTEX_ROBUST
-```
-
-next thread trying to lock after owner death can acquire mutex and receive:
-
-```text
-EOWNERDEAD
-```
-
-Mental model:
-
-```text
-Owner dies while holding robust mutex
-       |
-       v
-protected state = potentially inconsistent
-       |
-next locker
-       |
-       +--> acquires mutex
-       +--> receives EOWNERDEAD
-```
-
-This provides a **recovery opportunity**, not automatic recovery.
-
----
-
-### 7.3 `EOWNERDEAD` means lock acquired
-
-This is one of the most important robust-mutex nuances.
-
-Do not interpret:
-
-```text
-nonzero return
-```
-
-as simply:
-
-```text
-mutex not acquired
-```
-
-For `EOWNERDEAD`:
-
-```text
-caller owns mutex
-+
-state requires consistency recovery
-```
-
----
-
-### 7.4 Consistency recovery
-
-New owner must repair protected state and then mark it consistent using the relevant robust-mutex consistency interface.
-
-Mental model:
-
-```text
-EOWNERDEAD
-   |
-   v
-caller owns mutex
-   |
-validate / repair protected invariant
-   |
-mark consistent
-   |
-unlock
-```
-
----
-
-### 7.5 `ENOTRECOVERABLE`
-
-If new owner unlocks robust mutex without making inconsistent state consistent, mutex can become permanently non-recoverable.
-
-Future lock attempts can return:
-
-```text
-ENOTRECOVERABLE
-```
-
-The only legal path may then be destruction/reinitialization under proper lifecycle control.
-
----
-
-### 7.6 Robust mutex is not crash-proof data storage
-
-Robust mutex only gives detection/recovery protocol for owner death.
-
-It does not guarantee:
-
-```text
-protected data is automatically transactionally restored
-persistent storage integrity
-rollback
-application invariant repair
-```
-
-Application must define recovery logic.
-
----
-
-## 8. Condition Variable — Chờ trạng thái, không “giữ dữ liệu”
-
-### 8.1 What condition variable represents
+### 7.1 What condition variable represents
 
 Condition variable is a synchronization object that lets threads sleep until shared-state predicate may have changed.
 
@@ -1100,7 +880,7 @@ Condition variable
 
 ---
 
-### 8.2 Condition variable is paired with a mutex
+### 7.2 Condition variable is paired with a mutex
 
 Canonical conceptual trio:
 
@@ -1126,7 +906,7 @@ sleep until state may have changed
 
 ---
 
-### 8.3 Why not just repeatedly check?
+### 7.3 Why not just repeatedly check?
 
 Busy loop:
 
@@ -1155,7 +935,7 @@ thread becomes runnable
 
 ---
 
-### 8.4 Atomic unlock-and-wait
+### 7.4 Atomic unlock-and-wait
 
 Core semantic:
 
@@ -1185,7 +965,7 @@ and:
 
 ---
 
-### 8.5 Condition wait sequence
+### 7.5 Condition wait sequence
 
 ```mermaid
 sequenceDiagram
@@ -1214,9 +994,9 @@ This is the central mental model for condition variables.
 
 ---
 
-## 9. Predicate, Spurious Wakeup và Lost Wakeup
+## 8. Predicate, Spurious Wakeup và Lost Wakeup
 
-### 9.1 The predicate belongs to shared data
+### 8.1 The predicate belongs to shared data
 
 POSIX explicitly describes a Boolean predicate associated with every condition wait.
 
@@ -1236,7 +1016,7 @@ The condition variable itself does not equal that predicate.
 
 ---
 
-### 9.2 Wakeup does not mean predicate is true
+### 8.2 Wakeup does not mean predicate is true
 
 POSIX permits:
 
@@ -1260,7 +1040,7 @@ Thread must reevaluate predicate.
 
 ---
 
-### 9.3 Why predicate must be checked in a loop
+### 8.3 Why predicate must be checked in a loop
 
 Conceptual pattern:
 
@@ -1290,7 +1070,7 @@ can make predicate false on return.
 
 ---
 
-### 9.4 Spurious wakeup is part of contract, not a bug to “filter away”
+### 8.4 Spurious wakeup is part of contract, not a bug to “filter away”
 
 Application should not rely on:
 
@@ -1306,7 +1086,7 @@ Condition variable is a hint:
 
 ---
 
-### 9.5 Lost wakeup — conceptual problem
+### 8.5 Lost wakeup — conceptual problem
 
 Naive protocol:
 
@@ -1324,7 +1104,7 @@ This is the classic lost-wakeup race.
 
 ---
 
-### 9.6 Mutex + atomic wait transition prevents the critical gap
+### 8.6 Mutex + atomic wait transition prevents the critical gap
 
 Correct condition-variable protocol places predicate test under mutex.
 
@@ -1357,9 +1137,9 @@ under the defined condition-variable semantics.
 
 ---
 
-## 10. Signal, Broadcast và Timed Condition Wait
+## 9. Signal, Broadcast và Timed Condition Wait
 
-### 10.1 `pthread_cond_signal()`
+### 9.1 `pthread_cond_signal()`
 
 Conceptually wakes:
 
@@ -1373,7 +1153,7 @@ Do not assume a portable deterministic waiter identity.
 
 ---
 
-### 10.2 `pthread_cond_broadcast()`
+### 9.2 `pthread_cond_broadcast()`
 
 Makes all current waiters eligible to wake.
 
@@ -1400,7 +1180,7 @@ reevaluate predicate
 
 ---
 
-### 10.3 Signal vs broadcast is an application-state decision
+### 9.3 Signal vs broadcast is an application-state decision
 
 Use conceptual signal when:
 
@@ -1418,7 +1198,7 @@ But exact best choice depends predicate and architecture.
 
 ---
 
-### 10.4 Notification does not transfer mutex ownership directly
+### 9.4 Notification does not transfer mutex ownership directly
 
 Signal/broadcast does not mean awakened waiter immediately runs inside protected section.
 
@@ -1440,7 +1220,7 @@ handoff lock immediately to chosen waiter
 
 ---
 
-### 10.5 Timed wait
+### 9.5 Timed wait
 
 Timed condition wait adds deadline.
 
@@ -1457,7 +1237,7 @@ On timeout, the API still follows mutex reacquisition semantics before returning
 
 ---
 
-### 10.6 Timeout result still requires predicate reevaluation
+### 9.6 Timeout result still requires predicate reevaluation
 
 POSIX rationale notes race between:
 
@@ -1477,7 +1257,7 @@ Correct design reevaluates application state.
 
 ---
 
-### 10.7 Clock choice matters conceptually
+### 9.7 Clock choice matters conceptually
 
 Timed condition APIs can use clock attributes or explicit clock-aware interfaces.
 
@@ -1495,9 +1275,9 @@ Exact API use is outside this theory chapter, but timeout semantics depend on cl
 
 ---
 
-## 11. Semaphore
+## 10. Semaphore
 
-### 11.1 Semaphore is a counter-based synchronization primitive
+### 10.1 Semaphore is a counter-based synchronization primitive
 
 POSIX semaphore model:
 
@@ -1520,7 +1300,7 @@ post
 
 ---
 
-### 11.2 Semaphore state model
+### 10.2 Semaphore state model
 
 ```text
 value = N
@@ -1539,7 +1319,7 @@ N queued events/tokens
 
 ---
 
-### 11.3 `sem_wait()` concept
+### 10.3 `sem_wait()` concept
 
 ```text
 value > 0?
@@ -1555,7 +1335,7 @@ Semaphore does not have mutex-style ownership.
 
 ---
 
-### 11.4 `sem_post()` concept
+### 10.4 `sem_post()` concept
 
 ```text
 increment semaphore count
@@ -1565,7 +1345,7 @@ and if waiters exist, one or more implementation/scheduling effects may make wai
 
 ---
 
-### 11.5 Binary semaphore is not automatically identical to mutex
+### 10.5 Binary semaphore is not automatically identical to mutex
 
 If semaphore count is constrained conceptually to 0/1, it may look like a mutex.
 
@@ -1590,32 +1370,7 @@ resource ownership semantics
 
 ---
 
-### 11.6 Named vs unnamed POSIX semaphores
-
-POSIX semaphores come in:
-
-```text
-named
-unnamed
-```
-
-Unnamed semaphore can be:
-
-```text
-thread-shared within one process
-```
-
-or:
-
-```text
-process-shared in appropriate shared memory
-```
-
-depending initialization.
-
----
-
-### 11.7 Semaphore as resource count
+### 10.6 Semaphore as resource count
 
 Example conceptual model:
 
@@ -1637,9 +1392,9 @@ predicate-based state waiting
 
 ---
 
-## 12. Mutex, Condition Variable và Semaphore khác nhau thế nào?
+## 11. Mutex, Condition Variable và Semaphore khác nhau thế nào?
 
-### 12.1 Mutex
+### 11.1 Mutex
 
 Primary abstraction:
 
@@ -1655,7 +1410,7 @@ Question answered:
 
 ---
 
-### 12.2 Condition variable
+### 11.2 Condition variable
 
 Primary abstraction:
 
@@ -1673,7 +1428,7 @@ Requires external shared state and usually mutex.
 
 ---
 
-### 12.3 Semaphore
+### 11.3 Semaphore
 
 Primary abstraction:
 
@@ -1689,7 +1444,7 @@ Question answered:
 
 ---
 
-### 12.4 Comparison table
+### 11.4 Comparison table
 
 | Primitive | Core state | Ownership? | Typical meaning |
 |---|---|---:|---|
@@ -1701,7 +1456,7 @@ Question answered:
 
 ---
 
-### 12.5 Primitive choice should follow state semantics
+### 11.5 Primitive choice should follow state semantics
 
 Do not select synchronization primitive by:
 
@@ -1721,160 +1476,80 @@ phase rendezvous?
 
 ---
 
-## 13. Read-Write Lock
+## 12. Producer–Consumer Model
 
-### 13.1 Motivation
+### 12.1 Bài toán producer–consumer
 
-Some data structures are:
-
-```text
-read frequently
-write rarely
-```
-
-A normal mutex allows:
+Producer–consumer là một mô hình synchronization kinh điển trong đó một hoặc nhiều producer tạo dữ liệu/work item và một hoặc nhiều consumer lấy chúng từ shared buffer/queue.
 
 ```text
-only one thread
+Producer(s)
+    |
+    v
++-----------------------+
+| Shared bounded queue  |
++-----------------------+
+    |
+    v
+Consumer(s)
 ```
 
-even when multiple threads only read.
-
-RW lock allows:
+Có hai loại state cần bảo vệ:
 
 ```text
-multiple readers simultaneously
-or
-one exclusive writer
+queue invariant
+  head / tail / size / payload
+
+availability predicate
+  not_empty
+  not_full
 ```
 
----
+### 12.2 Primitive nào làm nhiệm vụ gì?
 
-### 13.2 RW lock state model
+Mental model chuẩn:
 
 ```text
-UNLOCKED
+mutex
+  bảo vệ queue invariant và state transition
 
-READ-LOCKED:
-  one or more readers
-  no writer
+condition variable
+  cho thread ngủ khi not_empty/not_full chưa đúng
 
-WRITE-LOCKED:
-  exactly one writer
-  no readers
+semaphore
+  có thể biểu diễn số item hoặc số slot khả dụng
 ```
 
-ASCII:
+Producer–consumer không phải tên của một primitive riêng; nó là một synchronization protocol được xây từ các primitive phù hợp.
+
+### 12.3 Vì sao không busy-wait?
+
+Nếu consumer liên tục kiểm tra:
 
 ```text
-          +--------------------+
-          |     Unlocked       |
-          +----------+---------+
-                     |
-          +----------+----------+
-          |                     |
-        read                  write
-          |                     |
-          v                     v
-+------------------+   +------------------+
-| Reader(s) active |   | Writer active    |
-| R1 R2 R3 ...     |   | W1 only          |
-+------------------+   +------------------+
+while queue_empty:
+    keep checking
 ```
 
----
+CPU bị tiêu tốn dù chưa có việc.
 
-### 13.3 Read lock
-
-Read lock may succeed if no conflicting writer condition prevents it according to POSIX scheduling/implementation rules.
-
-Multiple threads can hold read locks concurrently.
-
----
-
-### 13.4 Write lock
-
-Writer requires exclusive access.
-
-It cannot coexist with:
+Condition variable hoặc semaphore cho phép:
 
 ```text
-any reader
-another writer
+state unavailable
+   ↓
+thread sleeps
+   ↓
+state changes
+   ↓
+thread becomes eligible to continue
 ```
 
----
+Đây là ví dụ tổng hợp cho race condition, mutex, predicate và notification.
 
-### 13.5 RW lock is not automatically faster than mutex
+## 13. Barrier và Phase Synchronization
 
-RW lock has additional bookkeeping and contention complexity.
-
-It may help when:
-
-```text
-read sections are substantial
-writes are relatively rare
-many readers would otherwise serialize
-```
-
-For tiny critical sections or write-heavy workloads, normal mutex may be simpler/faster.
-
----
-
-### 13.6 Writer starvation and preference nuances
-
-If readers continually arrive, writer fairness matters.
-
-POSIX scheduling rules constrain some cases, while behavior may be implementation-defined in others when writers are waiting.
-
-Therefore portable application should not build correctness on undocumented:
-
-```text
-reader preference
-writer preference
-strict FIFO fairness
-```
-
----
-
-### 13.7 Recursive read locking nuance
-
-POSIX allows a thread to hold multiple read locks on same rwlock, requiring matching unlock operations.
-
-This does not imply arbitrary upgrade from:
-
-```text
-read lock
-```
-
-to:
-
-```text
-write lock
-```
-
-is safe or supported.
-
----
-
-### 13.8 Lock upgrade/downgrade is not a generic portable atomic primitive
-
-Naive upgrade:
-
-```text
-hold read lock
-then request write lock
-```
-
-can deadlock depending semantics because writer requires all readers gone, including potentially caller's own read lock.
-
-Portable designs should not assume atomic upgrade unless explicitly supported by another abstraction.
-
----
-
-## 14. Barrier và Phase Synchronization
-
-### 14.1 Barrier answers a different question
+### 13.1 Barrier answers a different question
 
 Barrier does not protect one object like mutex.
 
@@ -1887,7 +1562,7 @@ before any continue into next phase
 
 ---
 
-### 14.2 Barrier mental model
+### 13.2 Barrier mental model
 
 ```text
 Phase 1
@@ -1903,7 +1578,7 @@ Last required arrival releases the phase.
 
 ---
 
-### 14.3 Barrier state machine
+### 13.3 Barrier state machine
 
 ```mermaid
 stateDiagram-v2
@@ -1920,7 +1595,7 @@ This is conceptual; exact implementation may use generation counters and other s
 
 ---
 
-### 14.4 `PTHREAD_BARRIER_SERIAL_THREAD`
+### 13.4 `PTHREAD_BARRIER_SERIAL_THREAD`
 
 POSIX `pthread_barrier_wait()` returns a special:
 
@@ -1934,7 +1609,7 @@ This permits one participant to perform a serial phase if architecture needs it.
 
 ---
 
-### 14.5 Barrier vs join
+### 13.5 Barrier vs join
 
 `pthread_join()` waits for:
 
@@ -1952,7 +1627,7 @@ The threads continue after barrier.
 
 ---
 
-### 14.6 Barrier risks
+### 13.6 Barrier risks
 
 If one expected participant never arrives:
 
@@ -1964,155 +1639,9 @@ Therefore barrier protocols require stable participant-count/lifecycle design.
 
 ---
 
-## 15. One-time Initialization với `pthread_once()`
+## 14. Deadlock
 
-### 15.1 The initialization race
-
-Multiple threads can simultaneously discover:
-
-```text
-"global subsystem is not initialized"
-```
-
-Naive:
-
-```text
-if not_initialized:
-    initialize()
-```
-
-can execute initialization multiple times.
-
----
-
-### 15.2 `pthread_once()` abstraction
-
-Concept:
-
-```text
-many threads
-   |
-pthread_once(control, init)
-   |
-   +--> exactly one successful initialization execution
-   |
-   +--> others synchronize with completed initialization
-```
-
-This is useful for:
-
-```text
-library global state
-singleton-style immutable configuration
-lazy subsystem setup
-```
-
----
-
-### 15.3 `pthread_once()` is not just a Boolean flag
-
-It provides synchronization semantics.
-
-It solves:
-
-```text
-exactly-once initialization
-+
-memory synchronization for initialized state
-```
-
-according to POSIX rules.
-
----
-
-### 15.4 Initialization routine constraints
-
-The initialization routine should establish valid state before other once callers proceed.
-
-If initialization contains cancellation or abnormal control behavior, POSIX defines nuanced semantics.
-
-The important mental rule:
-
-> `pthread_once()` is a synchronization primitive for one-time initialization, not merely a convenience wrapper around `if`.
-
----
-
-## 16. Spin Lock — Busy Waiting
-
-### 16.1 Blocking lock vs spinning
-
-Mutex under contention can cause waiter to sleep/block.
-
-Spin lock instead repeatedly checks lock state while consuming CPU:
-
-```text
-while lock unavailable:
-    keep spinning
-```
-
----
-
-### 16.2 Spin mental model
-
-```text
-Thread B
-
-try lock
-  |
-busy loop
-  |
-busy loop
-  |
-busy loop
-  |
-owner releases
-  |
-acquire
-```
-
-CPU remains active.
-
----
-
-### 16.3 When spinning can theoretically make sense
-
-If expected wait is extremely short and sleeping/wakeup overhead would dominate, spinning can be useful in suitable low-level environments.
-
-But user-space application conditions vary.
-
----
-
-### 16.4 Why spin lock can be harmful
-
-If lock holder cannot run because waiter consumes the only available CPU/core context or if critical section is long:
-
-```text
-spinning wastes CPU
-```
-
-On single-core or heavily oversubscribed systems, spin-based waiting can be especially poor.
-
----
-
-### 16.5 Pthread spin locks
-
-POSIX defines:
-
-```text
-pthread_spin_*
-```
-
-interfaces on systems that support them.
-
-They are specialized primitives.
-
-Default application-level synchronization should not automatically choose spinlocks just because they sound “faster”.
-
----
-
-## 17. Deadlock
-
-### 17.1 Deadlock definition
+### 14.1 Deadlock definition
 
 Deadlock is a state where participants wait for each other in a cycle and no one can make progress.
 
@@ -2128,7 +1657,7 @@ B waits for M1
 
 ---
 
-### 17.2 Wait-for graph
+### 14.2 Wait-for graph
 
 ```text
 Thread A
@@ -2154,7 +1683,7 @@ means no thread can release the resource the other needs because both are blocke
 
 ---
 
-### 17.3 Mermaid deadlock model
+### 14.3 Mermaid deadlock model
 
 ```mermaid
 stateDiagram-v2
@@ -2174,7 +1703,7 @@ stateDiagram-v2
 
 ---
 
-### 17.4 Coffman conditions
+### 14.4 Coffman conditions
 
 Classic deadlock requires four conditions simultaneously:
 
@@ -2189,7 +1718,7 @@ Breaking at least one can prevent that class of deadlock.
 
 ---
 
-### 17.5 Self-deadlock
+### 14.5 Self-deadlock
 
 With normal mutex:
 
@@ -2204,7 +1733,7 @@ This is not a multi-thread cycle; same thread waits for resource only it can rel
 
 ---
 
-### 17.6 Join deadlock
+### 14.6 Join deadlock
 
 Synchronization deadlock is broader than mutexes.
 
@@ -2219,7 +1748,7 @@ No mutex is required for a cyclic wait.
 
 ---
 
-### 17.7 Condition-variable deadlock
+### 14.7 Condition-variable deadlock
 
 Possible if:
 
@@ -2232,9 +1761,9 @@ Again root issue is dependency cycle/progress failure.
 
 ---
 
-## 18. Starvation và Livelock
+## 15. Starvation và Livelock
 
-### 18.1 Starvation
+### 15.1 Starvation
 
 Thread is theoretically able to make progress but repeatedly loses access to needed resource.
 
@@ -2250,7 +1779,7 @@ Whether this can occur depends primitive/scheduler implementation and workload.
 
 ---
 
-### 18.2 Starvation ≠ deadlock
+### 15.2 Starvation ≠ deadlock
 
 Deadlock:
 
@@ -2267,7 +1796,7 @@ one participant is indefinitely denied progress
 
 ---
 
-### 18.3 Livelock
+### 15.3 Livelock
 
 Threads remain active and keep changing state, but no useful progress occurs.
 
@@ -2285,7 +1814,7 @@ CPU may be busy, unlike classic sleeping deadlock.
 
 ---
 
-### 18.4 Livelock vs busy contention
+### 15.4 Livelock vs busy contention
 
 Temporary retries are normal.
 
@@ -2297,7 +1826,7 @@ continuous reaction without useful forward progress
 
 ---
 
-### 18.5 Fairness is not automatic
+### 15.5 Fairness is not automatic
 
 Synchronization primitive may not promise:
 
@@ -2313,9 +1842,9 @@ Correctness should not rely on undocumented fairness.
 
 ---
 
-## 19. Lock Ordering, Granularity và Contention
+## 16. Lock Ordering, Granularity và Contention
 
-### 19.1 Global lock ordering
+### 16.1 Global lock ordering
 
 One major deadlock-prevention technique is a consistent lock hierarchy.
 
@@ -2336,7 +1865,7 @@ Then circular wait is structurally prevented for those locks.
 
 ---
 
-### 19.2 Lock-order graph
+### 16.2 Lock-order graph
 
 ```text
 Allowed:
@@ -2351,7 +1880,7 @@ Design should maintain acyclic dependency order.
 
 ---
 
-### 19.3 Coarse-grained locking
+### 16.3 Coarse-grained locking
 
 One large mutex protects broad state.
 
@@ -2373,7 +1902,7 @@ longer blocking
 
 ---
 
-### 19.4 Fine-grained locking
+### 16.4 Fine-grained locking
 
 Many locks protect subsets.
 
@@ -2395,7 +1924,7 @@ harder invariants
 
 ---
 
-### 19.5 Lock granularity is a design tradeoff
+### 16.5 Lock granularity is a design tradeoff
 
 Do not optimize prematurely.
 
@@ -2413,7 +1942,7 @@ justify complexity.
 
 ---
 
-### 19.6 Keep critical sections conceptually bounded
+### 16.6 Keep critical sections conceptually bounded
 
 Long critical section means:
 
@@ -2434,7 +1963,7 @@ Holding locks across uncertain operations increases deadlock and latency risk.
 
 ---
 
-### 19.7 Do not assume “small source code” means short lock hold time
+### 16.7 Do not assume “small source code” means short lock hold time
 
 One line can call:
 
@@ -2451,9 +1980,9 @@ Critical-section cost must be reasoned about in runtime behavior, not line count
 
 ---
 
-## 20. Priority Inversion và Real-time Mutex Protocols
+## 17. Priority Inversion và Priority Inheritance Overview
 
-### 20.1 Priority inversion
+### 17.1 Priority inversion
 
 Suppose:
 
@@ -2477,7 +2006,7 @@ This is priority inversion.
 
 ---
 
-### 20.2 ASCII timeline
+### 17.2 ASCII timeline
 
 ```text
 Priority
@@ -2491,7 +2020,7 @@ H effectively suffers delay caused by medium thread even though M does not own n
 
 ---
 
-### 20.3 Priority inheritance
+### 17.3 Priority inheritance
 
 With:
 
@@ -2527,418 +2056,9 @@ not general performance acceleration.
 
 ---
 
-### 20.4 Priority protection / ceiling
+## 18. Error Model và Tư duy Debug Synchronization
 
-POSIX also defines priority-protection/ceiling concepts such as:
-
-```text
-PTHREAD_PRIO_PROTECT
-```
-
-where mutex has a priority ceiling and ownership changes scheduling priority according to protocol.
-
-This requires disciplined real-time design.
-
----
-
-### 20.5 Priority protocols are not default magic
-
-They require:
-
-```text
-mutex attributes
-scheduler support
-appropriate permissions/policies
-system-wide priority design
-```
-
-They do not fix arbitrary lock-order deadlock.
-
----
-
-### 20.6 Why mutex ownership matters for real-time protocols
-
-Bootlin real-time material emphasizes mutex ownership as foundation for priority inheritance.
-
-Semaphore lacks same owner model.
-
-This is one reason semaphore should not be used as a drop-in mutex replacement for real-time ownership-sensitive locking.
-
----
-
-## 21. Process-shared Synchronization
-
-### 21.1 Synchronization can cross process boundaries
-
-POSIX synchronization objects can support:
-
-```text
-PTHREAD_PROCESS_SHARED
-```
-
-where applicable.
-
-Object must reside in memory visible/shared by cooperating processes.
-
-Mental model:
-
-```text
-Process A                 Process B
-   |                         |
-   +---- shared memory ------+
-             |
-          mutex/rwlock/
-          condition object
-```
-
----
-
-### 21.2 Shared memory alone is not enough
-
-Putting mutex object into shared memory does not automatically make it process-shared.
-
-Synchronization object must be initialized with proper:
-
-```text
-pshared attribute
-```
-
-and implementation must support it.
-
----
-
-### 21.3 Process-private synchronization
-
-Default/common:
-
-```text
-PTHREAD_PROCESS_PRIVATE
-```
-
-means object intended for threads in one process.
-
-Using process-private object across processes is not a portable synchronization protocol.
-
----
-
-### 21.4 Unnamed semaphore `pshared`
-
-POSIX unnamed semaphore initialization has direct:
-
-```text
-pshared
-```
-
-selection.
-
-Concept:
-
-```text
-pshared = 0
-  threads in one process
-
-pshared != 0
-  processes sharing semaphore memory
-```
-
-subject to POSIX support.
-
----
-
-### 21.5 Process-shared robust mutex
-
-Robustness becomes especially relevant when shared-memory mutex owner process/thread can terminate unexpectedly.
-
-Next locker can detect owner death and repair shared state.
-
-But recovery logic must be application-defined.
-
----
-
-### 21.6 Shared synchronization object lifetime
-
-Cross-process lifecycle is more difficult.
-
-All participants must agree on:
-
-```text
-initialization ownership
-when object is ready
-who may destroy it
-whether any waiter remains
-shared memory lifetime
-crash recovery
-```
-
-Synchronization-object lifecycle itself must be coordinated.
-
----
-
-## 22. Cancellation, Signals và Synchronization Objects
-
-### 22.1 Cancellation can break resource ownership if not designed carefully
-
-Thread can be canceled while owning:
-
-```text
-mutex
-buffer
-application resource
-```
-
-If cancellation occurs at cancellation point inside protected protocol and no cleanup releases state, other threads may deadlock.
-
----
-
-### 22.2 Deferred cancellation is easier to structure
-
-Because cancellation occurs at defined points, application can install cleanup handlers around resource ownership.
-
-Concept:
-
-```text
-acquire resource
-register cleanup
-perform cancelable work
-release resource
-remove cleanup
-```
-
-This is lifecycle theory; implementation mechanics belong Pthreads API docs.
-
----
-
-### 22.3 `pthread_cond_wait()` and cancellation
-
-Condition wait is a cancellation point.
-
-POSIX semantics ensure mutex reacquisition occurs as part of cancellation handling context before relevant cleanup handlers execute.
-
-This allows cleanup code to reason about protected state/mutex ownership consistently.
-
----
-
-### 22.4 Mutex operations themselves and cancellation
-
-Pthread mutex lock/unlock are designed with specific cancellation behavior; do not assume any blocking-looking function is automatically a cancellation point.
-
-Always check POSIX list.
-
----
-
-### 22.5 Signals do not replace synchronization
-
-Signal handler interrupting a thread that holds mutex can create complex constraints.
-
-Normal mutex functions are **not generally async-signal-safe**.
-
-Therefore signal handler should not casually lock application mutexes.
-
-From Topic 5:
-
-```text
-async handler
-  minimal safe work
-
-normal thread context
-  synchronization/complex state transitions
-```
-
----
-
-### 22.6 Dedicated signal thread integrates better with ordinary synchronization
-
-If control signals are synchronously accepted in a dedicated thread:
-
-```text
-Signal Thread
-    |
-normal pthread context
-    |
-mutex / condition / queue coordination
-```
-
-then ordinary synchronization APIs can be used without async-signal-handler restrictions.
-
----
-
-## 23. Linux Futex — Implementation Model
-
-### 23.1 Futex means Fast Userspace Mutex
-
-Linux `futex(7)` describes futex as a building block for fast userspace locking and semaphores.
-
-It is lower-level than:
-
-```text
-pthread_mutex_t
-pthread_cond_t
-pthread_rwlock_t
-```
-
-Most application programmers should not use raw futex directly.
-
----
-
-### 23.2 Why futex exists
-
-Goal:
-
-```text
-uncontended case
-  stay in userspace
-
-contended case
-  involve kernel to sleep/wake waiters
-```
-
-This avoids syscall on every lock/unlock in common uncontended cases.
-
----
-
-### 23.3 Simplified mutex implementation mental model
-
-```text
-Shared lock word
-      |
-      +--> free
-      +--> locked
-      +--> contended state
-```
-
-Fast path:
-
-```text
-atomic userspace operation
-      |
-success?
-  |
- yes
-  |
-lock acquired
-```
-
-Contended path:
-
-```text
-atomic operation fails
-      |
-      v
-futex wait
-      |
-kernel sleeps thread
-```
-
-Unlock may:
-
-```text
-change userspace state
-+
-futex wake if waiters
-```
-
----
-
-### 23.4 Atomic compare-and-block
-
-Linux `futex(2)` emphasizes the futex wait operation as an atomic compare-and-block mechanism relative to the futex word.
-
-Concept:
-
-```text
-if shared value is still expected:
-    block
-
-else:
-    do not sleep
-```
-
-This solves same class of:
-
-```text
-check-then-sleep race
-```
-
-at low-level implementation.
-
----
-
-### 23.5 Futex is identified by shared memory
-
-A futex word is memory accessible to participants.
-
-Threads in same process naturally share address space.
-
-Different processes can use mappings referring to same underlying shared futex storage.
-
----
-
-### 23.6 Kernel does not own uncontended lock state in the same way as a high-level lock object
-
-Futex fast path can remain purely userspace.
-
-Kernel is mainly needed for:
-
-```text
-waiting
-waking
-contention arbitration
-special futex operations
-```
-
-This is why futex is efficient building block.
-
----
-
-### 23.7 NPTL and futex
-
-Linux `pthreads(7)` notes NPTL synchronization primitives such as:
-
-```text
-mutexes
-thread joining
-```
-
-are implemented using Linux futex mechanisms.
-
-Mental model:
-
-```text
-Application
-    |
-Pthreads primitive
-    |
-glibc/NPTL
-    |
-fast atomic userspace path
-    |
-futex kernel path when needed
-```
-
----
-
-### 23.8 Do not program against raw futex unless building synchronization runtime-level code
-
-`futex(7)` explicitly says raw futexes are not easy-to-use end-user abstractions.
-
-They require deep knowledge of:
-
-```text
-atomic operations
-memory ordering
-race-free wait/wake protocol
-ABI details
-robust-list semantics
-priority-inheritance futexes
-```
-
-Topic 7 stops at implementation mental model.
-
----
-
-## 24. Error Model và Tư duy Debug Synchronization
-
-### 24.1 Start with symptom classification
+### 18.1 Start with symptom classification
 
 Synchronization bug can appear as:
 
@@ -2958,7 +2078,7 @@ Different symptoms suggest different classes.
 
 ---
 
-### 24.2 Debug hierarchy
+### 18.2 Debug hierarchy
 
 ```text
 1. Shared state invariant?
@@ -2988,7 +2108,7 @@ Different symptoms suggest different classes.
 
 ---
 
-### 24.3 Program hangs with no CPU
+### 18.3 Program hangs with no CPU
 
 Likely classes:
 
@@ -2998,19 +2118,18 @@ condition waiter never receives useful state transition
 barrier participant missing
 join cycle
 blocking resource wait
-robust mutex owner issue
 ```
 
 Need identify wait-for relationships.
 
 ---
 
-### 24.4 Program consumes 100% CPU while “stuck”
+### 18.4 Program consumes 100% CPU while “stuck”
 
 Possible:
 
 ```text
-spinlock/busy wait
+busy-wait
 livelock
 retry loop
 incorrect nonblocking synchronization loop
@@ -3020,7 +2139,7 @@ This differs from sleeping deadlock.
 
 ---
 
-### 24.5 Data is intermittently wrong
+### 18.5 Data is intermittently wrong
 
 Possible:
 
@@ -3035,7 +2154,7 @@ predicate accessed outside mutex protocol
 
 ---
 
-### 24.6 Adding logging “fixes” bug
+### 18.6 Adding logging “fixes” bug
 
 Classic concurrency clue.
 
@@ -3061,7 +2180,7 @@ undefined behavior
 
 ---
 
-### 24.7 Condition wait wakes but state is false
+### 18.7 Condition wait wakes but state is false
 
 This can be correct.
 
@@ -3078,7 +2197,7 @@ Correct response is predicate reevaluation.
 
 ---
 
-### 24.8 Condition wait never wakes despite state true
+### 18.8 Condition wait never wakes despite state true
 
 Investigate protocol:
 
@@ -3094,7 +2213,7 @@ With proper mutex+condition protocol, reason through state transition rather tha
 
 ---
 
-### 24.9 `pthread_mutex_trylock()` returns `EBUSY`
+### 18.9 `pthread_mutex_trylock()` returns `EBUSY`
 
 This usually means:
 
@@ -3108,29 +2227,7 @@ Try-lock changes control-flow contract.
 
 ---
 
-### 24.10 Robust mutex returns `EOWNERDEAD`
-
-This is:
-
-```text
-acquired + recovery required
-```
-
-not ordinary acquisition failure.
-
-Protected invariant must be inspected/repaired.
-
----
-
-### 24.11 Robust mutex returns `ENOTRECOVERABLE`
-
-Previous recovery path failed to mark state consistent before releasing robust mutex.
-
-Object/state protocol may require reinitialization under controlled lifecycle.
-
----
-
-### 24.12 `EDEADLK`
+### 18.10 `EDEADLK`
 
 Some mutex types/interfaces can detect selected self/deadlock conditions and return:
 
@@ -3144,7 +2241,7 @@ Many deadlocks remain undetected by primitive.
 
 ---
 
-### 24.13 Pthread synchronization functions generally do not use `errno` as main return channel
+### 18.11 Pthread synchronization functions generally do not use `errno` as main return channel
 
 As with Topic 6:
 
@@ -3162,7 +2259,7 @@ POSIX mutex functions explicitly state they do not return `EINTR`.
 
 ---
 
-### 24.14 Performance bug: correct but slow
+### 18.12 Performance bug: correct but slow
 
 Look for:
 
@@ -3170,7 +2267,6 @@ Look for:
 one global lock serializes all work
 long critical sections
 lock held during I/O
-rwlock writer/read contention
 too many threads
 false sharing/cache contention
 priority inversion
@@ -3180,9 +2276,9 @@ Correctness and performance are separate dimensions.
 
 ---
 
-## 25. Liên hệ với Embedded Linux
+## 19. Liên hệ với Embedded Linux
 
-### 25.1 Sensor pipeline
+### 19.1 Sensor pipeline
 
 Example architecture:
 
@@ -3209,7 +2305,7 @@ shutdown state
 
 ---
 
-### 25.2 Producer-consumer mental model
+### 19.2 Producer-consumer mental model
 
 ```text
 Producer
@@ -3238,7 +2334,7 @@ or another queue primitive designed internally with equivalent synchronization.
 
 ---
 
-### 25.3 UART/device ownership
+### 19.3 UART/device ownership
 
 Multiple threads writing same UART/file descriptor may create application-level interleaving.
 
@@ -3260,7 +2356,7 @@ around higher-level transaction boundaries.
 
 ---
 
-### 25.4 I2C/SPI transaction integrity
+### 19.4 I2C/SPI transaction integrity
 
 Peripheral protocol often requires a multi-step logical transaction.
 
@@ -3283,7 +2379,7 @@ The protected invariant should correspond to protocol transaction.
 
 ---
 
-### 25.5 Logger design
+### 19.5 Logger design
 
 If many worker threads log through shared state:
 
@@ -3307,7 +2403,7 @@ trades lock contention for ownership/message-passing design.
 
 ---
 
-### 25.6 Shutdown
+### 19.6 Shutdown
 
 Graceful shutdown involves shared lifecycle state:
 
@@ -3333,24 +2429,7 @@ Condition variables or event mechanisms can wake sleepers when shutdown predicat
 
 ---
 
-### 25.7 Watchdog-related architecture
-
-A hardware watchdog should not be serviced merely because one arbitrary worker thread is still alive.
-
-System health may depend on:
-
-```text
-all critical tasks progressing
-deadlock absence
-deadline completion
-I/O health
-```
-
-Synchronization/liveness architecture affects watchdog correctness.
-
----
-
-### 25.8 Resource-constrained targets
+### 19.7 Resource-constrained targets
 
 Contention costs matter because embedded CPU may have:
 
@@ -3367,957 +2446,45 @@ Correctness first, then measurement-driven refinement.
 
 ---
 
-### 25.9 Real-time Embedded Linux
-
-Priority inversion becomes critical when high-priority thread blocks on mutex held by lower-priority thread.
-
-Bootlin PREEMPT_RT training recommends ownership-aware POSIX mutexes and explicit priority inheritance when real-time locking needs it.
-
-This belongs to real-time design rather than ordinary default synchronization.
-
----
-
-### 25.10 Avoid semaphores as generic mutex substitute in priority-sensitive design
-
-Because semaphore lacks mutex ownership model, priority inheritance cannot naturally track one owner in the same way.
-
-For ownership-based mutual exclusion in real-time user-space design:
-
-```text
-pthread_mutex_t
-```
-
-with appropriate protocol is the relevant abstraction.
-
----
-
-### 25.11 Process-shared synchronization on embedded services
-
-Multiple cooperating processes can share:
-
-```text
-shared-memory state
-+
-process-shared mutex/condition/semaphore
-```
-
-But crash recovery and lifecycle become much harder.
-
-Robust mutex may help detect owner death, but shared state still needs recovery semantics.
-
----
-
-### 25.12 Thread pool and bounded work
-
-An embedded gateway can use:
-
-```text
-bounded worker pool
-+
-work queue
-```
-
-Synchronization must define:
-
-```text
-queue not empty
-queue not full
-shutdown
-worker lifecycle
-```
-
-Bounded resource design is often more predictable than unbounded thread creation.
-
----
-
-## 26. Tổng kết và Mental Model
-
-### 26.1 Synchronization selection map
-
-```text
-What problem are we solving?
-          |
-          +--> Exclusive ownership?
-          |       |
-          |       v
-          |     Mutex
-          |
-          +--> Wait for shared-state predicate?
-          |       |
-          |       v
-          |   Condition variable + Mutex
-          |
-          +--> Count available resources/tokens?
-          |       |
-          |       v
-          |    Semaphore
-          |
-          +--> Many readers / one writer?
-          |       |
-          |       v
-          |     RW lock
-          |
-          +--> All participants reach same phase?
-                  |
-                  v
-               Barrier
-```
-
----
-
-### 26.2 Condition-variable mental model
-
-```text
-Shared State
-     |
-predicate
-     |
-Mutex protects predicate
-     |
-Condition Variable
-     |
-sleep / wake hint
-     |
-wake
-     |
-reacquire mutex
-     |
-recheck predicate
-```
-
-Most important rule:
-
-```text
-WAKEUP != PREDICATE TRUE
-```
-
----
-
-### 26.3 Mutex mental model
-
-```text
-Unlocked
-   |
-Thread A lock
-   |
-   v
-Locked by A
-   |
-Thread B waits
-   |
-A unlocks
-   |
-   v
-one eligible waiter may acquire
-```
-
-Mutex means:
-
-```text
-ownership + exclusion + memory synchronization
-```
-
----
-
-### 26.4 Semaphore mental model
-
-```text
-count = N available permits
-
-wait:
-  consume one or block
-
-post:
-  return/add one permit
-```
-
-Semaphore means:
-
-```text
-counted availability
-```
-
-not ownership.
-
----
-
-### 26.5 Deadlock mental model
-
-```text
-A owns X
-A waits Y
-
-B owns Y
-B waits X
-
-=> cycle
-=> no progress
-```
-
-Prevention focuses on dependency structure, not hoping scheduler order avoids it.
-
----
-
-### 26.6 Linux implementation mental model
-
-```text
-Application
-    |
-Pthread Mutex / Cond / RWLock / Join
-    |
-glibc / NPTL
-    |
-atomic userspace fast path
-    |
-contention?
-  /       \
- no        yes
- |          |
-return    futex wait/wake
-             |
-             v
-           kernel
-```
-
----
-
-### 26.7 Các nguyên tắc cốt lõi
-
-1. Synchronization protects shared-state invariants, not merely individual variables.
-
-2. Race condition means correctness depends on concurrent timing/order.
-
-3. Data race is a stricter memory-access conflict concept; logical races can exist even when individual accesses are synchronized.
-
-4. Critical section is the state transition that must be mutually exclusive relative to conflicting operations.
-
-5. Synchronization also establishes memory visibility/order, not only scheduler blocking.
-
-6. Source-code order alone is not a portable cross-thread synchronization contract.
-
-7. Mutex is ownership-based mutual exclusion.
-
-8. A mutex has one owner at a time under normal locked state.
-
-9. All threads accessing protected state must honor same locking protocol.
-
-10. `pthread_mutex_lock()` may block under contention.
-
-11. `pthread_mutex_trylock()` returns immediately when normal acquisition would block.
-
-12. Mutex type changes relock/non-owner-unlock semantics.
-
-13. `PTHREAD_MUTEX_NORMAL`, `ERRORCHECK`, `RECURSIVE`, and `DEFAULT` are distinct concepts.
-
-14. Recursive mutex maintains lock count and requires matching unlocks.
-
-15. `PTHREAD_MUTEX_DEFAULT` must not be assumed to have one universal edge-case behavior.
-
-16. Mutex attributes configure type, sharing, robustness and real-time protocols where supported.
-
-17. Robust mutex detects owner death; it does not automatically repair protected state.
-
-18. `EOWNERDEAD` means robust mutex was acquired and state recovery is required.
-
-19. Failing to mark recovered robust state consistent can lead to `ENOTRECOVERABLE`.
-
-20. Condition variable is a wait/notification mechanism for predicates over shared state.
-
-21. Condition variable does not store application predicate.
-
-22. Condition variable should be associated with mutex-protected predicate state.
-
-23. `pthread_cond_wait()` atomically releases mutex and begins waiting relative to condition-variable synchronization semantics.
-
-24. Condition wait reacquires mutex before returning.
-
-25. Wakeup does not imply predicate is true.
-
-26. Spurious wakeups are permitted.
-
-27. Predicate must therefore be reevaluated in a loop.
-
-28. Lost wakeup comes from incorrect check-then-sleep protocol.
-
-29. Mutex + condition wait's atomic unlock/wait transition closes the critical race window.
-
-30. `pthread_cond_signal()` and `pthread_cond_broadcast()` differ in how many waiters become eligible to progress.
-
-31. Every awakened waiter still needs to reacquire mutex and re-check predicate.
-
-32. Timed condition waits still require predicate re-evaluation.
-
-33. Semaphore is a nonnegative counter of permits/resources/events.
-
-34. Semaphore wait consumes a permit or blocks when count is zero.
-
-35. Semaphore post increments availability.
-
-36. Binary semaphore is not semantically identical to ownership-based mutex.
-
-37. RW lock permits multiple concurrent readers or one exclusive writer.
-
-38. RW lock is useful for suitable read-heavy workloads, not automatically faster than mutex.
-
-39. RW lock fairness/writer preference should not be assumed beyond documented semantics.
-
-40. Generic atomic read-to-write lock upgrade should not be assumed portable.
-
-41. Barrier synchronizes participants at phase boundaries.
-
-42. Barrier is not a mutual-exclusion primitive.
-
-43. Missing barrier participant can block all other participants indefinitely.
-
-44. `pthread_once()` provides synchronized exactly-once initialization semantics.
-
-45. Spin lock busy-waits instead of sleeping.
-
-46. Spin locks can waste CPU and are specialized primitives.
-
-47. Deadlock is a progress failure caused by cyclic/unresolvable wait dependencies.
-
-48. Deadlock can involve mutexes, joins, condition protocols, or other resources.
-
-49. Consistent global lock ordering is a major deadlock-prevention method.
-
-50. Coarse locking simplifies correctness but can reduce concurrency.
-
-51. Fine-grained locking increases concurrency potential but adds complexity and deadlock risk.
-
-52. Critical sections should not contain unbounded/blocking operations without deliberate design.
-
-53. Starvation means one participant is indefinitely denied progress while others may progress.
-
-54. Livelock means participants remain active but fail to make useful progress.
-
-55. Fairness is not a universal implicit guarantee of synchronization primitives.
-
-56. Priority inversion occurs when high-priority thread indirectly waits behind lower/medium-priority activity due lock ownership.
-
-57. Priority inheritance can temporarily raise mutex owner priority to reduce inversion.
-
-58. Priority-protection/ceiling is another POSIX real-time mutex protocol.
-
-59. Real-time mutex protocols require explicit scheduler/priority architecture.
-
-60. Process-shared synchronization requires both shared storage and correct `pshared` configuration.
-
-61. Shared synchronization object lifetime must itself be coordinated.
-
-62. Robust process-shared mutex helps detect dead owners but recovery remains application responsibility.
-
-63. Cancellation can break ownership protocols unless cleanup is designed.
-
-64. Condition wait is a cancellation point with mutex reacquisition semantics relevant to cleanup.
-
-65. Normal pthread mutex operations should not be casually called from asynchronous signal handlers.
-
-66. Dedicated synchronous signal thread works better with ordinary synchronization APIs.
-
-67. Linux futex is a low-level building block, not the normal application API.
-
-68. Futex fast path can stay in userspace when uncontended.
-
-69. Kernel futex wait/wake is used for contended cases.
-
-70. Futex wait implements atomic compare-and-block style behavior around shared futex word.
-
-71. NPTL uses futex mechanisms to implement higher-level thread synchronization.
-
-72. Correct synchronization and efficient synchronization are separate goals.
-
-73. Debugging should first classify: race, deadlock, starvation, livelock, lifecycle, or contention.
-
-74. Logging/timing changes can hide concurrency bugs without fixing them.
-
-75. Embedded Linux synchronization should protect logical device/protocol transactions, not just C variables.
-
-76. Resource-constrained targets benefit from simple, bounded synchronization architecture.
-
-77. Real-time systems need explicit analysis of priority inversion and bounded blocking.
-
-78. Mental model cốt lõi:
+## 20. Tổng kết và Mental Model
 
 ```text
 shared mutable state
-        |
-multiple threads
-        |
-        v
-need synchronization protocol
-        |
-        +--> ownership       -> mutex
-        +--> predicate wait  -> condition variable
-        +--> counted permits -> semaphore
-        +--> readers/writer  -> rwlock
-        +--> phase rendezvous-> barrier
-```
-
----
-
-## 27. Tài liệu tham khảo
-
-Nguồn được ưu tiên theo thứ tự:
-
-```text
-POSIX.1-2024 / The Open Group
         ↓
-Linux man-pages
+ concurrent access
         ↓
-GNU libc / NPTL and Linux futex documentation
+race / ordering problem
         ↓
-recognized Embedded Linux / real-time Linux training
-        ↓
-reputable community discussion for debugging edge cases
+synchronization protocol
+   ├─ mutex      → exclusive ownership
+   ├─ condition  → wait for predicate/state change
+   ├─ semaphore  → counted availability
+   └─ barrier    → phase rendezvous
 ```
 
-Community source chỉ dùng để:
-
-```text
-nhận diện symptom
-tìm concurrency edge case
-đối chiếu real-world behavior
-```
-
-Exact synchronization semantics phải quay lại POSIX/Linux upstream documentation.
-
----
-
-### 27.1 POSIX.1-2024 — Threading and Memory Synchronization
-
-#### POSIX General Information — Threads
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/functions/V2_chap02.html
-
-Nguồn cho:
-
-```text
-multiple flows of control in one shared address space
-thread synchronization primitives
-mutex concept
-condition variables
-read-write locks
-thread-safety
-```
+Các điểm cần giữ:
+- Critical section phải bảo vệ invariant/state transition, không chỉ một biến riêng lẻ.
+- Mutex cung cấp ownership + mutual exclusion và memory-synchronization semantics.
+- Condition variable luôn được hiểu cùng predicate và mutex; wakeup không chứng minh predicate đã true.
+- Predicate phải được kiểm tra lại sau wakeup; spurious wakeup là một phần của contract.
+- Semaphore là counter/permit abstraction, không có mutex-style owner semantics.
+- Producer–consumer là bài toán điển hình: mutex bảo vệ queue invariant, condition/semaphore biểu diễn availability.
+- Barrier đồng bộ các participant tại phase boundary.
+- Deadlock cần được phòng bằng dependency/lock-order design; starvation và priority inversion là các liveness/scheduling problems khác.
 
 ---
 
-#### POSIX General Concepts — Memory Synchronization
+## 21. Tài liệu tham khảo
 
-- https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap04.html
-
-Đây là nguồn rất quan trọng cho Topic 7.
-
-Dùng để xác định:
-
-```text
-data-race avoidance requirement
-memory synchronization effects of mutex operations
-condition wait/reacquire
-rwlocks
-barriers
-semaphores
-pthread_create/join
-pthread_once
-```
-
-Mental model:
-
-```text
-synchronization primitive
-  controls execution
-  +
-  synchronizes memory
-```
+- POSIX.1-2024 Threads and Memory Synchronization: https://pubs.opengroup.org/onlinepubs/9799919799/
+- `pthread_mutex_lock(3p)`: https://man7.org/linux/man-pages/man3/pthread_mutex_lock.3p.html
+- `pthread_cond_wait(3p)`: https://man7.org/linux/man-pages/man3/pthread_cond_wait.3p.html
+- `sem_overview(7)`: https://man7.org/linux/man-pages/man7/sem_overview.7.html
+- `pthread_barrier_wait(3p)`: https://man7.org/linux/man-pages/man3/pthread_barrier_wait.3p.html
+- `pthreads(7)`: https://man7.org/linux/man-pages/man7/pthreads.7.html
+- Bootlin PREEMPT_RT training (priority inversion context): https://bootlin.com/training/preempt-rt/
+- The Linux Programming Interface: https://man7.org/tlpi/
 
 ---
 
-### 27.2 POSIX Mutex
-
-#### `pthread_mutex_lock()`
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/functions/pthread_mutex_lock.html
-
-Nguồn cho:
-
-```text
-lock/trylock/unlock
-blocking
-mutex ownership
-NORMAL
-ERRORCHECK
-RECURSIVE
-DEFAULT
-robust mutex return states
-EOWNERDEAD
-ENOTRECOVERABLE
-EDEADLK
-```
-
-Particularly important is POSIX mutex-type table defining relock and non-owner-unlock behavior.
-
----
-
-#### `<pthread.h>`
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/pthread.h.html
-
-Nguồn cho standardized types/constants:
-
-```text
-PTHREAD_MUTEX_NORMAL
-PTHREAD_MUTEX_ERRORCHECK
-PTHREAD_MUTEX_RECURSIVE
-PTHREAD_MUTEX_ROBUST
-PTHREAD_PROCESS_SHARED
-PTHREAD_PRIO_INHERIT
-PTHREAD_PRIO_PROTECT
-pthread_cond_t
-pthread_rwlock_t
-pthread_barrier_t
-pthread_spinlock_t
-```
-
----
-
-### 27.3 Condition Variables
-
-#### POSIX condition wait
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/functions/pthread_cond_clockwait.html
-
-Nguồn trung tâm cho:
-
-```text
-pthread_cond_wait()
-pthread_cond_timedwait()
-pthread_cond_clockwait()
-atomic mutex release + wait
-mutex reacquisition
-Boolean predicate
-spurious wakeups
-predicate re-evaluation
-timeout race
-```
-
-POSIX explicitly states that return from condition wait does not imply predicate is true.
-
----
-
-#### Linux `pthread_cond_wait(3)`
-
-- https://man7.org/linux/man-pages/man3/pthread_cond_wait.3.html
-
-Nguồn Linux/glibc context cho:
-
-```text
-condition-variable semantics
-mutex association
-atomic unlock-and-wait
-timed waiting
-```
-
-Exact modern portable semantics are checked against POSIX.1-2024.
-
----
-
-### 27.4 POSIX Semaphores
-
-#### `sem_overview(7)`
-
-- https://man7.org/linux/man-pages/man7/sem_overview.7.html
-
-Nguồn Linux overview:
-
-```text
-semaphore nonnegative integer
-sem_wait decrement/block
-sem_post increment
-named vs unnamed
-thread/process synchronization
-```
-
----
-
-#### POSIX `sem_init()`
-
-- https://pubs.opengroup.org/onlinepubs/9799919799.2024edition/functions/sem_init.html
-
-Nguồn for unnamed semaphore initialization and:
-
-```text
-pshared == 0
-  shared by threads in process
-
-pshared != 0
-  process-shared when stored/accessed appropriately
-```
-
----
-
-### 27.5 Read-Write Locks
-
-#### POSIX Threads — Read-Write Locks
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/functions/V2_chap02.html
-
-Defines core abstraction:
-
-```text
-multiple simultaneous readers
-or
-one exclusive writer
-```
-
-Typically for data read more frequently than modified.
-
----
-
-#### `pthread_rwlock_rdlock()`
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/functions/pthread_rwlock_rdlock.html
-
-Nguồn cho:
-
-```text
-reader acquisition
-blocked writers
-try-read behavior
-multiple read locks
-scheduling/fairness nuances
-EAGAIN/EDEADLK
-```
-
----
-
-### 27.6 Barriers
-
-#### POSIX barrier rationale
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/xrat/V4_xsh_chap01.html
-
-Nguồn cho phase-synchronization rationale.
-
----
-
-#### `pthread_barrier_wait(3p)`
-
-- https://man7.org/linux/man-pages/man3/pthread_barrier_wait.3p.html
-
-Nguồn cho:
-
-```text
-required participant count
-blocking until threshold
-PTHREAD_BARRIER_SERIAL_THREAD
-barrier reset for next phase
-```
-
----
-
-### 27.7 Robust Mutexes
-
-#### `pthread_mutexattr_setrobust(3)`
-
-- https://man7.org/linux/man-pages/man3/pthread_mutexattr_setrobust.3.html
-
-Nguồn cho Linux/POSIX robust mutex:
-
-```text
-PTHREAD_MUTEX_STALLED
-PTHREAD_MUTEX_ROBUST
-owner death
-EOWNERDEAD
-pthread_mutex_consistent()
-ENOTRECOVERABLE
-```
-
----
-
-#### POSIX rationale — Robust Mutexes
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/xrat/V4_xsh_chap01.html
-
-Nguồn giải thích motivation:
-
-```text
-owner dies holding process-shared mutex
-waiters otherwise may block indefinitely
-robust mutex gives recovery notification
-```
-
----
-
-### 27.8 Priority Inheritance and Priority Protection
-
-#### POSIX mutex protocol attribute
-
-- https://man7.org/linux/man-pages/man3/pthread_mutexattr_setprotocol.3p.html
-
-Nguồn cho protocol attribute:
-
-```text
-PTHREAD_PRIO_NONE
-PTHREAD_PRIO_INHERIT
-PTHREAD_PRIO_PROTECT
-```
-
-where supported by POSIX real-time thread options.
-
----
-
-#### Bootlin PREEMPT_RT training
-
-- https://bootlin.com/training/preempt-rt/
-- https://bootlin.com/doc/training/preempt-rt/
-
-Bootlin's current PREEMPT_RT training material emphasizes:
-
-```text
-pthread_mutex_t for multithreaded locking
-mutex ownership
-priority inheritance
-explicit PTHREAD_PRIO_INHERIT configuration
-```
-
-Useful for Embedded Linux real-time context.
-
----
-
-### 27.9 Futex
-
-#### `futex(7)`
-
-- https://man7.org/linux/man-pages/man7/futex.7.html
-
-Central high-level futex reference.
-
-Dùng cho:
-
-```text
-fast userspace locking
-futex as primitive building block
-user-space uncontended path
-kernel arbitration in contended path
-higher-level mutex/cond/rwlock/barrier/semaphore abstractions
-```
-
-It explicitly recommends that most programmers rely on library abstractions such as NPTL rather than raw futex.
-
----
-
-#### `futex(2)`
-
-- https://man7.org/linux/man-pages/man2/futex.2.html
-
-Nguồn for:
-
-```text
-atomic compare-and-block
-futex wait/wake
-shared futex word
-lock implementation model
-```
-
-Topic 7 uses this only for implementation mental model.
-
----
-
-#### `pthreads(7)`
-
-- https://man7.org/linux/man-pages/man7/pthreads.7.html
-
-Nguồn xác nhận modern Linux NPTL threading implementation and use of futex mechanisms for synchronization primitives such as mutexes and thread joining.
-
----
-
-### 27.10 One-time Initialization
-
-#### POSIX system interfaces index / `pthread_once()`
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/idx/functions.html
-
-`pthread_once()` is part of POSIX synchronization APIs.
-
-Memory-synchronization rules are defined in POSIX General Concepts.
-
----
-
-### 27.11 Spin Locks
-
-#### POSIX system interfaces
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/idx/functions.html
-
-Includes:
-
-```text
-pthread_spin_init()
-pthread_spin_lock()
-pthread_spin_trylock()
-pthread_spin_unlock()
-pthread_spin_destroy()
-```
-
-Spin locks are treated as specialized synchronization primitive rather than default general-purpose mutex replacement.
-
----
-
-### 27.12 Thread Cancellation Context
-
-#### `pthread_cancel(3)`
-
-- https://man7.org/linux/man-pages/man3/pthread_cancel.3.html
-
-Nguồn for:
-
-```text
-deferred cancellation
-cleanup-handler order
-TSD destructor order
-```
-
----
-
-#### POSIX condition wait
-
-- https://pubs.opengroup.org/onlinepubs/9799919799/functions/pthread_cond_clockwait.html
-
-Important for cancellation semantics around condition-variable mutex reacquisition.
-
----
-
-### 27.13 Linux Pthreads/NPTL
-
-#### `pthreads(7)`
-
-- https://man7.org/linux/man-pages/man7/pthreads.7.html
-
-Nguồn tổng quát cho:
-
-```text
-Pthreads on Linux
-NPTL
-thread synchronization
-futex implementation context
-```
-
----
-
-### 27.14 Bootlin Embedded Linux
-
-#### Embedded Linux System Development
-
-- https://bootlin.com/training/embedded-linux/
-- https://bootlin.com/doc/training/embedded-linux/
-
-Used for broader Embedded Linux userspace/threading context.
-
-Historical Bootlin/Free Electrons POSIX material also demonstrates mutex and condition-variable synchronization as foundational POSIX multithreading topics, but current POSIX/man-pages remain authoritative for semantics.
-
----
-
-### 27.15 The Linux Programming Interface / man7.org
-
-- https://man7.org/tlpi/
-- https://man7.org/training/
-
-Michael Kerrisk's *The Linux Programming Interface* and Linux system-programming training material are reputable explanatory sources for:
-
-```text
-POSIX threads
-mutexes
-condition variables
-process-shared synchronization
-signals and threads
-```
-
-Exact interface semantics still defer to POSIX/Linux man-pages.
-
----
-
-### 27.16 Reputable Community Sources
-
-#### Unix & Linux Stack Exchange
-
-- https://unix.stackexchange.com/
-
-Useful to identify real-world debugging patterns:
-
-```text
-deadlock
-pthread condition-variable confusion
-process-shared mutex issues
-futex waits in traces
-priority inversion observations
-```
-
----
-
-#### Stack Overflow
-
-- https://stackoverflow.com/
-
-Useful for discovering common synchronization mistakes:
-
-```text
-using if instead of while around cond_wait
-unlock by non-owner
-recursive-mutex misuse
-lost wakeups
-incorrect semaphore/mutex substitution
-lock-order deadlocks
-```
-
-Community answers must be verified against:
-
-```text
-POSIX.1-2024
-Linux man-pages
-glibc/NPTL documentation
-```
-
----
-
-### 27.17 Nguyên tắc kiểm chứng khi đọc tài liệu Thread Synchronization
-
-Khi hai nguồn có vẻ mâu thuẫn, hỏi:
-
-```text
-1. POSIX guarantee hay Linux-specific behavior?
-2. Mutex type nào?
-3. Robust hay non-robust?
-4. Process-private hay process-shared?
-5. Mutex ownership hay semaphore count?
-6. Condition-variable predicate nằm ở đâu?
-7. Predicate có được bảo vệ bởi cùng mutex không?
-8. Wait return do signal, broadcast, spurious wakeup hay timeout?
-9. Primitive có fairness guarantee nào thật sự được specification nêu?
-10. Scheduler policy/priority có liên quan không?
-11. Thread cancellation có thể xảy ra ở điểm đó không?
-12. Signal-handler context hay normal thread context?
-13. Deadlock, starvation hay livelock?
-14. Correctness bug hay contention/performance problem?
-15. User-space Pthreads abstraction hay raw futex implementation?
-16. POSIX memory synchronization hay C/C++ language memory model?
-17. Kernel/glibc version nào?
-```
-
-Đây là quan trọng vì “synchronization” xuất hiện ở nhiều layers:
-
-```text
-application invariant
-POSIX primitive
-libc/NPTL implementation
-CPU atomic instructions
-Linux futex
-scheduler
-language memory model
-```
-
-Các layer liên hệ chặt chẽ nhưng không đồng nhất.
-
----
-
-> **Điều hướng:** [← Chủ đề 6 — Multithreading](README-topic-06.md) · [Chủ đề 8 →](README-topic-08.md)
+> **Điều hướng:** [← Chủ đề 6 — Multithreading](README-topic-06.md) · [Chủ đề 8 — IPC →](README-topic-08.md)
