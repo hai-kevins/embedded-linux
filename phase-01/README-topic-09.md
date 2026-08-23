@@ -1,46 +1,61 @@
 # Chủ đề 9 — Socket Programming trong Linux
 
-> **Phạm vi:** Linux/POSIX socket programming fundamentals: socket API, socket addresses, network byte order, IP/port, TCP vs UDP, server/client lifecycle, stream/datagram semantics, Unix-domain socket và graceful shutdown/error handling.
+> **Mục tiêu dễ hiểu:** Hiểu socket như một communication endpoint và xây mô hình tư duy TCP server/client, UDP datagram, địa chỉ/port và graceful shutdown.
 >
-> Chương này chỉ trình bày **lý thuyết**. Không có lab, bài tập, chương trình mẫu hoàn chỉnh hoặc hướng dẫn thao tác thực hành.
+> **Bạn cần biết trước:** Biết fd, blocking I/O và IPC. Networking cơ bản như IP/port sẽ được giải thích lại ở mức cần dùng.
 >
-> **Giới hạn chủ đề:** Không đi sâu vào non-blocking event loops, `select/poll/epoll`, advanced socket options, raw sockets, TLS/HTTP hoặc transport-algorithm internals; multiplexing thuộc topic tiếp theo.
+> **Các từ khóa sẽ gặp nhiều:**
+> - **socket** = endpoint giao tiếp có fd
+> - **TCP** = reliable ordered byte stream
+> - **UDP** = datagram/message transport không đảm bảo delivery/order
+> - **bind** = gán local address
+> - **listen/accept** = phía TCP server
+> - **connect** = chọn/thiết lập peer tùy socket type
 >
-> **Nguyên tắc bố cục:** `##` chỉ dành cho các khối kiến thức lớn; `###/####` dùng cho concept chi tiết. Các phần trùng hoặc thuộc topic khác đã được loại khỏi chapter này.
+> **Quy ước đọc thuật ngữ:** khi gặp `state`, `context`, `semantics`, `object`, hãy hiểu lần lượt là **trạng thái**, **ngữ cảnh**, **hành vi theo chuẩn**, **đối tượng/tài nguyên**. Tên API và thuật ngữ chuẩn như process, thread, socket, mutex được giữ nguyên để bạn quen dần với tài liệu kỹ thuật.
 >
-> **Điều hướng:** [← Chủ đề 8 — IPC](README-topic-08.md) · [Chủ đề 10 →](README-topic-10.md)
-
+> **Cách đọc nếu bạn mới bắt đầu:**
+> 1. Lượt đầu chỉ đọc các ô **“Nói đơn giản”**, sơ đồ ASCII/Mermaid và phần **Tổng kết**.
+> 2. Lượt hai đọc các mục `###` để hiểu API/khái niệm cụ thể.
+> 3. Các mục `####`, caveat POSIX/Linux và edge case có thể để lần đọc thứ ba. **Không cần hiểu hết trong một lượt.**
+>
+> Chương này chỉ có **lý thuyết**, không có lab hay bài tập thực hành. Thuật ngữ tiếng Anh được giữ khi đó là tên chuẩn, nhưng luôn ưu tiên giải thích ý nghĩa trước.
 ---
 
 ## Mục lục
 
-- [1. Socket Programming Fundamentals](#1-socket-programming-fundamentals)
-- [2. Socket Abstraction: Domain, Type và Protocol](#2-socket-abstraction-domain-type-và-protocol)
-- [3. Socket là File Descriptor — nhưng không phải Regular File](#3-socket-là-file-descriptor-nhưng-không-phải-regular-file)
-- [4. Socket Address Model và `sockaddr`](#4-socket-address-model-và-sockaddr)
-- [5. Network Byte Order](#5-network-byte-order)
-- [6. Name Resolution với `getaddrinfo()`](#6-name-resolution-với-getaddrinfo)
+- [1. Socket Programming là gì?](#1-socket-programming-là-gì)
+- [2. Domain, Type và Protocol quyết định Socket ra sao?](#2-domain-type-và-protocol-quyết-định-socket-ra-sao)
+- [3. Socket có File Descriptor nhưng không phải Regular File](#3-socket-có-file-descriptor-nhưng-không-phải-regular-file)
+- [4. Socket Address và `sockaddr`](#4-socket-address-và-sockaddr)
+- [5. Network Byte Order: vì sao phải đổi thứ tự byte?](#5-network-byte-order-vì-sao-phải-đổi-thứ-tự-byte)
+- [6. `getaddrinfo()`: từ Hostname tới Socket Address](#6-getaddrinfo-từ-hostname-tới-socket-address)
 - [7. IP Address, Port và Endpoint](#7-ip-address-port-và-endpoint)
-- [8. `bind()` và Local Address Assignment](#8-bind-và-local-address-assignment)
-- [9. TCP và UDP — Hai Transport Models khác nhau](#9-tcp-và-udp-hai-transport-models-khác-nhau)
-- [10. TCP Server Lifecycle](#10-tcp-server-lifecycle)
-- [11. TCP Client Lifecycle](#11-tcp-client-lifecycle)
-- [12. TCP Connection Establishment và State Model](#12-tcp-connection-establishment-và-state-model)
-- [13. TCP Data Semantics và Application Framing](#13-tcp-data-semantics-và-application-framing)
-- [14. TCP Flow, Buffering và Partial I/O](#14-tcp-flow-buffering-và-partial-io)
-- [15. TCP Graceful Shutdown, Half-close và Connection Termination](#15-tcp-graceful-shutdown-half-close-và-connection-termination)
-- [16. UDP Datagram Model](#16-udp-datagram-model)
-- [17. UDP `bind()`, `connect()`, `sendto()` và `recvfrom()` Semantics](#17-udp-bind-connect-sendto-và-recvfrom-semantics)
-- [18. `send()` / `recv()` Family](#18-send-recv-family)
-- [19. Unix Domain Socket trong unified Socket API](#19-unix-domain-socket-trong-unified-socket-api)
-- [20. Error Model và Tư duy Debug Socket](#20-error-model-và-tư-duy-debug-socket)
+- [8. `bind()`: chọn Local Address/Port](#8-bind-chọn-local-addressport)
+- [9. TCP và UDP khác nhau ở mô hình dữ liệu nào?](#9-tcp-và-udp-khác-nhau-ở-mô-hình-dữ-liệu-nào)
+- [10. TCP Server: `socket → bind → listen → accept`](#10-tcp-server-socket-bind-listen-accept)
+- [11. TCP Client: `socket → connect`](#11-tcp-client-socket-connect)
+- [12. TCP Handshake và các State quan trọng](#12-tcp-handshake-và-các-state-quan-trọng)
+- [13. TCP là Byte Stream: Application phải tự chia Message](#13-tcp-là-byte-stream-application-phải-tự-chia-message)
+- [14. Buffer, Backpressure và Partial I/O trong TCP](#14-buffer-backpressure-và-partial-io-trong-tcp)
+- [15. Đóng TCP đúng cách: `shutdown`, FIN, RST, TIME_WAIT](#15-đóng-tcp-đúng-cách-shutdown-fin-rst-time_wait)
+- [16. UDP: mỗi lần gửi là một Datagram](#16-udp-mỗi-lần-gửi-là-một-datagram)
+- [17. UDP `bind/connect/sendto/recvfrom` có ý nghĩa gì?](#17-udp-bindconnectsendtorecvfrom-có-ý-nghĩa-gì)
+- [18. `send()` và `recv()` — API dữ liệu cơ bản](#18-send-và-recv-api-dữ-liệu-cơ-bản)
+- [19. Unix Domain Socket: cùng API nhưng giao tiếp Local](#19-unix-domain-socket-cùng-api-nhưng-giao-tiếp-local)
+- [20. Tư duy Debugging Socket theo từng Layer](#20-tư-duy-debugging-socket-theo-từng-layer)
 - [21. Liên hệ với Embedded Linux](#21-liên-hệ-với-embedded-linux)
-- [22. Tổng kết và Mental Model](#22-tổng-kết-và-mental-model)
+- [22. Tổng kết và Mô hình tư duy](#22-tổng-kết-và-mô-hình-tư-duy)
 - [23. Tài liệu tham khảo](#23-tài-liệu-tham-khảo)
 
 ---
 
-## 1. Socket Programming Fundamentals
+## 1. Socket Programming là gì?
+
+> **Nói đơn giản:** Socket là endpoint giao tiếp. Cùng socket API có thể dùng cho TCP, UDP và Unix-domain local communication.
+
+> **Hình dung:** Socket giống một đầu cắm giao tiếp mà kernel quản lý. File descriptor là số tay cầm để process chỉ tới đầu cắm đó.
+
 
 ### 1.1 Socket là gì?
 
@@ -59,7 +74,7 @@ endpoint
 
 Socket là một đầu mút mà application dùng để giao tiếp thông qua một protocol/domain nhất định.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Application
@@ -127,7 +142,7 @@ phụ thuộc domain/type/protocol.
 
 ### 1.3 Socket API không phải là TCP API riêng
 
-Sai mental model:
+Sai mô hình tư duy:
 
 ```text
 socket = TCP
@@ -264,7 +279,10 @@ Transport protocol semantics
 
 ---
 
-## 2. Socket Abstraction: Domain, Type và Protocol
+## 2. Domain, Type và Protocol quyết định Socket ra sao?
+
+> **Nói đơn giản:** `domain` chọn họ địa chỉ, `type` chọn kiểu stream/datagram, `giao thức` chọn giao thức cụ thể. Ba thứ cùng nhau quyết định hành vi theo chuẩn.
+
 
 ### 2.1 Ba tham số logic của `socket()`
 
@@ -440,7 +458,7 @@ This is a common mapping, not a statement that every domain supports exactly one
 
 ### 2.8 Domain + type + protocol define semantics together
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 socket semantics
@@ -466,7 +484,10 @@ another stream-capable protocol
 
 ---
 
-## 3. Socket là File Descriptor — nhưng không phải Regular File
+## 3. Socket có File Descriptor nhưng không phải Regular File
+
+> **Nói đơn giản:** Socket được process giữ bằng file descriptor, nên `close`, `dup`, inheritance... theo fd model; nhưng socket không phải regular file có offset.
+
 
 ### 3.1 Successful `socket()` returns a file descriptor
 
@@ -634,7 +655,10 @@ expose privileged resource to child
 
 ---
 
-## 4. Socket Address Model và `sockaddr`
+## 4. Socket Address và `sockaddr`
+
+> **Nói đơn giản:** `sockaddr` là interface generic; IPv4 dùng `sockaddr_in`, IPv6 dùng `sockaddr_in6`. Address structure chứa family-specific fields.
+
 
 ### 4.1 Socket address is protocol-family-specific data
 
@@ -701,7 +725,7 @@ struct sockaddr_in
         IPv4 address
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 IPv4 endpoint
@@ -811,7 +835,10 @@ Conversion/name-resolution layers bridge these forms.
 
 ---
 
-## 5. Network Byte Order
+## 5. Network Byte Order: vì sao phải đổi thứ tự byte?
+
+> **Nói đơn giản:** Network byte order chuẩn hóa cách đặt byte của integer trên wire. Port 16-bit thường phải được biểu diễn theo network order.
+
 
 ### 5.1 Why byte order matters
 
@@ -984,7 +1011,10 @@ and writes binary address representation suitable for network use.
 
 ---
 
-## 6. Name Resolution với `getaddrinfo()`
+## 6. `getaddrinfo()`: từ Hostname tới Socket Address
+
+> **Nói đơn giản:** `getaddrinfo()` biến hostname/service thành một hoặc nhiều candidate socket addresses, giúp code không khóa cứng vào IPv4.
+
 
 ### 6.1 Application should not hard-code IPv4 structure thinking everywhere
 
@@ -1165,6 +1195,9 @@ It is conceptually the reverse side of generic address handling.
 
 ## 7. IP Address, Port và Endpoint
 
+> **Nói đơn giản:** Một Internet endpoint cần IP address + transport port. TCP connection còn gắn cả local và remote endpoint.
+
+
 ### 7.1 IP address identifies network-layer interface/address context
 
 IP address answers approximately:
@@ -1234,7 +1267,7 @@ Process
  +--> socket B local port 9000
 ```
 
-Another process can later use a port after prior binding/lifecycle permits.
+Another process can later use a port after prior binding/vòng đời permits.
 
 Therefore:
 
@@ -1338,7 +1371,10 @@ even though both stay on local machine.
 
 ---
 
-## 8. `bind()` và Local Address Assignment
+## 8. `bind()`: chọn Local Address/Port
+
+> **Nói đơn giản:** `bind()` chọn local address/port cho socket. Server thường bind cố định; client thường để kernel chọn local ephemeral endpoint.
+
 
 ### 8.1 Newly created socket initially has no application-assigned address
 
@@ -1494,7 +1530,10 @@ rather than application knowing it in advance.
 
 ---
 
-## 9. TCP và UDP — Hai Transport Models khác nhau
+## 9. TCP và UDP khác nhau ở mô hình dữ liệu nào?
+
+> **Nói đơn giản:** TCP là connection-oriented byte stream; UDP là datagram transport. “TCP reliable, UDP fast” là cách nhớ quá đơn giản và dễ hiểu sai.
+
 
 ### 9.1 TCP model
 
@@ -1608,9 +1647,14 @@ But application cannot assume reliable arrival/order/uniqueness.
 
 ---
 
-## 10. TCP Server Lifecycle
+## 10. TCP Server: `socket → bind → listen → accept`
 
-### 10.1 High-level lifecycle
+> **Nói đơn giản:** TCP server có hai loại socket: listening socket nhận connection mới và connected socket riêng cho từng client sau `accept()`.
+
+> **Hình dung:** TCP server có một “quầy lễ tân” là listening socket. Mỗi lần `accept()` tạo một “phòng nói chuyện riêng” là connected socket cho một client.
+
+
+### 10.1 High-level vòng đời
 
 Classic server path:
 
@@ -1634,7 +1678,7 @@ send/recv
 shutdown/close
 ```
 
-This sequence is one of the most important system-programming mental models.
+This sequence is one of the most important system-programming mô hình tư duys.
 
 ---
 
@@ -1831,7 +1875,7 @@ maximum concurrent application sessions
 
 ---
 
-### 10.10 Server lifecycle sequence diagram
+### 10.10 Server vòng đời sequence diagram
 
 ```mermaid
 sequenceDiagram
@@ -1855,7 +1899,10 @@ The diagram is a high-level API/protocol view, not a literal syscall-to-packet o
 
 ---
 
-## 11. TCP Client Lifecycle
+## 11. TCP Client: `socket → connect`
+
+> **Nói đơn giản:** TCP client tạo socket rồi `connect()` tới server endpoint. Connection thành công mới chỉ nói transport đã nối, chưa nói ứng dụng request thành công.
+
 
 ### 11.1 High-level path
 
@@ -1988,7 +2035,10 @@ where response may never arrive due to routing/filtering/unreachable conditions.
 
 ---
 
-## 12. TCP Connection Establishment và State Model
+## 12. TCP Handshake và các State quan trọng
+
+> **Nói đơn giản:** TCP có trạng thái machine và three-way handshake. Các trạng thái như ESTABLISHED, CLOSE_WAIT, TIME_WAIT giải thích nhiều hiện tượng khi debug.
+
 
 ### 12.1 TCP has a protocol state machine
 
@@ -2153,7 +2203,12 @@ Application can exchange byte-stream data.
 
 ---
 
-## 13. TCP Data Semantics và Application Framing
+## 13. TCP là Byte Stream: Application phải tự chia Message
+
+> **Nói đơn giản:** TCP không giữ message boundaries. ứng dụng phải tự framing bằng length, delimiter, fixed record hoặc giao thức grammar.
+
+> **Đừng nhầm:** TCP chỉ giữ thứ tự byte. Nếu ứng dụng có message A/B/C thì ứng dụng phải tự ghi dấu ranh giới.
+
 
 ### 13.1 TCP is byte stream
 
@@ -2315,7 +2370,10 @@ Socket reliability does not validate application message meaning.
 
 ---
 
-## 14. TCP Flow, Buffering và Partial I/O
+## 14. Buffer, Backpressure và Partial I/O trong TCP
+
+> **Nói đơn giản:** `send/recv` có thể xử lý ít byte hơn yêu cầu. Socket buffers hữu hạn nên TCP cũng có backpressure.
+
 
 ### 14.1 `send()` usually copies/queues data into socket send path
 
@@ -2383,7 +2441,7 @@ especially under constraints/interruption/nonblocking state.
 
 Therefore stream output is conceptually a loop/progress problem.
 
-Topic 3 partial-I/O mental model applies directly.
+Topic 3 partial-I/O mô hình tư duy applies directly.
 
 ---
 
@@ -2533,7 +2591,10 @@ This propagates backpressure upward.
 
 ---
 
-## 15. TCP Graceful Shutdown, Half-close và Connection Termination
+## 15. Đóng TCP đúng cách: `shutdown`, FIN, RST, TIME_WAIT
+
+> **Nói đơn giản:** TCP full-duplex có thể đóng từng chiều. `shutdown()` khác `close()`, FIN khác RST, TIME_WAIT khác CLOSE_WAIT.
+
 
 ### 15.1 Full-duplex means two independent data directions
 
@@ -2747,7 +2808,7 @@ application has observed peer close
 but has not completed its own close lifecycle
 ```
 
-Unlike TIME_WAIT, persistent CLOSE_WAIT is frequently application-lifecycle relevant.
+Unlike TIME_WAIT, persistent CLOSE_WAIT is frequently application-vòng đời relevant.
 
 ---
 
@@ -2773,7 +2834,7 @@ from:
 connection reset
 ```
 
-because data/lifecycle meaning differs.
+because data/vòng đời meaning differs.
 
 ---
 
@@ -2801,11 +2862,14 @@ MSG_NOSIGNAL
 
 for per-send suppression of SIGPIPE while still returning error.
 
-This connects Topic 5 signals with socket lifecycle.
+This connects Topic 5 signals with socket vòng đời.
 
 ---
 
-## 16. UDP Datagram Model
+## 16. UDP: mỗi lần gửi là một Datagram
+
+> **Nói đơn giản:** UDP giữ từng datagram riêng nhưng có thể mất, trùng hoặc đến sai thứ tự. ứng dụng phải quyết định mức reliability/session cần thêm.
+
 
 ### 16.1 UDP is message-oriented
 
@@ -2898,7 +2962,10 @@ socket options
 
 ---
 
-## 17. UDP `bind()`, `connect()`, `sendto()` và `recvfrom()` Semantics
+## 17. UDP `bind/connect/sendto/recvfrom` có ý nghĩa gì?
+
+> **Nói đơn giản:** UDP `connect()` chỉ gắn default peer/receive association; nó không có TCP handshake và không biến UDP thành reliable stream.
+
 
 ### 17.1 Basic unconnected UDP model
 
@@ -3009,7 +3076,7 @@ and filters/associates receive peer semantics.
 
 There is no TCP handshake.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 UDP connect()
@@ -3065,7 +3132,10 @@ Application chooses whether to maintain per-peer logical session state.
 
 ---
 
-## 18. `send()` / `recv()` Family
+## 18. `send()` và `recv()` — API dữ liệu cơ bản
+
+> **Nói đơn giản:** `send/recv` là API cơ bản cho connected socket; các biến thể khác thêm source/destination hoặc metadata. Topic này chỉ giữ phần cần cho roadmap.
+
 
 ### 18.1 Send family
 
@@ -3149,7 +3219,10 @@ Transport/application confirmation must be considered separately.
 
 ---
 
-## 19. Unix Domain Socket trong unified Socket API
+## 19. Unix Domain Socket: cùng API nhưng giao tiếp Local
+
+> **Nói đơn giản:** Unix-domain socket dùng cùng API `socket/bind/listen/accept/connect` nhưng giao tiếp local thay vì IP network. Đây là cầu nối giữa Topic 8 và 9.
+
 
 ### 19.1 Topic 8 already covered Unix-domain IPC semantics
 
@@ -3169,7 +3242,7 @@ IP networking
 
 ---
 
-### 19.2 Same high-level lifecycle
+### 19.2 Same high-level vòng đời
 
 Unix stream server:
 
@@ -3209,7 +3282,7 @@ Both are streams:
 message boundaries not preserved
 ```
 
-but address namespace/protocol path/lifecycle differ.
+but address namespace/protocol path/vòng đời differ.
 
 ---
 
@@ -3237,7 +3310,10 @@ network transport reachability
 
 ---
 
-## 20. Error Model và Tư duy Debug Socket
+## 20. Tư duy Debugging Socket theo từng Layer
+
+> **Nói đơn giản:** Debug socket theo lớp: fd → local address/bind → route/network → transport trạng thái → peer → ứng dụng framing/giao thức.
+
 
 ### 20.1 Socket errors occur at multiple layers
 
@@ -3257,7 +3333,7 @@ Debugging must identify layer before guessing cause.
 
 ---
 
-### 20.2 Layered error mental model
+### 20.2 Layered error mô hình tư duy
 
 ```text
 Application protocol valid?
@@ -3413,7 +3489,7 @@ and:
 reset
 ```
 
-as different lifecycle outcomes.
+as different vòng đời outcomes.
 
 ---
 
@@ -3591,6 +3667,9 @@ This is more likely application resource-management issue than TIME_WAIT itself.
 
 ## 21. Liên hệ với Embedded Linux
 
+> **Nói đơn giản:** Embedded device có thể là TCP/UDP server hoặc client; tài nguyên limits, reconnect, backpressure và wire format phải được thiết kế rõ.
+
+
 ### 21.1 Embedded device as network server
 
 An embedded target may expose:
@@ -3618,7 +3697,7 @@ management server
 time/configuration service
 ```
 
-Client lifecycle depends on:
+Client vòng đời depends on:
 
 ```text
 network availability
@@ -3815,7 +3894,10 @@ Using generic address-resolution/address structures reduces protocol-family assu
 
 ---
 
-## 22. Tổng kết và Mental Model
+## 22. Tổng kết và Mô hình tư duy
+
+> **Nói đơn giản:** Mô hình tư duy: socket fd + address + giao thức trạng thái; TCP là byte stream connection, UDP là datagrams.
+
 
 ```text
 Application
@@ -3848,6 +3930,9 @@ Các điểm cần giữ:
 ---
 
 ## 23. Tài liệu tham khảo
+
+> **Nói đơn giản:** Nguồn tham khảo để kiểm chứng POSIX socket API, TCP/UDP RFC và Linux-specific behavior.
+
 
 - POSIX.1-2024 Socket Interfaces: https://pubs.opengroup.org/onlinepubs/9799919799/
 - `socket(2)`: https://man7.org/linux/man-pages/man2/socket.2.html

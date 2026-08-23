@@ -1,39 +1,50 @@
 # Chủ đề 6 — Multithreading trong Linux
 
-> **Phạm vi:** POSIX multithreading fundamentals: process vs thread, Pthreads, shared/per-thread state, thread creation, lifecycle, join/detach, stack/resource model, concurrency/parallelism và race-condition foundation.
+> **Mục tiêu dễ hiểu:** Hiểu nhiều thread cùng sống trong một process: chúng chia sẻ gì, có gì riêng, được tạo/kết thúc/join/detach ra sao.
 >
-> Chương này chỉ trình bày **lý thuyết**. Không có lab, bài tập, chương trình mẫu hoàn chỉnh hoặc hướng dẫn thao tác thực hành.
+> **Bạn cần biết trước:** Biết process và virtual address space ở mức Topic 4. Chưa cần biết mutex.
 >
-> **Giới hạn chủ đề:** Không đi sâu vào TSD/TLS, cancellation, `fork()`/signals trong multithreaded process, thread pools, futex internals hoặc synchronization primitives; synchronization thuộc Topic 7.
+> **Các từ khóa sẽ gặp nhiều:**
+> - **thread** = luồng thực thi có thể được scheduler chạy độc lập
+> - **shared state** = memory/resources dùng chung trong process
+> - **pthread_t** = ID ở lớp POSIX
+> - **TID** = ID thread ở lớp Linux kernel
 >
-> **Nguyên tắc bố cục:** `##` chỉ dành cho các khối kiến thức lớn; `###/####` dùng cho concept chi tiết. Các phần trùng hoặc thuộc topic khác đã được loại khỏi chapter này.
+> **Quy ước đọc thuật ngữ:** khi gặp `state`, `context`, `semantics`, `object`, hãy hiểu lần lượt là **trạng thái**, **ngữ cảnh**, **hành vi theo chuẩn**, **đối tượng/tài nguyên**. Tên API và thuật ngữ chuẩn như process, thread, socket, mutex được giữ nguyên để bạn quen dần với tài liệu kỹ thuật.
 >
-> **Điều hướng:** [← Chủ đề 5 — Signal](README-topic-05.md) · [Chủ đề 7 — Thread Synchronization →](README-topic-07.md)
-
+> **Cách đọc nếu bạn mới bắt đầu:**
+> 1. Lượt đầu chỉ đọc các ô **“Nói đơn giản”**, sơ đồ ASCII/Mermaid và phần **Tổng kết**.
+> 2. Lượt hai đọc các mục `###` để hiểu API/khái niệm cụ thể.
+> 3. Các mục `####`, caveat POSIX/Linux và edge case có thể để lần đọc thứ ba. **Không cần hiểu hết trong một lượt.**
+>
+> Chương này chỉ có **lý thuyết**, không có lab hay bài tập thực hành. Thuật ngữ tiếng Anh được giữ khi đó là tên chuẩn, nhưng luôn ưu tiên giải thích ý nghĩa trước.
 ---
 
 ## Mục lục
 
-- [1. Multithreading Fundamentals](#1-multithreading-fundamentals)
-- [2. Process và Thread](#2-process-và-thread)
-- [3. POSIX Threads (Pthreads)](#3-posix-threads-pthreads)
-- [4. Thread Identity](#4-thread-identity)
-- [5. Shared State và Per-thread State](#5-shared-state-và-per-thread-state)
-- [6. Thread Creation với `pthread_create()`](#6-thread-creation-với-pthreadcreate)
-- [7. Thread Lifecycle và Termination](#7-thread-lifecycle-và-termination)
-- [8. Joinable và Detached Threads](#8-joinable-và-detached-threads)
-- [9. Thread Attributes, Stack và Resource Footprint](#9-thread-attributes-stack-và-resource-footprint)
-- [10. Scheduling, Concurrency và Parallelism](#10-scheduling-concurrency-và-parallelism)
-- [11. Shared Mutable State và Race-condition Fundamentals](#11-shared-mutable-state-và-race-condition-fundamentals)
-- [12. Linux Thread Observability](#12-linux-thread-observability)
-- [13. Error Model và Debugging](#13-error-model-và-debugging)
+- [1. Multithreading là gì?](#1-multithreading-là-gì)
+- [2. Process và Thread khác nhau ở đâu?](#2-process-và-thread-khác-nhau-ở-đâu)
+- [3. POSIX Threads (Pthreads) là lớp API nào?](#3-posix-threads-pthreads-là-lớp-api-nào)
+- [4. Thread Identity: `pthread_t`, TID và PID](#4-thread-identity-pthread_t-tid-và-pid)
+- [5. Các Thread chia sẻ gì và có gì riêng?](#5-các-thread-chia-sẻ-gì-và-có-gì-riêng)
+- [6. Tạo Thread với `pthread_create()`](#6-tạo-thread-với-pthread_create)
+- [7. Thread chạy và kết thúc như thế nào?](#7-thread-chạy-và-kết-thúc-như-thế-nào)
+- [8. Joinable và Detached Thread](#8-joinable-và-detached-thread)
+- [9. Stack, Attributes và chi phí của một Thread](#9-stack-attributes-và-chi-phí-của-một-thread)
+- [10. Concurrency và Parallelism](#10-concurrency-và-parallelism)
+- [11. Shared Memory dẫn đến Race Condition như thế nào?](#11-shared-memory-dẫn-đến-race-condition-như-thế-nào)
+- [12. Quan sát Thread trên Linux](#12-quan-sát-thread-trên-linux)
+- [13. Khi Thread có vấn đề: tư duy Debugging](#13-khi-thread-có-vấn-đề-tư-duy-debugging)
 - [14. Liên hệ với Embedded Linux](#14-liên-hệ-với-embedded-linux)
-- [15. Tổng kết và Mental Model](#15-tổng-kết-và-mental-model)
+- [15. Tổng kết và Mô hình tư duy](#15-tổng-kết-và-mô-hình-tư-duy)
 - [16. Tài liệu tham khảo](#16-tài-liệu-tham-khảo)
 
 ---
 
-## 1. Multithreading Fundamentals
+## 1. Multithreading là gì?
+
+> **Nói đơn giản:** Multithreading nghĩa một process có nhiều luồng thực thi. Lợi ích là concurrency/shared memory; cái giá là race và vòng đời phức tạp hơn.
+
 
 ### 1.1 Multithreading thực chất là gì?
 
@@ -70,7 +81,7 @@ nhưng mỗi thread có:
 independent execution context
 ```
 
-Mental model quan trọng:
+Mô hình tư duy quan trọng:
 
 ```text
 PROCESS
@@ -207,11 +218,16 @@ Correct thread count phụ thuộc workload và hardware.
 
 ---
 
-## 2. Process và Thread
+## 2. Process và Thread khác nhau ở đâu?
+
+> **Nói đơn giản:** Process là “container tài nguyên”; thread là “luồng đang chạy” bên trong. Các thread cùng process không có address space riêng như hai process độc lập.
+
+> **Hình dung:** Process là căn phòng chung; heap/global/fd là đồ dùng chung. Mỗi thread là một người làm việc trong phòng, có “bàn làm việc” riêng là stack/register trạng thái.
+
 
 ### 2.1 Process là resource container
 
-Topic 4 đã xây mental model:
+Topic 4 đã xây mô hình tư duy:
 
 ```text
 Process
@@ -257,7 +273,7 @@ signal mask
 
 ---
 
-### 2.3 Process vs thread — mental model
+### 2.3 Process vs thread — mô hình tư duy
 
 ```text
 +------------------------------------------------------+
@@ -322,7 +338,10 @@ multi-threaded single process
 
 ---
 
-## 3. POSIX Threads (Pthreads)
+## 3. POSIX Threads (Pthreads) là lớp API nào?
+
+> **Nói đơn giản:** Pthreads là API chuẩn POSIX cho thread. Trên Linux, glibc/NPTL triển khai API này trên kernel thread/task mechanisms.
+
 
 ### 3.1 POSIX Threads — Pthreads
 
@@ -412,7 +431,10 @@ NPTL provides POSIX semantics on top of Linux kernel facilities.
 
 ---
 
-## 4. Thread Identity
+## 4. Thread Identity: `pthread_t`, TID và PID
+
+> **Nói đơn giản:** `pthread_t`, Linux TID và process PID/TGID là các identity ở những lớp khác nhau. Đừng ép chúng thành cùng một số.
+
 
 ### 4.1 Ba identifiers dễ bị nhầm
 
@@ -550,7 +572,7 @@ Linux TID is not the same thing
 as POSIX pthread_t
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 pthread_t
@@ -579,7 +601,7 @@ scheduler/debugger/kernel view
 
 Thread identifiers are not eternal historical identities.
 
-Once thread lifecycle has ended and resources have been reclaimed:
+Once thread vòng đời has ended and resources have been reclaimed:
 
 ```text
 thread identifier may later be reused
@@ -589,7 +611,10 @@ Therefore stale `pthread_t` should not be treated as permanent identity.
 
 ---
 
-## 5. Shared State và Per-thread State
+## 5. Các Thread chia sẻ gì và có gì riêng?
+
+> **Nói đơn giản:** Threads share heap/globals/fd/cwd..., nhưng mỗi thread có stack, register trạng thái, signal mask và execution trạng thái riêng.
+
 
 ### 5.1 Process-wide shared state
 
@@ -612,7 +637,7 @@ many process credentials
 resource-limit context
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Thread A ----+
@@ -636,7 +661,6 @@ signal mask
 alternate signal stack
 errno
 scheduling state
-thread-specific data values
 CPU-time clock/state
 ```
 
@@ -743,7 +767,10 @@ This avoids unrelated system/library calls in one thread overwriting another thr
 
 ---
 
-## 6. Thread Creation với `pthread_create()`
+## 6. Tạo Thread với `pthread_create()`
+
+> **Nói đơn giản:** `pthread_create()` tạo một thread mới bắt đầu ở start routine. Argument thường là pointer vào bộ nhớ process, nên lifetime vẫn phải hợp lệ.
+
 
 ### 6.1 `pthread_create()` creates a thread, not a process
 
@@ -789,7 +816,7 @@ New thread starts execution at:
 start_routine(argument)
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 pthread_create()
@@ -892,9 +919,12 @@ unless that specific API says so.
 
 ---
 
-## 7. Thread Lifecycle và Termination
+## 7. Thread chạy và kết thúc như thế nào?
 
-### 7.1 High-level lifecycle
+> **Nói đơn giản:** Thread có thể run, block, wake và terminate độc lập. Return khỏi start routine tương đương kết thúc thread, không phải kết thúc toàn process.
+
+
+### 7.1 High-level vòng đời
 
 ```text
 Created
@@ -929,7 +959,7 @@ detached
 
 ---
 
-### 7.2 Thread lifecycle state machine
+### 7.2 Thread vòng đời state machine
 
 ```mermaid
 stateDiagram-v2
@@ -956,7 +986,7 @@ stateDiagram-v2
     Reclaimed --> [*]
 ```
 
-This is a conceptual lifecycle, not a complete Linux scheduler-state diagram.
+This is a conceptual vòng đời, not a complete Linux scheduler-state diagram.
 
 ---
 
@@ -989,7 +1019,7 @@ return to pthread_create()
 
 `pthread_exit(value)` terminates the **calling thread**.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Thread A
@@ -1053,7 +1083,7 @@ other threads can continue.
 
 Linux `pthread_exit(3)` notes that when the last thread terminates, process terminates and process-wide cleanup occurs.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Process exists
@@ -1083,9 +1113,14 @@ belong to process/shared-resource lifetime, not one thread's lifetime.
 
 ---
 
-## 8. Joinable và Detached Threads
+## 8. Joinable và Detached Thread
 
-### 8.1 Detach state is a lifecycle contract
+> **Nói đơn giản:** Joinable thread cần một thread khác `join` để thu result/reclaim vòng đời tài nguyên; detached thread tự được reclaim sau khi kết thúc.
+
+> **Đừng nhầm:** `detached` không có nghĩa “background”. Nó chỉ nói ai chịu trách nhiệm thu hồi tài nguyên sau khi thread kết thúc.
+
+
+### 8.1 Detach state is a vòng đời contract
 
 A thread is conceptually either:
 
@@ -1119,7 +1154,7 @@ whether another thread can join and collect its result
 
 New thread is normally joinable by default unless attributes specify detached state.
 
-Lifecycle:
+Vòng đời:
 
 ```text
 Running
@@ -1176,13 +1211,13 @@ An appropriate thread can join another joinable thread according to API rules.
 
 Multiple threads trying to join the same target concurrently results in undefined behavior according to the Linux/POSIX interface description.
 
-A thread should therefore have clear lifecycle ownership.
+A thread should therefore have clear vòng đời ownership.
 
 ---
 
 ### 8.6 Detached thread
 
-Detached lifecycle:
+Detached vòng đời:
 
 ```text
 Running
@@ -1222,7 +1257,7 @@ It only changes termination-resource semantics.
 
 ---
 
-### 8.8 Every thread needs a lifecycle policy
+### 8.8 Every thread needs a vòng đời policy
 
 For every application-created thread, architecture should answer:
 
@@ -1248,7 +1283,10 @@ but this is not identical to Unix process-zombie semantics.
 
 ---
 
-## 9. Thread Attributes, Stack và Resource Footprint
+## 9. Stack, Attributes và chi phí của một Thread
+
+> **Nói đơn giản:** Mỗi thread cần stack và kernel/runtime bookkeeping, nên “tạo càng nhiều thread càng tốt” là sai.
+
 
 ### 9.1 `pthread_attr_t`
 
@@ -1329,7 +1367,7 @@ RLIMIT_STACK
 
 Linux `pthread_create(3)` documents the details.
 
-The important mental model is:
+The important mô hình tư duy is:
 
 > Default stack size is not a universal constant that should be assumed across all Linux systems and architectures.
 
@@ -1364,7 +1402,7 @@ It is not a complete protection mechanism against all memory corruption.
 
 POSIX allows thread attributes to specify caller-managed stack memory.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Application memory region
@@ -1403,7 +1441,10 @@ Therefore creating large numbers of threads has real cost.
 
 ---
 
-## 10. Scheduling, Concurrency và Parallelism
+## 10. Concurrency và Parallelism
+
+> **Nói đơn giản:** Concurrency là nhiều công việc tiến triển xen kẽ; parallelism là thực sự chạy đồng thời trên nhiều core. Hai khái niệm không đồng nhất.
+
 
 ### 10.1 Scheduler operates on individual Linux threads/tasks
 
@@ -1548,7 +1589,10 @@ Correct ordering needs explicit synchronization/ownership protocol.
 
 ---
 
-## 11. Shared Mutable State và Race-condition Fundamentals
+## 11. Shared Memory dẫn đến Race Condition như thế nào?
+
+> **Nói đơn giản:** Vì bộ nhớ được share, hai thread sửa cùng trạng thái mà không có giao thức có thể race. Topic 7 sẽ học cách đồng bộ.
+
 
 ### 11.1 Shared memory is the central benefit and central danger
 
@@ -1655,7 +1699,7 @@ A data race can make behavior undefined under the language memory model.
 
 Even with individually synchronized accesses, higher-level ordering can be wrong.
 
-Example mental model:
+Example mô hình tư duy:
 
 ```text
 check condition
@@ -1693,7 +1737,10 @@ Topic 6 only establishes why those mechanisms are needed.
 
 ---
 
-## 12. Linux Thread Observability
+## 12. Quan sát Thread trên Linux
+
+> **Nói đơn giản:** Linux cho phép quan sát từng thread qua `/proc/<pid>/task/<tid>` và các tool có thread view.
+
 
 ### 12.1 `/proc/<pid>/task/`
 
@@ -1703,7 +1750,7 @@ Linux procfs exposes each thread:
 /proc/<pid>/task/<tid>/
 ```
 
-Example mental model:
+Example mô hình tư duy:
 
 ```text
 Process PID/TGID 5000
@@ -1801,7 +1848,10 @@ TID
 
 ---
 
-## 13. Error Model và Debugging
+## 13. Khi Thread có vấn đề: tư duy Debugging
+
+> **Nói đơn giản:** Debug thread nên hỏi: thread có được tạo không, còn sống không, đang block hay run, join/detach đúng chưa, trạng thái có race không?
+
 
 ### 13.1 First question: which abstraction is failing?
 
@@ -1882,7 +1932,7 @@ Returning from `main()` terminates process.
 
 Therefore worker existence does not prevent process-level exit.
 
-This is lifecycle, not scheduler failure.
+This is vòng đời, not scheduler failure.
 
 ---
 
@@ -1921,7 +1971,7 @@ Join is a blocking synchronization operation.
 
 This is correct semantics.
 
-Detach state is irreversible lifecycle choice.
+Detach state is irreversible vòng đời choice.
 
 ---
 
@@ -1964,6 +2014,9 @@ Timing-dependent disappearance is not evidence that race is fixed.
 ---
 
 ## 14. Liên hệ với Embedded Linux
+
+> **Nói đơn giản:** Embedded app thường tách sensor/network/control thành thread, nhưng phải tính RAM stack, fault domain và blocking behavior.
+
 
 ### 14.1 Typical Embedded Linux application decomposition
 
@@ -2104,7 +2157,10 @@ signals go to unexpected thread
 
 ---
 
-## 15. Tổng kết và Mental Model
+## 15. Tổng kết và Mô hình tư duy
+
+> **Nói đơn giản:** Hãy nhớ: một process, nhiều execution flows; shared address space nhưng per-thread stack/registers/vòng đời.
+
 
 ```text
 Process
@@ -2113,7 +2169,7 @@ Process
   └─ Thread B: stack + registers + execution state
 ```
 
-Lifecycle:
+Vòng đời:
 
 ```text
 pthread_create
@@ -2132,13 +2188,16 @@ Các điểm cần giữ:
 - Threads share address space nhưng có stack/register execution context riêng.
 - Pthreads là portable POSIX API; Linux NPTL là implementation detail ở mức cần biết.
 - `pthread_create()` không tạo process mới và không bảo đảm creator/new thread chạy theo một thứ tự cố định.
-- Joinable/detached là lifecycle-resource policy, không phải foreground/background.
+- Joinable/detached là vòng đời-resource policy, không phải foreground/background.
 - Multicore cho phép parallelism; single-core vẫn có concurrency.
 - Shared mutable data tạo race risk; giải pháp synchronization thuộc Topic 7.
 
 ---
 
 ## 16. Tài liệu tham khảo
+
+> **Nói đơn giản:** Nguồn tham khảo để kiểm chứng POSIX Pthreads và Linux-specific identity/trạng thái.
+
 
 - POSIX.1-2024 Pthreads interfaces: https://pubs.opengroup.org/onlinepubs/9799919799/
 - `pthreads(7)`: https://man7.org/linux/man-pages/man7/pthreads.7.html

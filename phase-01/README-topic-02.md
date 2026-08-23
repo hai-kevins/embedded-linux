@@ -1,38 +1,49 @@
 # Chủ đề 2 — Linux File System
 
-> **Phạm vi:** Linux filesystem fundamentals: cây thư mục từ `/`, file types, pathname, inode/block, permissions, mount, pseudo-filesystems và các góc nhìn quan sát filesystem.
+> **Mục tiêu dễ hiểu:** Hiểu cách Linux tổ chức tên file/thư mục, inode, quyền truy cập, mount và các filesystem đặc biệt như `/proc`, `/sys`, `/dev`.
 >
-> Chương này chỉ trình bày **lý thuyết**. Không có lab, bài tập, chương trình mẫu hoàn chỉnh hoặc hướng dẫn thao tác thực hành.
+> **Bạn cần biết trước:** Chỉ cần nắm pathname như `/home/user/a.txt` và biết command line cơ bản từ Topic 1.
 >
-> **Giới hạn chủ đề:** Không đi sâu vào `open/read/write/lseek`, filesystem-driver implementation, page cache, journaling hoặc VFS locking.
+> **Các từ khóa sẽ gặp nhiều:**
+> - **pathname** = đường dẫn bằng tên
+> - **inode** = metadata/identity của filesystem object
+> - **mount** = gắn một filesystem vào cây namespace
+> - **VFS** = lớp chung giúp kernel làm việc với nhiều filesystem
 >
-> **Nguyên tắc bố cục:** `##` chỉ dành cho các khối kiến thức lớn; `###/####` dùng cho concept chi tiết. Các phần trùng hoặc thuộc topic khác đã được loại khỏi chapter này.
+> **Quy ước đọc thuật ngữ:** khi gặp `state`, `context`, `semantics`, `object`, hãy hiểu lần lượt là **trạng thái**, **ngữ cảnh**, **hành vi theo chuẩn**, **đối tượng/tài nguyên**. Tên API và thuật ngữ chuẩn như process, thread, socket, mutex được giữ nguyên để bạn quen dần với tài liệu kỹ thuật.
 >
-> **Điều hướng:** [← Chủ đề 1 — Basic Linux Command Line](README-topic-01.md) · [Chủ đề 3 — File I/O →](README-topic-03.md)
-
+> **Cách đọc nếu bạn mới bắt đầu:**
+> 1. Lượt đầu chỉ đọc các ô **“Nói đơn giản”**, sơ đồ ASCII/Mermaid và phần **Tổng kết**.
+> 2. Lượt hai đọc các mục `###` để hiểu API/khái niệm cụ thể.
+> 3. Các mục `####`, caveat POSIX/Linux và edge case có thể để lần đọc thứ ba. **Không cần hiểu hết trong một lượt.**
+>
+> Chương này chỉ có **lý thuyết**, không có lab hay bài tập thực hành. Thuật ngữ tiếng Anh được giữ khi đó là tên chuẩn, nhưng luôn ưu tiên giải thích ý nghĩa trước.
 ---
 
 ## Mục lục
 
-- [1. Filesystem, Namespace và Hierarchy](#1-filesystem-namespace-và-hierarchy)
-- [2. Pathname, Directory và Path Resolution](#2-pathname-directory-và-path-resolution)
-- [3. VFS, Dentry và Inode](#3-vfs-dentry-và-inode)
-- [4. Block, File Size và Storage Allocation](#4-block-file-size-và-storage-allocation)
+- [1. Filesystem, cây thư mục và Namespace](#1-filesystem-cây-thư-mục-và-namespace)
+- [2. Pathname, Directory và cách kernel tìm đường dẫn](#2-pathname-directory-và-cách-kernel-tìm-đường-dẫn)
+- [3. VFS, Dentry và Inode — ba khái niệm dễ nhầm](#3-vfs-dentry-và-inode-ba-khái-niệm-dễ-nhầm)
+- [4. Block, File Size và dung lượng thực tế](#4-block-file-size-và-dung-lượng-thực-tế)
 - [5. Các loại File trong Linux](#5-các-loại-file-trong-linux)
-- [6. Metadata và `stat`](#6-metadata-và-stat)
+- [6. Metadata: thông tin mô tả file và `stat`](#6-metadata-thông-tin-mô-tả-file-và-stat)
 - [7. Ownership, Permissions và `umask`](#7-ownership-permissions-và-umask)
-- [8. Mount và các lớp Storage](#8-mount-và-các-lớp-storage)
+- [8. Mount: gắn filesystem vào cây thư mục](#8-mount-gắn-filesystem-vào-cây-thư-mục)
 - [9. Các công cụ quan sát Filesystem](#9-các-công-cụ-quan-sát-filesystem)
 - [10. Pseudo-filesystems: `/dev`, `/proc`, `/sys`](#10-pseudo-filesystems-dev-proc-sys)
-- [11. Vòng đời File: Name, Inode và Open References](#11-vòng-đời-file-name-inode-và-open-references)
-- [12. Error Model và Debugging](#12-error-model-và-debugging)
+- [11. Vòng đời file: tên, inode và open reference](#11-vòng-đời-file-tên-inode-và-open-reference)
+- [12. Khi filesystem lỗi: tư duy Debugging](#12-khi-filesystem-lỗi-tư-duy-debugging)
 - [13. Liên hệ với Embedded Linux](#13-liên-hệ-với-embedded-linux)
-- [14. Tổng kết và Mental Model](#14-tổng-kết-và-mental-model)
+- [14. Tổng kết và Mô hình tư duy](#14-tổng-kết-và-mô-hình-tư-duy)
 - [15. Tài liệu tham khảo](#15-tài-liệu-tham-khảo)
 
 ---
 
-## 1. Filesystem, Namespace và Hierarchy
+## 1. Filesystem, cây thư mục và Namespace
+
+> **Nói đơn giản:** Filesystem không chỉ là “các thư mục trên ổ đĩa”. Linux trình bày nhiều loại storage và kernel đối tượng trong một cây tên bắt đầu từ `/`.
+
 
 ### 1.1 Filesystem trong Linux thực chất là gì?
 
@@ -70,7 +81,7 @@ Cần tách ít nhất ba góc nhìn:
 
 Topic 2 tập trung vào hai lớp đầu và chỉ chạm lớp storage ở mức đủ để hiểu `inode`, `block`, `df`, `du`.
 
-Mental model đầu tiên:
+Mô hình tư duy đầu tiên:
 
 ```text
 User sees pathname
@@ -285,7 +296,10 @@ FHS giúp hiểu role của hierarchy, nhưng minimal embedded rootfs không nh�
 
 ---
 
-## 2. Pathname, Directory và Path Resolution
+## 2. Pathname, Directory và cách kernel tìm đường dẫn
+
+> **Nói đơn giản:** Pathname là chuỗi tên để kernel đi từng component trong cây thư mục. Directory chính là nơi chứa quan hệ từ tên sang filesystem đối tượng.
+
 
 ### 2.1 Pathname, filename và path component
 
@@ -365,7 +379,7 @@ Ví dụ application yêu cầu metadata của:
 /home/hai/a.txt
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 choose lookup start
@@ -427,7 +441,7 @@ Symlink loop có thể dẫn đến `ELOOP`.
 
 Một filesystem mounted tại `/mnt/data` khiến lookup dưới path đó đi vào mounted filesystem.
 
-#### 2.2.4 Mermaid sequence diagram: pathname lookup ở mức mental model
+#### 2.2.4 Mermaid sequence diagram: pathname lookup ở mức mô hình tư duy
 
 ```mermaid
 sequenceDiagram
@@ -509,7 +523,12 @@ inode(file)
 
 ---
 
-## 3. VFS, Dentry và Inode
+## 3. VFS, Dentry và Inode — ba khái niệm dễ nhầm
+
+> **Nói đơn giản:** VFS là lớp chung của kernel. Dentry giúp cache/biểu diễn quan hệ tên, còn inode đại diện metadata và identity của đối tượng trong filesystem.
+
+> **Hình dung:** Pathname là địa chỉ viết bằng chữ. Dentry giống kết quả tra một component tên; inode giống hồ sơ kỹ thuật của đối tượng. VFS là quầy chung giúp kernel tra cứu dù bên dưới là ext4, tmpfs hay filesystem khác.
+
 
 ### 3.1 VFS: lớp abstraction nối userspace với nhiều filesystem
 
@@ -695,7 +714,7 @@ Một inode không cần biết:
 
 vì nó có thể được tham chiếu bằng nhiều directory entry.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 pathname = route through namespace
@@ -724,7 +743,10 @@ Inode metadata có hard-link count. Khi link count về 0, regular file chưa ch
 
 ---
 
-## 4. Block, File Size và Storage Allocation
+## 4. Block, File Size và dung lượng thực tế
+
+> **Nói đơn giản:** File size và dung lượng chiếm trên storage không phải lúc nào bằng nhau. Dữ liệu được cấp phát theo block và còn có metadata, sparse region, alignment.
+
 
 ### 4.1 Data block, filesystem block và kích thước file
 
@@ -805,6 +827,9 @@ Filesystem hiện đại có thể dùng extent tree hoặc structure khác; kh�
 ---
 
 ## 5. Các loại File trong Linux
+
+> **Nói đơn giản:** Linux có regular file, directory, symlink, device node, FIFO, socket... Cùng nằm trong namespace nhưng hành vi theo chuẩn rất khác nhau.
+
 
 ### 5.1 Các loại file trong Linux
 
@@ -975,7 +1000,7 @@ Ví dụ:
 /dev/ttyS0
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 userspace
@@ -1016,7 +1041,7 @@ LVM/device mapper
 
 Device node thường mang major/minor identity.
 
-Mental model đơn giản:
+Mô hình tư duy đơn giản:
 
 ```text
 major -> kernel routing theo driver/device class
@@ -1054,7 +1079,7 @@ FIFO còn gọi là named pipe.
 mkfifo mypipe
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 process A
@@ -1098,7 +1123,10 @@ Một socket pathname thường hiện type `s` trong `ls -l`.
 
 ---
 
-## 6. Metadata và `stat`
+## 6. Metadata: thông tin mô tả file và `stat`
+
+> **Nói đơn giản:** Metadata là thông tin mô tả file: type, mode, owner, size, timestamps, inode number... `stat` là cách nhìn trực tiếp vào lớp thông tin này.
+
 
 ### 6.1 File metadata và `stat`
 
@@ -1180,6 +1208,9 @@ Do đó output của diagnostic tool là snapshot/observation ở một thời �
 
 ## 7. Ownership, Permissions và `umask`
 
+> **Nói đơn giản:** quyền truy cập trả lời ai được đọc/ghi/thực thi hoặc traverse. Với directory, `r/w/x` có ý nghĩa khác regular file và đây là chỗ người mới hay nhầm.
+
+
 ### 7.1 Ownership: UID, GID, owner và group
 
 
@@ -1210,7 +1241,7 @@ là hai lớp khác nhau.
 
 #### 7.1.1 Process credentials tham gia access decision
 
-Mental model giản lược:
+Mô hình tư duy giản lược:
 
 ```text
 process credentials
@@ -1342,7 +1373,7 @@ a
 b
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 directory x
@@ -1517,7 +1548,7 @@ Vì vậy “file mới lúc nào cũng mang primary group của user” không 
 
 `umask` là state của process, không phải permission được lưu trong file.
 
-Công thức mental model:
+Công thức mô hình tư duy:
 
 ```text
 created_mode = requested_mode & ~umask
@@ -1576,7 +1607,12 @@ Default ACL có thể làm creation semantics phức tạp hơn; đó là caveat
 
 ---
 
-## 8. Mount và các lớp Storage
+## 8. Mount: gắn filesystem vào cây thư mục
+
+> **Nói đơn giản:** Mount không copy dữ liệu. Nó làm một filesystem xuất hiện tại một mount point trong cây namespace hiện tại.
+
+> **Hình dung:** Mount giống “gắn một cây thư mục khác vào một nhánh” của cây hiện tại; dữ liệu không bị copy vào mount point.
+
 
 ### 8.1 Mount: gắn filesystem vào namespace
 
@@ -1587,7 +1623,7 @@ Không nên định nghĩa mount là “mở ổ đĩa”.
 
 > **Mount gắn một filesystem tree vào một mount point trong pathname namespace.**
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 filesystem tree
@@ -1761,6 +1797,9 @@ Filesystem là data structure/type; `/home` là vị trí namespace.
 
 ## 9. Các công cụ quan sát Filesystem
 
+> **Nói đơn giản:** `ls`, `stat`, `file`, `df`, `du` nhìn filesystem từ các góc khác nhau. Không nên kỳ vọng chúng luôn báo cùng một con số.
+
+
 ### 9.1 `ls -l`, `stat`, `file`, `df`, `du`
 
 
@@ -1849,7 +1888,7 @@ df -T
 df -h /
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 mounted filesystem
@@ -1872,7 +1911,7 @@ du -sh .
 du -h --max-depth=1 .
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 start pathname
@@ -1929,6 +1968,9 @@ Do đó “`df` != `du`” không tự động nghĩa là tool sai.
 
 ## 10. Pseudo-filesystems: `/dev`, `/proc`, `/sys`
 
+> **Nói đơn giản:** `/proc` và `/sys` chủ yếu xuất thông tin kernel; `/dev` chứa device nodes. Chúng trông như file nhưng không phải regular file trên disk.
+
+
 ### 10.1 `/dev`, `/proc`, `/sys`
 
 
@@ -1948,7 +1990,7 @@ Ví dụ:
 /proc/<pid>/
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 cat /proc/meminfo
@@ -1980,7 +2022,7 @@ Sau này Linux Device Model sẽ dùng trực tiếp các nhánh này.
 
 Linux hiện đại thường dùng `devtmpfs` kết hợp userspace device manager như `udev`; minimal embedded system có thể dùng `devtmpfs` + BusyBox `mdev` hoặc cơ chế đơn giản hơn.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 device/driver registration
@@ -2009,7 +2051,10 @@ Linux dùng filesystem namespace và file descriptors rất rộng, nhưng khôn
 
 ---
 
-## 11. Vòng đời File: Name, Inode và Open References
+## 11. Vòng đời file: tên, inode và open reference
+
+> **Nói đơn giản:** Tên file và đối tượng tồn tại là hai lớp khác nhau. Xóa một pathname chưa chắc làm đối tượng biến mất ngay nếu vẫn còn link/open reference.
+
 
 ### 11.1 Vòng đời của regular file dưới góc nhìn tên và inode
 
@@ -2070,7 +2115,10 @@ inode/data can be reclaimed when no link/reference keeps them alive
 
 ---
 
-## 12. Error Model và Debugging
+## 12. Khi filesystem lỗi: tư duy Debugging
+
+> **Nói đơn giản:** Filesystem error thường liên quan pathname resolution, quyền truy cập, filesystem trạng thái hoặc capacity. Hãy xác định lớp lỗi trước khi sửa.
+
 
 ### 12.1 Error model và tư duy debug filesystem
 
@@ -2197,6 +2245,9 @@ Topic này chưa học toàn bộ security layer nhưng phải biết mode bits 
 
 ## 13. Liên hệ với Embedded Linux
 
+> **Nói đơn giản:** RootFS, device node, `/proc`, `/sys` và mount là nền của boot/bring-up Embedded Linux.
+
+
 ### 13.1 Liên hệ với Embedded Linux
 
 
@@ -2260,7 +2311,7 @@ Sau này userspace sẽ gặp:
 /dev/watchdog
 ```
 
-Mental model nền:
+Mô hình tư duy nền:
 
 ```text
 device node
@@ -2357,7 +2408,10 @@ Topic 2 cung cấp vocabulary và abstraction nền cho phần Boot Architecture
 
 ---
 
-## 14. Tổng kết và Mental Model
+## 14. Tổng kết và Mô hình tư duy
+
+> **Nói đơn giản:** Hãy nhớ chuỗi: pathname → lookup → dentry/inode → filesystem đối tượng → storage/RAM/kernel đối tượng.
+
 
 ```text
 pathname
@@ -2385,6 +2439,9 @@ Các điểm cần giữ:
 ---
 
 ## 15. Tài liệu tham khảo
+
+> **Nói đơn giản:** Nguồn tham khảo dùng để tra cứu sâu; không cần học thuộc tài liệu nguồn.
+
 
 - Linux Kernel VFS documentation: https://docs.kernel.org/filesystems/vfs.html
 - Linux path lookup documentation: https://docs.kernel.org/filesystems/path-lookup.html

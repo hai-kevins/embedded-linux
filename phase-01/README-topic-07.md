@@ -1,46 +1,58 @@
 # Chủ đề 7 — Thread Synchronization trong Linux
 
-> **Phạm vi:** POSIX thread synchronization fundamentals: race/atomicity, mutex, semaphore, condition variable, producer–consumer reasoning, barrier, deadlock, starvation và priority inversion ở mức nền tảng.
+> **Mục tiêu dễ hiểu:** Hiểu vì sao dữ liệu dùng chung có thể thay đổi cần giao thức và khi nào dùng mutex, condition variable, semaphore, barrier.
 >
-> Chương này chỉ trình bày **lý thuyết**. Không có lab, bài tập, chương trình mẫu hoàn chỉnh hoặc hướng dẫn thao tác thực hành.
+> **Bạn cần biết trước:** Biết thread share bộ nhớ và race condition ở mức Topic 6.
 >
-> **Giới hạn chủ đề:** Không đi sâu vào robust mutex, rwlock, spinlock, futex internals, process-shared synchronization hoặc real-time locking protocols; IPC thuộc Topic 8.
+> **Các từ khóa sẽ gặp nhiều:**
+> - **critical section** = đoạn thay đổi state cần bảo vệ
+> - **mutex** = chỉ một owner vào critical section tại một thời điểm
+> - **condition variable** = ngủ/chờ một điều kiện của shared state
+> - **semaphore** = bộ đếm token/resource
+> - **deadlock** = các bên chờ nhau và không tiến được
 >
-> **Nguyên tắc bố cục:** `##` chỉ dành cho các khối kiến thức lớn; `###/####` dùng cho concept chi tiết. Các phần trùng hoặc thuộc topic khác đã được loại khỏi chapter này.
+> **Quy ước đọc thuật ngữ:** khi gặp `state`, `context`, `semantics`, `object`, hãy hiểu lần lượt là **trạng thái**, **ngữ cảnh**, **hành vi theo chuẩn**, **đối tượng/tài nguyên**. Tên API và thuật ngữ chuẩn như process, thread, socket, mutex được giữ nguyên để bạn quen dần với tài liệu kỹ thuật.
 >
-> **Điều hướng:** [← Chủ đề 6 — Multithreading](README-topic-06.md) · [Chủ đề 8 — IPC →](README-topic-08.md)
-
+> **Cách đọc nếu bạn mới bắt đầu:**
+> 1. Lượt đầu chỉ đọc các ô **“Nói đơn giản”**, sơ đồ ASCII/Mermaid và phần **Tổng kết**.
+> 2. Lượt hai đọc các mục `###` để hiểu API/khái niệm cụ thể.
+> 3. Các mục `####`, caveat POSIX/Linux và edge case có thể để lần đọc thứ ba. **Không cần hiểu hết trong một lượt.**
+>
+> Chương này chỉ có **lý thuyết**, không có lab hay bài tập thực hành. Thuật ngữ tiếng Anh được giữ khi đó là tên chuẩn, nhưng luôn ưu tiên giải thích ý nghĩa trước.
 ---
 
 ## Mục lục
 
-- [1. Vì sao Thread Synchronization tồn tại?](#1-vì-sao-thread-synchronization-tồn-tại)
+- [1. Vì sao nhiều Thread cần Synchronization?](#1-vì-sao-nhiều-thread-cần-synchronization)
 - [2. Race Condition, Data Race và Critical Section](#2-race-condition-data-race-và-critical-section)
-- [3. Memory Synchronization và Visibility](#3-memory-synchronization-và-visibility)
-- [4. Mutex — Mutual Exclusion](#4-mutex-mutual-exclusion)
-- [5. Mutex Lifecycle và Lock Operations](#5-mutex-lifecycle-và-lock-operations)
-- [6. Mutex Types](#6-mutex-types)
-- [7. Condition Variable — Chờ trạng thái, không “giữ dữ liệu”](#7-condition-variable-chờ-trạng-thái-không-giữ-dữ-liệu)
+- [3. Vì sao Lock còn liên quan Memory Visibility?](#3-vì-sao-lock-còn-liên-quan-memory-visibility)
+- [4. Mutex: chỉ một Thread được sở hữu vùng bảo vệ](#4-mutex-chỉ-một-thread-được-sở-hữu-vùng-bảo-vệ)
+- [5. Vòng đời và thao tác Lock/Unlock của Mutex](#5-vòng-đời-và-thao-tác-lockunlock-của-mutex)
+- [6. Các loại Mutex — nên hiểu gì ở mức cơ bản?](#6-các-loại-mutex-nên-hiểu-gì-ở-mức-cơ-bản)
+- [7. Condition Variable: ngủ để chờ State thay đổi](#7-condition-variable-ngủ-để-chờ-state-thay-đổi)
 - [8. Predicate, Spurious Wakeup và Lost Wakeup](#8-predicate-spurious-wakeup-và-lost-wakeup)
-- [9. Signal, Broadcast và Timed Condition Wait](#9-signal-broadcast-và-timed-condition-wait)
-- [10. Semaphore](#10-semaphore)
-- [11. Mutex, Condition Variable và Semaphore khác nhau thế nào?](#11-mutex-condition-variable-và-semaphore-khác-nhau-thế-nào)
-- [12. Producer–Consumer Model](#12-producerconsumer-model)
-- [13. Barrier và Phase Synchronization](#13-barrier-và-phase-synchronization)
-- [14. Deadlock](#14-deadlock)
+- [9. Signal, Broadcast và Timed Wait](#9-signal-broadcast-và-timed-wait)
+- [10. Semaphore: bộ đếm Resource/Token](#10-semaphore-bộ-đếm-resourcetoken)
+- [11. Khi nào dùng Mutex, Condition Variable hay Semaphore?](#11-khi-nào-dùng-mutex-condition-variable-hay-semaphore)
+- [12. Producer–Consumer: ghép các primitive lại](#12-producerconsumer-ghép-các-primitive-lại)
+- [13. Barrier: chờ nhau ở cuối một Phase](#13-barrier-chờ-nhau-ở-cuối-một-phase)
+- [14. Deadlock: các Thread chờ nhau vô hạn](#14-deadlock-các-thread-chờ-nhau-vô-hạn)
 - [15. Starvation và Livelock](#15-starvation-và-livelock)
-- [16. Lock Ordering, Granularity và Contention](#16-lock-ordering-granularity-và-contention)
-- [17. Priority Inversion và Priority Inheritance Overview](#17-priority-inversion-và-priority-inheritance-overview)
-- [18. Error Model và Tư duy Debug Synchronization](#18-error-model-và-tư-duy-debug-synchronization)
+- [16. Lock Ordering, độ lớn Critical Section và Contention](#16-lock-ordering-độ-lớn-critical-section-và-contention)
+- [17. Priority Inversion và Priority Inheritance](#17-priority-inversion-và-priority-inheritance)
+- [18. Tư duy Debugging Synchronization](#18-tư-duy-debugging-synchronization)
 - [19. Liên hệ với Embedded Linux](#19-liên-hệ-với-embedded-linux)
-- [20. Tổng kết và Mental Model](#20-tổng-kết-và-mental-model)
+- [20. Tổng kết và Mô hình tư duy](#20-tổng-kết-và-mô-hình-tư-duy)
 - [21. Tài liệu tham khảo](#21-tài-liệu-tham-khảo)
 
 ---
 
-## 1. Vì sao Thread Synchronization tồn tại?
+## 1. Vì sao nhiều Thread cần Synchronization?
 
-Topic 6 đã xây mental model:
+> **Nói đơn giản:** Synchronization tồn tại vì nhiều thread có thể chạm vào cùng mutable trạng thái. Mục tiêu là giữ invariant đúng và xác định khi nào thread được phép tiếp tục.
+
+
+Topic 6 đã xây mô hình tư duy:
 
 ```text
 Process
@@ -170,6 +182,9 @@ Synchronization primitive chỉ tạo protocol an toàn để đọc/thay đổi
 
 ## 2. Race Condition, Data Race và Critical Section
 
+> **Nói đơn giản:** Race condition là lỗi phụ thuộc timing; critical section là phần trạng thái transition không được overlap theo cách gây sai.
+
+
 ### 2.1 Race condition
 
 Race condition là khi correctness phụ thuộc vào relative timing/order giữa concurrent operations.
@@ -248,7 +263,7 @@ POSIX memory-synchronization model requires applications to restrict conflicting
 
 At language level, C/C++ additionally define their own data-race rules.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 same memory location
@@ -305,7 +320,7 @@ check-then-act race
 
 A critical section is code/state transition that must not overlap incompatibly with another operation.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Thread A
@@ -349,7 +364,10 @@ This avoids the common error of locking individual fields while leaving multi-fi
 
 ---
 
-## 3. Memory Synchronization và Visibility
+## 3. Vì sao Lock còn liên quan Memory Visibility?
+
+> **Nói đơn giản:** Lock không chỉ “cấm hai thread vào cùng lúc”; synchronization còn tạo ordering/visibility để thread sau thấy trạng thái do thread trước công bố đúng cách.
+
 
 ### 3.1 Mutual exclusion and memory visibility are related
 
@@ -427,7 +445,7 @@ The lesson:
 
 ---
 
-### 3.4 Mutex acquire/release mental model
+### 3.4 Mutex acquire/release mô hình tư duy
 
 Conceptually:
 
@@ -474,7 +492,12 @@ rather than condition variable alone.
 
 ---
 
-## 4. Mutex — Mutual Exclusion
+## 4. Mutex: chỉ một Thread được sở hữu vùng bảo vệ
+
+> **Nói đơn giản:** Mutex là khóa có owner: một thread lock, vào critical section, rồi owner unlock. Nó phù hợp nhất cho mutual exclusion.
+
+> **Hình dung:** Mutex giống chìa khóa của một phòng chỉ có một chìa. Ai đang giữ chìa mới được vào critical section; người khác phải chờ.
+
 
 ### 4.1 Mutex is an ownership-based synchronization primitive
 
@@ -581,7 +604,10 @@ Correctness requires all relevant participants to honor the same protection prot
 
 ---
 
-## 5. Mutex Lifecycle và Lock Operations
+## 5. Vòng đời và thao tác Lock/Unlock của Mutex
+
+> **Nói đơn giản:** Mutex có vòng đời initialize → lock/unlock nhiều lần → destroy khi không còn ai dùng. Lifetime của lock cũng phải được quản lý.
+
 
 ### 5.1 Initialization
 
@@ -626,7 +652,7 @@ calling thread becomes owner
 
 Try-lock does not wait for normal contention.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 mutex free?
@@ -705,9 +731,9 @@ in use
 waited on
 ```
 
-outside the API's valid lifecycle conditions.
+outside the API's valid vòng đời conditions.
 
-General lifecycle rule:
+General vòng đời rule:
 
 ```text
 initialize
@@ -745,7 +771,10 @@ Therefore the return value of each Pthreads synchronization call must be checked
 
 ---
 
-## 6. Mutex Types
+## 6. Các loại Mutex — nên hiểu gì ở mức cơ bản?
+
+> **Nói đơn giản:** NORMAL, ERRORCHECK, RECURSIVE khác nhau chủ yếu ở cách xử lý relock/misuse. Người mới nên hiểu NORMAL trước, các type khác đọc sau.
+
 
 ### 6.1 Why mutex type exists
 
@@ -853,7 +882,12 @@ or another specific type.
 
 ---
 
-## 7. Condition Variable — Chờ trạng thái, không “giữ dữ liệu”
+## 7. Condition Variable: ngủ để chờ State thay đổi
+
+> **Nói đơn giản:** Condition variable không chứa “dữ liệu ready”. Nó cho thread ngủ cho tới khi shared-trạng thái predicate có thể đã thay đổi; mutex mới bảo vệ predicate.
+
+> **Hình dung:** Condition variable không phải chuông “ghi nhớ event”. Nó giống chỗ ngủ: thread ngủ ở đó, khi được gọi dậy vẫn phải khóa mutex và nhìn lại điều kiện thật sự.
+
 
 ### 7.1 What condition variable represents
 
@@ -861,7 +895,7 @@ Condition variable is a synchronization object that lets threads sleep until sha
 
 It does not itself store application predicate.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Shared data
@@ -990,11 +1024,14 @@ sequenceDiagram
     W->>W: reevaluates predicate
 ```
 
-This is the central mental model for condition variables.
+This is the central mô hình tư duy for condition variables.
 
 ---
 
 ## 8. Predicate, Spurious Wakeup và Lost Wakeup
+
+> **Nói đơn giản:** Wakeup không đảm bảo predicate đã đúng. Vì vậy waiter phải kiểm tra predicate trong vòng lặp sau khi reacquire mutex.
+
 
 ### 8.1 The predicate belongs to shared data
 
@@ -1137,7 +1174,10 @@ under the defined condition-variable semantics.
 
 ---
 
-## 9. Signal, Broadcast và Timed Condition Wait
+## 9. Signal, Broadcast và Timed Wait
+
+> **Nói đơn giản:** Signal đánh thức một waiter phù hợp; broadcast cho nhiều waiter cơ hội wake. Tất cả vẫn phải tranh mutex và kiểm tra lại trạng thái.
+
 
 ### 9.1 `pthread_cond_signal()`
 
@@ -1224,7 +1264,7 @@ handoff lock immediately to chosen waiter
 
 Timed condition wait adds deadline.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 wait for:
@@ -1275,7 +1315,12 @@ Exact API use is outside this theory chapter, but timeout semantics depend on cl
 
 ---
 
-## 10. Semaphore
+## 10. Semaphore: bộ đếm Resource/Token
+
+> **Nói đơn giản:** Semaphore là bộ đếm tài nguyên/token. `wait` lấy một token hoặc chờ; `post` trả/thêm token. Nó không có owner hành vi theo chuẩn giống mutex.
+
+> **Hình dung:** Semaphore giống hộp có N vé. Muốn dùng tài nguyên thì lấy một vé; hết vé thì chờ; trả tài nguyên thì bỏ vé lại.
+
 
 ### 10.1 Semaphore is a counter-based synchronization primitive
 
@@ -1392,7 +1437,10 @@ predicate-based state waiting
 
 ---
 
-## 11. Mutex, Condition Variable và Semaphore khác nhau thế nào?
+## 11. Khi nào dùng Mutex, Condition Variable hay Semaphore?
+
+> **Nói đơn giản:** Chọn primitive theo câu hỏi: cần độc quyền → mutex; chờ trạng thái → condition variable; đếm tài nguyên → semaphore.
+
 
 ### 11.1 Mutex
 
@@ -1476,7 +1524,10 @@ phase rendezvous?
 
 ---
 
-## 12. Producer–Consumer Model
+## 12. Producer–Consumer: ghép các primitive lại
+
+> **Nói đơn giản:** Producer–consumer là ví dụ tổng hợp: mutex bảo vệ queue, condition/semaphore biểu diễn not-empty/not-full hoặc token count.
+
 
 ### 12.1 Bài toán producer–consumer
 
@@ -1507,7 +1558,7 @@ availability predicate
 
 ### 12.2 Primitive nào làm nhiệm vụ gì?
 
-Mental model chuẩn:
+Mô hình tư duy chuẩn:
 
 ```text
 mutex
@@ -1547,7 +1598,10 @@ thread becomes eligible to continue
 
 Đây là ví dụ tổng hợp cho race condition, mutex, predicate và notification.
 
-## 13. Barrier và Phase Synchronization
+## 13. Barrier: chờ nhau ở cuối một Phase
+
+> **Nói đơn giản:** Barrier buộc một nhóm thread cùng đến mốc phase trước khi nhóm đi tiếp. Nó không bảo vệ critical section như mutex.
+
 
 ### 13.1 Barrier answers a different question
 
@@ -1562,7 +1616,7 @@ before any continue into next phase
 
 ---
 
-### 13.2 Barrier mental model
+### 13.2 Barrier mô hình tư duy
 
 ```text
 Phase 1
@@ -1635,11 +1689,14 @@ If one expected participant never arrives:
 all others can wait indefinitely
 ```
 
-Therefore barrier protocols require stable participant-count/lifecycle design.
+Therefore barrier protocols require stable participant-count/vòng đời design.
 
 ---
 
-## 14. Deadlock
+## 14. Deadlock: các Thread chờ nhau vô hạn
+
+> **Nói đơn giản:** Deadlock xảy ra khi dependency tạo vòng chờ. Ví dụ A giữ M1 chờ M2, B giữ M2 chờ M1.
+
 
 ### 14.1 Deadlock definition
 
@@ -1763,6 +1820,9 @@ Again root issue is dependency cycle/progress failure.
 
 ## 15. Starvation và Livelock
 
+> **Nói đơn giản:** Starvation là một thread bị “đói” tài nguyên lâu; livelock là các thread vẫn hoạt động nhưng cứ phản ứng qua lại mà không tiến.
+
+
 ### 15.1 Starvation
 
 Thread is theoretically able to make progress but repeatedly loses access to needed resource.
@@ -1842,7 +1902,10 @@ Correctness should not rely on undocumented fairness.
 
 ---
 
-## 16. Lock Ordering, Granularity và Contention
+## 16. Lock Ordering, độ lớn Critical Section và Contention
+
+> **Nói đơn giản:** Lock ordering và granularity là trade-off: ít lock dễ hiểu nhưng contention cao; nhiều lock linh hoạt nhưng khó đúng và dễ deadlock.
+
 
 ### 16.1 Global lock ordering
 
@@ -1980,7 +2043,10 @@ Critical-section cost must be reasoned about in runtime behavior, not line count
 
 ---
 
-## 17. Priority Inversion và Priority Inheritance Overview
+## 17. Priority Inversion và Priority Inheritance
+
+> **Nói đơn giản:** Priority inversion xảy ra khi high-priority thread phải chờ lock do low-priority thread giữ. Priority inheritance là một cơ chế giảm vấn đề này.
+
 
 ### 17.1 Priority inversion
 
@@ -2056,7 +2122,10 @@ not general performance acceleration.
 
 ---
 
-## 18. Error Model và Tư duy Debug Synchronization
+## 18. Tư duy Debugging Synchronization
+
+> **Nói đơn giản:** Debug synchronization bằng cách vẽ ai giữ gì, ai chờ gì, predicate nào phải đúng và lock nào bảo vệ trạng thái nào.
+
 
 ### 18.1 Start with symptom classification
 
@@ -2278,6 +2347,9 @@ Correctness and performance are separate dimensions.
 
 ## 19. Liên hệ với Embedded Linux
 
+> **Nói đơn giản:** Embedded real-time/control app đặc biệt nhạy với deadlock, blocking lâu và priority inversion.
+
+
 ### 19.1 Sensor pipeline
 
 Example architecture:
@@ -2305,7 +2377,7 @@ shutdown state
 
 ---
 
-### 19.2 Producer-consumer mental model
+### 19.2 Producer-consumer mô hình tư duy
 
 ```text
 Producer
@@ -2405,7 +2477,7 @@ trades lock contention for ownership/message-passing design.
 
 ### 19.6 Shutdown
 
-Graceful shutdown involves shared lifecycle state:
+Graceful shutdown involves shared vòng đời state:
 
 ```text
 RUNNING
@@ -2446,7 +2518,10 @@ Correctness first, then measurement-driven refinement.
 
 ---
 
-## 20. Tổng kết và Mental Model
+## 20. Tổng kết và Mô hình tư duy
+
+> **Nói đơn giản:** Hãy nhớ primitive theo ý nghĩa, không theo tên API: ownership, predicate, count, phase.
+
 
 ```text
 shared mutable state
@@ -2475,6 +2550,9 @@ Các điểm cần giữ:
 ---
 
 ## 21. Tài liệu tham khảo
+
+> **Nói đơn giản:** Nguồn tham khảo để kiểm chứng POSIX synchronization hành vi theo chuẩn.
+
 
 - POSIX.1-2024 Threads and Memory Synchronization: https://pubs.opengroup.org/onlinepubs/9799919799/
 - `pthread_mutex_lock(3p)`: https://man7.org/linux/man-pages/man3/pthread_mutex_lock.3p.html

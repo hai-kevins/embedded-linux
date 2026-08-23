@@ -1,39 +1,53 @@
 # Chủ đề 4 — Process trong Linux
 
-> **Phạm vi:** Linux process fundamentals và control: program/process, PID/PPID, resources/address space, process states, `fork()`, `execve()`, termination, `wait()/waitpid()`, zombie/orphan và `/proc`.
+> **Mục tiêu dễ hiểu:** Hiểu process là một chương trình đang chạy với identity, bộ nhớ/tài nguyên và vòng đời riêng; sau đó nối `fork`, `exec`, `wait` vào cùng một mô hình.
 >
-> Chương này chỉ trình bày **lý thuyết**. Không có lab, bài tập, chương trình mẫu hoàn chỉnh hoặc hướng dẫn thao tác thực hành.
+> **Bạn cần biết trước:** Biết file descriptor từ Topic 3 và command execution ở Topic 1.
 >
-> **Giới hạn chủ đề:** Không đi sâu vào Pthreads, thread synchronization, signals như một API riêng, cgroups/namespaces hoặc scheduler internals.
+> **Các từ khóa sẽ gặp nhiều:**
+> - **program** = file/code tĩnh; process = instance đang chạy
+> - **PID** = process ID
+> - **fork** = tạo child process
+> - **exec** = thay program image của process hiện tại
+> - **wait** = parent thu trạng thái kết thúc của child
 >
-> **Nguyên tắc bố cục:** `##` chỉ dành cho các khối kiến thức lớn; `###/####` dùng cho concept chi tiết. Các phần trùng hoặc thuộc topic khác đã được loại khỏi chapter này.
+> **Quy ước đọc thuật ngữ:** khi gặp `state`, `context`, `semantics`, `object`, hãy hiểu lần lượt là **trạng thái**, **ngữ cảnh**, **hành vi theo chuẩn**, **đối tượng/tài nguyên**. Tên API và thuật ngữ chuẩn như process, thread, socket, mutex được giữ nguyên để bạn quen dần với tài liệu kỹ thuật.
 >
-> **Điều hướng:** [← Chủ đề 3 — File I/O](README-topic-03.md) · [Chủ đề 5 — Signal →](README-topic-05.md)
-
+> **Cách đọc nếu bạn mới bắt đầu:**
+> 1. Lượt đầu chỉ đọc các ô **“Nói đơn giản”**, sơ đồ ASCII/Mermaid và phần **Tổng kết**.
+> 2. Lượt hai đọc các mục `###` để hiểu API/khái niệm cụ thể.
+> 3. Các mục `####`, caveat POSIX/Linux và edge case có thể để lần đọc thứ ba. **Không cần hiểu hết trong một lượt.**
+>
+> Chương này chỉ có **lý thuyết**, không có lab hay bài tập thực hành. Thuật ngữ tiếng Anh được giữ khi đó là tên chuẩn, nhưng luôn ưu tiên giải thích ý nghĩa trước.
 ---
 
 ## Mục lục
 
-- [1. Program và Process](#1-program-và-process)
-- [2. Process Identity và Hierarchy](#2-process-identity-và-hierarchy)
-- [3. Process Resources, Memory và Execution Context](#3-process-resources-memory-và-execution-context)
-- [4. Process States và Context Switch](#4-process-states-và-context-switch)
-- [5. `fork()` và Child Process Model](#5-fork-và-child-process-model)
-- [6. `execve()` và Program-image Replacement](#6-execve-và-program-image-replacement)
-- [7. Process Termination và Exit Status](#7-process-termination-và-exit-status)
+- [1. Program khác Process như thế nào?](#1-program-khác-process-như-thế-nào)
+- [2. PID, PPID và cây Process](#2-pid-ppid-và-cây-process)
+- [3. Một Process đang sở hữu những gì?](#3-một-process-đang-sở-hữu-những-gì)
+- [4. Process chạy, chờ và được Scheduler chuyển CPU ra sao?](#4-process-chạy-chờ-và-được-scheduler-chuyển-cpu-ra-sao)
+- [5. `fork()`: tạo Child Process](#5-fork-tạo-child-process)
+- [6. `execve()`: thay chương trình đang chạy trong Process](#6-execve-thay-chương-trình-đang-chạy-trong-process)
+- [7. Process kết thúc và Exit Status](#7-process-kết-thúc-và-exit-status)
 - [8. Zombie, `wait()`, Orphan và Reparenting](#8-zombie-wait-orphan-và-reparenting)
-- [9. Process Lifecycle State Machine](#9-process-lifecycle-state-machine)
-- [10. Process Observation qua `/proc/<pid>`](#10-process-observation-qua-procpid)
-- [11. Process Observation với `ps` và `top`](#11-process-observation-với-ps-và-top)
+- [9. Toàn bộ vòng đời Process](#9-toàn-bộ-vòng-đời-process)
+- [10. Quan sát Process qua `/proc/<pid>`](#10-quan-sát-process-qua-procpid)
+- [11. Quan sát Process với `ps` và `top`](#11-quan-sát-process-với-ps-và-top)
 - [12. Process Isolation và Scheduling cơ bản](#12-process-isolation-và-scheduling-cơ-bản)
-- [13. Error Model và Debugging](#13-error-model-và-debugging)
+- [13. Khi Process có vấn đề: tư duy Debugging](#13-khi-process-có-vấn-đề-tư-duy-debugging)
 - [14. Liên hệ với Embedded Linux](#14-liên-hệ-với-embedded-linux)
-- [15. Tổng kết và Mental Model](#15-tổng-kết-và-mental-model)
+- [15. Tổng kết và Mô hình tư duy](#15-tổng-kết-và-mô-hình-tư-duy)
 - [16. Tài liệu tham khảo](#16-tài-liệu-tham-khảo)
 
 ---
 
-## 1. Program và Process
+## 1. Program khác Process như thế nào?
+
+> **Nói đơn giản:** Program là code trên storage; process là một lần thực thi sống của program, có PID, bộ nhớ, fd và trạng thái riêng.
+
+> **Hình dung:** File executable trên disk giống bản nhạc; process giống một lần ban nhạc đang biểu diễn bản nhạc đó. Một program có thể có nhiều process chạy cùng lúc.
+
 
 ### 1.1 Program và process khác nhau ở đâu?
 
@@ -131,7 +145,7 @@ Runtime state
   accounting, scheduler state
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Process
@@ -164,7 +178,7 @@ report status to parent/userspace
 
 Linux kernel dùng task model, với `task_struct` là structure trung tâm cho schedulable execution entities.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Userspace view:
@@ -194,11 +208,14 @@ Do đó không nên khẳng định:
 
 trong mọi trường hợp.
 
-Topic này chủ yếu dùng single-threaded mental model để làm rõ `fork/exec/wait/exit`.
+Topic này chủ yếu dùng single-threaded mô hình tư duy để làm rõ `fork/exec/wait/exit`.
 
 ---
 
-## 2. Process Identity và Hierarchy
+## 2. PID, PPID và cây Process
+
+> **Nói đơn giản:** PID giúp kernel/userspace định danh process. PPID cho biết quan hệ parent-child; nhiều process tạo thành cây process.
+
 
 ### 2.1 PID và process identity
 
@@ -229,7 +246,7 @@ inode
 file descriptor
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 PID
@@ -327,7 +344,7 @@ PID 1
            +-- application
 ```
 
-Cây này mô tả **creation/lifecycle relationship**.
+Cây này mô tả **creation/vòng đời relationship**.
 
 Nó không tự có nghĩa:
 
@@ -339,7 +356,10 @@ CPU-priority hierarchy
 
 ---
 
-## 3. Process Resources, Memory và Execution Context
+## 3. Một Process đang sở hữu những gì?
+
+> **Nói đơn giản:** Một process không chỉ có code: nó còn có virtual bộ nhớ, stack/heap, fd, cwd, environment, credentials và nhiều kernel-managed tài nguyên.
+
 
 ### 3.1 Process resources
 
@@ -449,7 +469,7 @@ High virtual addresses
 Low virtual addresses
 ```
 
-Đây là mental model, không phải fixed map.
+Đây là mô hình tư duy, không phải fixed map.
 
 Actual layout phụ thuộc:
 
@@ -511,7 +531,7 @@ reserved mappings
 swap
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 virtual region
@@ -641,7 +661,7 @@ saved IDs
 supplementary groups
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 process credentials
@@ -660,7 +680,10 @@ Capabilities và security modules là tầng nâng cao.
 
 ---
 
-## 4. Process States và Context Switch
+## 4. Process chạy, chờ và được Scheduler chuyển CPU ra sao?
+
+> **Nói đơn giản:** Process có thể running, runnable, sleeping, stopped, zombie... Scheduler chuyển CPU giữa các runnable tasks.
+
 
 ### 4.1 Process states
 
@@ -677,7 +700,7 @@ Z  zombie
 X  dead
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 created
@@ -791,7 +814,7 @@ Zombie không còn chạy normal user code.
 
 ---
 
-### 4.5 Context switch ở mức mental model
+### 4.5 Context switch ở mức mô hình tư duy
 
 
 Scheduler có thể chuyển CPU:
@@ -822,7 +845,12 @@ Không có nghĩa toàn bộ address space bị copy mỗi lần switch.
 
 ---
 
-## 5. `fork()` và Child Process Model
+## 5. `fork()`: tạo Child Process
+
+> **Nói đơn giản:** `fork()` tạo child từ trạng thái parent. Parent và child là hai process riêng; Linux dùng copy-on-write để tránh copy bộ nhớ ngay lập tức.
+
+> **Hình dung:** `fork()` giống tách một execution thành hai process có trạng thái ban đầu rất giống nhau; sau đó parent và child chạy độc lập.
+
 
 ### 5.1 Vì sao Unix tách `fork()` và `exec()`?
 
@@ -837,7 +865,7 @@ exec()
   replace current process's program image
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Parent
@@ -1074,7 +1102,10 @@ child calls exec()
 
 ---
 
-## 6. `execve()` và Program-image Replacement
+## 6. `execve()`: thay chương trình đang chạy trong Process
+
+> **Nói đơn giản:** `execve()` không tạo process mới. Nó thay program image của process hiện tại, nên PID có thể giữ nguyên nhưng code/data/stack thay đổi.
+
 
 ### 6.1 `execve()` thay program image
 
@@ -1216,7 +1247,7 @@ hoặc interpreter script:
 #!interpreter [optional-arg]
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 script
@@ -1270,7 +1301,10 @@ Shell
 
 ---
 
-## 7. Process Termination và Exit Status
+## 7. Process kết thúc và Exit Status
+
+> **Nói đơn giản:** Khi process kết thúc, kernel giữ exit status để parent có thể biết kết quả. `exit()` là bước kết thúc, không phải `wait()`.
+
 
 ### 7.1 Process termination
 
@@ -1365,6 +1399,9 @@ Shell sử dụng child status để xây command exit status.
 ---
 
 ## 8. Zombie, `wait()`, Orphan và Reparenting
+
+> **Nói đơn giản:** Zombie là child đã kết thúc nhưng chưa được parent `wait`; orphan là child còn sống nhưng parent cũ đã mất. Hai khái niệm khác nhau.
+
 
 ### 8.1 Zombie process
 
@@ -1470,7 +1507,7 @@ custom init
 
 Linux còn có subreaper concept.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 orphaned descendants
@@ -1485,9 +1522,12 @@ PID namespaces có PID 1 riêng trong namespace context.
 
 ---
 
-## 9. Process Lifecycle State Machine
+## 9. Toàn bộ vòng đời Process
 
-### 9.1 Process lifecycle state machine
+> **Nói đơn giản:** Phần này nối các trạng thái thành một vòng đời để bạn thấy process sinh ra, chạy, chờ và được reap như thế nào.
+
+
+### 9.1 Process vòng đời state machine
 
 
 ```mermaid
@@ -1513,11 +1553,14 @@ stateDiagram-v2
     Reaped --> [*]
 ```
 
-Đây là mental model, không phải đầy đủ internal task-state graph của kernel.
+Đây là mô hình tư duy, không phải đầy đủ internal task-state graph của kernel.
 
 ---
 
-## 10. Process Observation qua `/proc/<pid>`
+## 10. Quan sát Process qua `/proc/<pid>`
+
+> **Nói đơn giản:** `/proc/<pid>` là cửa sổ filesystem nhìn vào process trạng thái: status, cmdline, fd, maps... Đây là cách kernel export thông tin cho userspace.
+
 
 ### 10.1 `/proc/<pid>` là gì?
 
@@ -1549,7 +1592,7 @@ task
 ...
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 kernel process state
@@ -1708,7 +1751,10 @@ physical RAM layout
 
 ---
 
-## 11. Process Observation với `ps` và `top`
+## 11. Quan sát Process với `ps` và `top`
+
+> **Nói đơn giản:** `ps` và `top` đọc/biểu diễn process trạng thái; chúng không phải nguồn tạo ra process trạng thái.
+
 
 ### 11.1 `ps` và `top` dưới góc nhìn process model
 
@@ -1740,6 +1786,9 @@ Tools format/derive metrics từ process/system state; field names không nhất
 ---
 
 ## 12. Process Isolation và Scheduling cơ bản
+
+> **Nói đơn giản:** Process isolation giúp tách address space/failure domain; scheduling quyết định task nào được CPU chạy tại thời điểm nào.
+
 
 ### 12.1 Process isolation và resource sharing
 
@@ -1777,7 +1826,7 @@ Do not equate “separate process” with “everything physically duplicated”
 
 ---
 
-### 12.2 Scheduling ở mức đủ để hiểu process lifecycle
+### 12.2 Scheduling ở mức đủ để hiểu process vòng đời
 
 
 Scheduler handles runnable tasks.
@@ -1816,7 +1865,10 @@ Nice values, CPU affinity and scheduling policies are outside Topic 4 core.
 
 ---
 
-## 13. Error Model và Debugging
+## 13. Khi Process có vấn đề: tư duy Debugging
+
+> **Nói đơn giản:** Debug process nên bắt đầu từ: process còn tồn tại không? PID/trạng thái gì? đang block ở đâu? fd/bộ nhớ/vòng đời có đúng không?
+
 
 ### 13.1 Error model và tư duy debug process
 
@@ -1896,6 +1948,9 @@ Recall shared open file description after fork.
 ---
 
 ## 14. Liên hệ với Embedded Linux
+
+> **Nói đơn giản:** Init/service, daemon, worker process và việc quan sát `/proc` đều dựa trên mô hình tư duy process này.
+
 
 ### 14.1 Liên hệ với Embedded Linux
 
@@ -2007,7 +2062,10 @@ without GUI.
 
 ---
 
-## 15. Tổng kết và Mental Model
+## 15. Tổng kết và Mô hình tư duy
+
+> **Nói đơn giản:** Hãy nhớ: `fork()` tạo process mới; `exec()` thay chương trình trong process; `wait()` thu trạng thái child.
+
 
 ```text
 executable
@@ -2041,6 +2099,9 @@ Các điểm cần giữ:
 ---
 
 ## 16. Tài liệu tham khảo
+
+> **Nói đơn giản:** Nguồn tham khảo dành cho việc kiểm chứng chi tiết POSIX/Linux.
+
 
 - POSIX.1-2024 process interfaces: https://pubs.opengroup.org/onlinepubs/9799919799/
 - `fork(2)`: https://man7.org/linux/man-pages/man2/fork.2.html

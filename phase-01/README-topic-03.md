@@ -1,36 +1,49 @@
 # Chủ đề 3 — File I/O trong Linux
 
-> **Phạm vi:** Low-level Linux File I/O: file descriptor, open file description ở mức cần thiết, `open/read/write/lseek/close`, file offset, partial I/O, blocking I/O và error model.
+> **Mục tiêu dễ hiểu:** Hiểu chương trình mở một đối tượng, nhận file descriptor rồi dùng `read/write/lseek/close` như thế nào.
 >
-> Chương này chỉ trình bày **lý thuyết**. Không có lab, bài tập, chương trình mẫu hoàn chỉnh hoặc hướng dẫn thao tác thực hành.
+> **Bạn cần biết trước:** Biết pathname/inode ở mức Topic 2. Chưa cần biết process internals sâu.
 >
-> **Giới hạn chủ đề:** Không đi sâu vào `stdio`, advanced descriptor duplication/positioned I/O, VFS internals, I/O multiplexing hoặc concurrent-I/O algorithms.
+> **Các từ khóa sẽ gặp nhiều:**
+> - **file descriptor (fd)** = số nhỏ process dùng để tham chiếu object đã mở
+> - **open file description** = trạng thái open trong kernel như file offset/status flags
+> - **partial I/O** = syscall có thể xử lý ít byte hơn yêu cầu
+> - **blocking** = thread có thể phải chờ
 >
-> **Nguyên tắc bố cục:** `##` chỉ dành cho các khối kiến thức lớn; `###/####` dùng cho concept chi tiết. Các phần trùng hoặc thuộc topic khác đã được loại khỏi chapter này.
+> **Quy ước đọc thuật ngữ:** khi gặp `state`, `context`, `semantics`, `object`, hãy hiểu lần lượt là **trạng thái**, **ngữ cảnh**, **hành vi theo chuẩn**, **đối tượng/tài nguyên**. Tên API và thuật ngữ chuẩn như process, thread, socket, mutex được giữ nguyên để bạn quen dần với tài liệu kỹ thuật.
 >
-> **Điều hướng:** [← Chủ đề 2 — Linux File System](README-topic-02.md) · [Chủ đề 4 — Process →](README-topic-04.md)
-
+> **Cách đọc nếu bạn mới bắt đầu:**
+> 1. Lượt đầu chỉ đọc các ô **“Nói đơn giản”**, sơ đồ ASCII/Mermaid và phần **Tổng kết**.
+> 2. Lượt hai đọc các mục `###` để hiểu API/khái niệm cụ thể.
+> 3. Các mục `####`, caveat POSIX/Linux và edge case có thể để lần đọc thứ ba. **Không cần hiểu hết trong một lượt.**
+>
+> Chương này chỉ có **lý thuyết**, không có lab hay bài tập thực hành. Thuật ngữ tiếng Anh được giữ khi đó là tên chuẩn, nhưng luôn ưu tiên giải thích ý nghĩa trước.
 ---
 
 ## Mục lục
 
-- [1. Nền tảng File I/O và Descriptor Abstraction](#1-nền-tảng-file-io-và-descriptor-abstraction)
-- [2. File Descriptor Table và Open File Description](#2-file-descriptor-table-và-open-file-description)
-- [3. `open()` và Open Flags](#3-open-và-open-flags)
-- [4. `read()` và Read Semantics](#4-read-và-read-semantics)
-- [5. `write()` và Write Semantics](#5-write-và-write-semantics)
+- [1. File Descriptor: “tay cầm” để làm I/O](#1-file-descriptor-tay-cầm-để-làm-io)
+- [2. Bảng File Descriptor và trạng thái Open trong kernel](#2-bảng-file-descriptor-và-trạng-thái-open-trong-kernel)
+- [3. `open()`: từ pathname thành file descriptor](#3-open-từ-pathname-thành-file-descriptor)
+- [4. `read()`: đọc tối đa bao nhiêu byte?](#4-read-đọc-tối-đa-bao-nhiêu-byte)
+- [5. `write()`: ghi được bao nhiêu byte?](#5-write-ghi-được-bao-nhiêu-byte)
 - [6. File Offset và `lseek()`](#6-file-offset-và-lseek)
-- [7. `close()` và Descriptor Lifetime](#7-close-và-descriptor-lifetime)
-- [8. Blocking, Nonblocking và Object-specific I/O](#8-blocking-nonblocking-và-object-specific-io)
-- [9. Return Values, Types và Common I/O Errors](#9-return-values-types-và-common-io-errors)
-- [10. Debugging Mental Model cho File I/O](#10-debugging-mental-model-cho-file-io)
+- [7. `close()` và vòng đời File Descriptor](#7-close-và-vòng-đời-file-descriptor)
+- [8. Blocking và Nonblocking I/O cơ bản](#8-blocking-và-nonblocking-io-cơ-bản)
+- [9. Return Value, kiểu dữ liệu và lỗi I/O thường gặp](#9-return-value-kiểu-dữ-liệu-và-lỗi-io-thường-gặp)
+- [10. Tư duy Debugging cho File I/O](#10-tư-duy-debugging-cho-file-io)
 - [11. Liên hệ với Embedded Linux](#11-liên-hệ-với-embedded-linux)
-- [12. Tổng kết và Mental Model](#12-tổng-kết-và-mental-model)
+- [12. Tổng kết và Mô hình tư duy](#12-tổng-kết-và-mô-hình-tư-duy)
 - [13. Tài liệu tham khảo](#13-tài-liệu-tham-khảo)
 
 ---
 
-## 1. Nền tảng File I/O và Descriptor Abstraction
+## 1. File Descriptor: “tay cầm” để làm I/O
+
+> **Nói đơn giản:** Tên file giúp tìm đối tượng; file descriptor là “tay cầm” mà process dùng sau khi đối tượng đã được mở. Đừng coi fd là inode hay địa chỉ bộ nhớ.
+
+> **Hình dung:** Pathname giống địa chỉ nhà. `open()` tìm đúng nhà rồi kernel đưa cho process một số vé như `fd=3`; từ đó process dùng số vé 3 để `read/write` mà không phải đọc lại địa chỉ mỗi lần.
+
 
 ### 1.1 File I/O trong Linux thực chất là gì?
 
@@ -59,7 +72,7 @@ Handle đó là:
 file descriptor
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 pathname
@@ -145,7 +158,7 @@ Do đó:
 
 > **File descriptor là một generic I/O handle, không phải chỉ là “số của file trên disk”.**
 
-Mental model:
+Mô hình tư duy:
 
 ```text
                     file descriptor
@@ -226,7 +239,12 @@ open I/O state
 
 ---
 
-## 2. File Descriptor Table và Open File Description
+## 2. Bảng File Descriptor và trạng thái Open trong kernel
+
+> **Nói đơn giản:** Process có bảng fd riêng. Một fd trỏ tới trạng thái open ở kernel; chính trạng thái đó giữ file offset và status flags quan trọng.
+
+> **Đừng nhầm:** `fd=3` chỉ là số index trong bảng của process. Nó không phải inode và cũng không phải địa chỉ của đối tượng trong RAM.
+
 
 ### 2.1 File descriptor là gì?
 
@@ -292,7 +310,7 @@ Application không dereference fd như memory pointer.
 
 Mỗi process có file-descriptor table.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Process
@@ -350,7 +368,7 @@ file status flags
 reference tới underlying file/object
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Process fd table
@@ -438,7 +456,10 @@ Nếu pathname sau đó bị rename/unlink, fd không tự biến thành invalid
 
 ---
 
-## 3. `open()` và Open Flags
+## 3. `open()`: từ pathname thành file descriptor
+
+> **Nói đơn giản:** `open()` vừa resolve pathname vừa tạo open-I/O context. Flags nói bạn muốn đọc/ghi và có tạo/truncate/append hay không.
+
 
 ### 3.1 `open()` thực sự làm gì?
 
@@ -583,7 +604,7 @@ O_SYNC
 
 Exact classification theo `open(2)` cần được đọc khi dùng flag cụ thể.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 open() time
@@ -646,7 +667,7 @@ nhưng current `open()` vẫn return writable fd vì current open access đã đ
 
 Với điều kiện phù hợp, mở regular file với `O_TRUNC` có thể làm file length trở về 0.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 before open:
@@ -684,7 +705,7 @@ Không nên coi nó là pure lookup operation.
 
 Nếu open file description có `O_APPEND`, trước mỗi `write()` kernel đảm bảo file offset được đặt ở end-of-file và write diễn ra theo append semantics của interface.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 write(fd, data)
@@ -731,7 +752,7 @@ Mặc định, một new fd có thể remain open qua `execve()` nếu `FD_CLOEX
 
 `O_CLOEXEC` cho phép đặt close-on-exec atomically khi `open()`.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 process
@@ -765,7 +786,10 @@ là hai operation, tạo race trong multithreaded context nơi thread khác có 
 
 ---
 
-## 4. `read()` và Read Semantics
+## 4. `read()`: đọc tối đa bao nhiêu byte?
+
+> **Nói đơn giản:** `read()` có nghĩa “đọc tối đa N byte”, không phải “chắc chắn đủ N byte”. `0` thường có nghĩa EOF với regular/stream-like đối tượng phù hợp.
+
 
 ### 4.1 `read()` — yêu cầu đọc “up to count bytes”
 
@@ -788,7 +812,7 @@ Không phải:
 must return exactly count bytes
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 fd
@@ -850,7 +874,7 @@ signal interruption after some data
 object-specific behavior
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 requested bytes
@@ -934,11 +958,14 @@ stateDiagram-v2
     Error --> Readable: caller handles transient/recoverable condition
 ```
 
-Đây là mental model giản lược; stream/device semantics có thể khác regular file.
+Đây là mô hình tư duy giản lược; stream/device semantics có thể khác regular file.
 
 ---
 
-## 5. `write()` và Write Semantics
+## 5. `write()`: ghi được bao nhiêu byte?
+
+> **Nói đơn giản:** `write()` cũng có thể ghi ít hơn số byte yêu cầu. Return value mới là số byte thực sự đã được chấp nhận.
+
 
 ### 5.1 `write()` — yêu cầu ghi byte vào object
 
@@ -955,7 +982,7 @@ Semantics cốt lõi:
 attempt to write up to count bytes
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 userspace buffer
@@ -1001,7 +1028,7 @@ device-specific limits
 filesystem conditions
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 requested 4096
@@ -1066,11 +1093,14 @@ filesystem-specific guarantees
 hardware cache semantics
 ```
 
-Topic này không đi sâu durability, nhưng phải tránh mental model sai.
+Topic này không đi sâu durability, nhưng phải tránh mô hình tư duy sai.
 
 ---
 
 ## 6. File Offset và `lseek()`
+
+> **Nói đơn giản:** File offset là vị trí đọc/ghi hiện tại của seekable đối tượng. `lseek()` thay đổi offset chứ không tự đọc hay ghi dữ liệu.
+
 
 ### 6.1 File offset nằm ở đâu?
 
@@ -1089,7 +1119,7 @@ inode
 fd integer itself
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 fd 3
@@ -1143,7 +1173,7 @@ change file size
 
 chỉ vì offset được reposition.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 open file description
@@ -1230,7 +1260,7 @@ future bytes
 
 không phải random-access byte array.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 regular file
@@ -1246,7 +1276,10 @@ pipe/socket/terminal
 
 ---
 
-## 7. `close()` và Descriptor Lifetime
+## 7. `close()` và vòng đời File Descriptor
+
+> **Nói đơn giản:** `close()` bỏ reference fd của process. Số fd có thể được kernel tái sử dụng cho một đối tượng khác sau đó.
+
 
 ### 7.1 `close()` thực sự đóng cái gì?
 
@@ -1259,7 +1292,7 @@ int close(int fd);
 
 `close()` làm fd-table entry của process không còn refer open file.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 before:
@@ -1285,7 +1318,7 @@ kernel reference
 
 OFD/object vẫn có thể sống.
 
-#### 7.1.1 Reference-count mental model
+#### 7.1.1 Reference-count mô hình tư duy
 
 ```text
 fd3 ----+
@@ -1362,7 +1395,7 @@ stateDiagram-v2
     DescriptorClosed --> [*]
 ```
 
-Sơ đồ là mental model.
+Sơ đồ là mô hình tư duy.
 
 Actual kernel lifetime còn liên quan:
 
@@ -1376,14 +1409,17 @@ async operations
 
 ---
 
-## 8. Blocking, Nonblocking và Object-specific I/O
+## 8. Blocking và Nonblocking I/O cơ bản
+
+> **Nói đơn giản:** Blocking nghĩa syscall có thể làm thread ngủ chờ đối tượng sẵn sàng. `O_NONBLOCK` thay đổi hành vi với các đối tượng hỗ trợ nó; không phải regular file nào cũng thành “không bao giờ chờ”.
+
 
 ### 8.1 Blocking I/O thực chất là gì?
 
 
 “Blocking” nghĩa là operation có thể làm calling thread phải chờ cho tới khi condition cần thiết xảy ra hoặc operation hoàn thành/tiến triển theo interface semantics.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 thread calls read()
@@ -1482,7 +1518,7 @@ hoặc socket portable code có thể cần nhận biết:
 EAGAIN / EWOULDBLOCK
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 blocking mode:
@@ -1524,7 +1560,7 @@ hiện không tạo general guarantee rằng regular-file I/O sẽ không bao gi
 
 Với regular file và block device, I/O vẫn có thể briefly block khi device activity cần thiết.
 
-Do đó không nên thiết kế mental model:
+Do đó không nên thiết kế mô hình tư duy:
 
 ```text
 O_NONBLOCK
@@ -1601,12 +1637,15 @@ different object semantics
 
 ---
 
-## 9. Return Values, Types và Common I/O Errors
+## 9. Return Value, kiểu dữ liệu và lỗi I/O thường gặp
+
+> **Nói đơn giản:** Hãy luôn đọc giá trị trả về trước rồi mới đọc `errno`. `size_t`, `ssize_t`, `off_t` tồn tại vì count, kết quả và offset có kiểu/miền giá trị khác nhau.
+
 
 ### 9.1 Return value: dữ liệu điều khiển quan trọng của I/O
 
 
-Một robust mental model luôn nhìn:
+Một robust mô hình tư duy luôn nhìn:
 
 ```text
 return value first
@@ -1688,7 +1727,7 @@ Vì cần biểu diễn:
 -1 error
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 size_t
@@ -1757,7 +1796,7 @@ then inspect errno
 
 rồi kết luận operation lỗi.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 return value
@@ -1797,7 +1836,7 @@ fd never valid
 fd opened write-only
 ```
 
-Mental model debug:
+Mô hình tư duy debug:
 
 ```text
 is fd valid?
@@ -1830,7 +1869,7 @@ EINTR
 
 khi call bị interrupted trước khi any data read theo described case.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 thread blocks in syscall
@@ -1891,7 +1930,7 @@ EWOULDBLOCK
 
 và portable code không nên assume chúng luôn bằng nhau.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 EAGAIN
@@ -1905,14 +1944,17 @@ EAGAIN
 
 ---
 
-## 10. Debugging Mental Model cho File I/O
+## 10. Tư duy Debugging cho File I/O
+
+> **Nói đơn giản:** Debug File I/O theo thứ tự: fd hợp lệ? access mode đúng? đối tượng có data/space? giá trị trả về là gì? errno nói gì?
+
 
 ### 10.1 Error model và tư duy debug File I/O
 
 
 Một I/O failure nên được phân lớp.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 1. pathname resolution?
@@ -2016,6 +2058,9 @@ Data/writeback errors may also be reported at close time on some filesystems/sto
 
 ## 11. Liên hệ với Embedded Linux
 
+> **Nói đơn giản:** UART, GPIO/device node, I2C/SPI userspace interface và `/proc`/`/sys` đều nối lại với mô hình tư duy fd + read/write/ioctl.
+
+
 ### 11.1 Liên hệ với Embedded Linux
 
 
@@ -2032,7 +2077,7 @@ write()
 ioctl()
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 pathname /dev/...
@@ -2156,7 +2201,7 @@ DMA completion
 driver buffer data
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 userspace read()
@@ -2219,7 +2264,10 @@ Do đó File I/O knowledge không phụ thuộc desktop GUI.
 
 ---
 
-## 12. Tổng kết và Mental Model
+## 12. Tổng kết và Mô hình tư duy
+
+> **Nói đơn giản:** Chuỗi cần nhớ: pathname → `open()` → fd → I/O operations → `close()`.
+
 
 ```text
 pathname
@@ -2248,6 +2296,9 @@ Các điểm cần giữ:
 ---
 
 ## 13. Tài liệu tham khảo
+
+> **Nói đơn giản:** Nguồn tham khảo để kiểm chứng system-call hành vi theo chuẩn; người mới chỉ cần dùng khi gặp chi tiết chưa rõ.
+
 
 - POSIX.1-2024 System Interfaces: https://pubs.opengroup.org/onlinepubs/9799919799/
 - `open(2)`: https://man7.org/linux/man-pages/man2/open.2.html

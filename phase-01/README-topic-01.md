@@ -1,41 +1,52 @@
 # Chủ đề 1 — Basic Linux Command Line
 
-> **Phạm vi:** Linux command-line fundamentals: CLI vs GUI, terminal/shell, basic commands, command resolution, standard streams, redirection, pipeline, exit status và các utility quan sát hệ thống cơ bản.
+> **Mục tiêu dễ hiểu:** Hiểu từ lúc bạn gõ một dòng lệnh cho đến khi shell tìm chương trình, nối stdin/stdout/stderr và kernel thực hiện công việc.
 >
-> Chương này chỉ trình bày **lý thuyết**. Không có lab, bài tập, chương trình mẫu hoàn chỉnh hoặc hướng dẫn thao tác thực hành.
+> **Bạn cần biết trước:** Không cần biết system call hay kernel internals. Chỉ cần biết Linux có terminal và chương trình chạy trong process.
 >
-> **Giới hạn chủ đề:** Không đi sâu vào filesystem internals, syscall File I/O, process-control API, signal programming, IPC hoặc sockets; các phần này có topic riêng.
+> **Các từ khóa sẽ gặp nhiều:**
+> - **terminal** = cửa sổ/thiết bị nhập xuất chữ
+> - **shell** = chương trình đọc và hiểu lệnh
+> - **stdin/stdout/stderr** = 3 luồng vào/ra chuẩn
+> - **pipe** = nối output của lệnh trước vào input của lệnh sau
 >
-> **Nguyên tắc bố cục:** `##` chỉ dành cho các khối kiến thức lớn; `###/####` dùng cho concept chi tiết. Các phần trùng hoặc thuộc topic khác đã được loại khỏi chapter này.
+> **Quy ước đọc thuật ngữ:** khi gặp `state`, `context`, `semantics`, `object`, hãy hiểu lần lượt là **trạng thái**, **ngữ cảnh**, **hành vi theo chuẩn**, **đối tượng/tài nguyên**. Tên API và thuật ngữ chuẩn như process, thread, socket, mutex được giữ nguyên để bạn quen dần với tài liệu kỹ thuật.
 >
-> **Điều hướng:** [← Root README](../README.md) · [Chủ đề 2 — Linux File System →](README-topic-02.md)
-
+> **Cách đọc nếu bạn mới bắt đầu:**
+> 1. Lượt đầu chỉ đọc các ô **“Nói đơn giản”**, sơ đồ ASCII/Mermaid và phần **Tổng kết**.
+> 2. Lượt hai đọc các mục `###` để hiểu API/khái niệm cụ thể.
+> 3. Các mục `####`, caveat POSIX/Linux và edge case có thể để lần đọc thứ ba. **Không cần hiểu hết trong một lượt.**
+>
+> Chương này chỉ có **lý thuyết**, không có lab hay bài tập thực hành. Thuật ngữ tiếng Anh được giữ khi đó là tên chuẩn, nhưng luôn ưu tiên giải thích ý nghĩa trước.
 ---
 
 ## Mục lục
 
 - [1. Nền tảng Command Line và CLI](#1-nền-tảng-command-line-và-cli)
 - [2. Terminal, TTY, PTY và Shell](#2-terminal-tty-pty-và-shell)
-- [3. Shell Language và Command Execution](#3-shell-language-và-command-execution)
-- [4. Quoting, Expansion và Globbing](#4-quoting-expansion-và-globbing)
-- [5. Command Resolution và Execution Context](#5-command-resolution-và-execution-context)
-- [6. Variables, Environment và `argv`](#6-variables-environment-và-argv)
-- [7. Standard Streams và Redirection](#7-standard-streams-và-redirection)
+- [3. Shell hiểu và chạy một dòng lệnh như thế nào?](#3-shell-hiểu-và-chạy-một-dòng-lệnh-như-thế-nào)
+- [4. Dấu nháy, Expansion và Globbing](#4-dấu-nháy-expansion-và-globbing)
+- [5. Shell tìm command và tạo Execution Context](#5-shell-tìm-command-và-tạo-execution-context)
+- [6. Biến shell, Environment và `argv`](#6-biến-shell-environment-và-argv)
+- [7. `stdin`, `stdout`, `stderr` và Redirection](#7-stdin-stdout-stderr-và-redirection)
 - [8. Pipe và Pipeline](#8-pipe-và-pipeline)
 - [9. Exit Status và Shell Control Flow](#9-exit-status-và-shell-control-flow)
 - [10. Foreground, Background và Job Control](#10-foreground-background-và-job-control)
-- [11. Các Utility cơ bản theo Abstraction](#11-các-utility-cơ-bản-theo-abstraction)
+- [11. Các utility cơ bản đang quan sát lớp nào?](#11-các-utility-cơ-bản-đang-quan-sát-lớp-nào)
 - [12. Search và Filtering: `grep`, `find`](#12-search-và-filtering-grep-find)
 - [13. Process Observation: `ps`, `top`](#13-process-observation-ps-top)
 - [14. Filesystem/Storage Observation: `mount`, `df`, `du`](#14-filesystemstorage-observation-mount-df-du)
-- [15. Error Model và Debugging](#15-error-model-và-debugging)
+- [15. Khi command lỗi: tư duy Debugging](#15-khi-command-lỗi-tư-duy-debugging)
 - [16. Liên hệ với Embedded Linux](#16-liên-hệ-với-embedded-linux)
-- [17. Tổng kết và Mental Model](#17-tổng-kết-và-mental-model)
+- [17. Tổng kết và Mô hình tư duy](#17-tổng-kết-và-mô-hình-tư-duy)
 - [18. Tài liệu tham khảo](#18-tài-liệu-tham-khảo)
 
 ---
 
 ## 1. Nền tảng Command Line và CLI
+
+> **Nói đơn giản:** Command line là cách điều khiển hệ thống bằng văn bản. Trước tiên chỉ cần hiểu: bạn nhập text, shell đọc text đó rồi quyết định phải làm gì.
+
 
 ### 1.1 Command line trong Linux thực chất là gì?
 
@@ -137,7 +148,7 @@ CLI và GUI không phải hai hệ điều hành khác nhau.
 
 Chúng thường là hai kiểu frontend khác nhau tới cùng các resource/system service phía dưới.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
                 User
@@ -255,6 +266,11 @@ Nó có thể là **giao diện quản trị và debug chính**.
 
 ## 2. Terminal, TTY, PTY và Shell
 
+> **Nói đơn giản:** Terminal và shell là hai thứ khác nhau: terminal là nơi bạn nhập/nhìn chữ; shell là chương trình hiểu câu lệnh. TTY/PTTY là lớp Linux dùng để nối hai phía đó.
+
+> **Hình dung:** Terminal giống “màn hình + bàn phím” cho text; shell giống người phiên dịch đọc câu bạn gõ rồi quyết định gọi chương trình nào.
+
+
 ### 2.1 Terminal, TTY, PTY và shell
 
 
@@ -312,7 +328,7 @@ Nó chủ yếu vận chuyển và hiển thị byte/character stream.
 
 Trong Linux, TTY là một kernel abstraction dành cho terminal-style I/O.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 process
@@ -363,7 +379,7 @@ terminal-generated signals
 
 Linux cung cấp `/dev/tty` như một character device đại diện controlling terminal của process nếu process có controlling terminal.
 
-Mental model đơn giản:
+Mô hình tư duy đơn giản:
 
 ```text
 terminal
@@ -393,7 +409,7 @@ PTY master  <------>  PTY slave
 
 Slave side trông với process gần giống classical terminal.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 +-------------------+
@@ -510,7 +526,10 @@ Không nên gộp hai lớp này.
 
 ---
 
-## 3. Shell Language và Command Execution
+## 3. Shell hiểu và chạy một dòng lệnh như thế nào?
+
+> **Nói đơn giản:** Một dòng lệnh không được chạy nguyên xi. Shell phải tách từ, xử lý cú pháp, tìm command rồi mới chạy builtin hoặc executable.
+
 
 ### 3.1 Shell là một command-language interpreter
 
@@ -713,7 +732,7 @@ Shell không biết `-n` có nghĩa là line number.
 
 GNU Bash mô tả simple-command expansion và execution theo các bước xác định.
 
-Ở mức mental model có thể tóm tắt:
+Ở mức mô hình tư duy có thể tóm tắt:
 
 ```text
 raw command text
@@ -743,7 +762,7 @@ exit status
 
 Cần lưu ý đây là sơ đồ học tập; exact ordering có nhiều chi tiết theo POSIX/Bash.
 
-#### 3.3.1 Một state machine cho command lifecycle
+#### 3.3.1 Một state machine cho command vòng đời
 
 ```mermaid
 stateDiagram-v2
@@ -786,7 +805,10 @@ là các lớp lỗi khác nhau.
 
 ---
 
-## 4. Quoting, Expansion và Globbing
+## 4. Dấu nháy, Expansion và Globbing
+
+> **Nói đơn giản:** Dấu nháy và expansion quyết định chuỗi nào được shell biến đổi trước khi chương trình nhận `argv`. Đây là lý do cùng một dòng nhìn giống nhau nhưng có thể cho kết quả khác.
+
 
 ### 4.1 Quoting: khi nào ký tự được hiểu theo nghĩa literal?
 
@@ -845,7 +867,7 @@ Vế sau có thể tham gia filename expansion.
 
 Trong POSIX-style shell, single quotes preserve literal value của các ký tự bên trong, trừ việc không thể chứa single quote literal theo cách đơn giản bên trong chính single-quoted string.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 '...'
@@ -877,7 +899,7 @@ arithmetic expansion
 
 nhưng word splitting và filename expansion bị ảnh hưởng mạnh/không xảy ra theo cách thông thường trên kết quả quoted.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 "$variable"
@@ -1016,7 +1038,7 @@ Sau một số expansion, pattern characters có thể được shell dùng đ�
 
 Khi đó external program nhận **danh sách filename đã expand**, không nhận wildcard gốc.
 
-#### 4.2.6 Mental model
+#### 4.2.6 Mô hình tư duy
 
 ```text
 typed shell text
@@ -1065,7 +1087,7 @@ Mục tiêu chính:
 match pathnames / filenames
 ```
 
-Ví dụ mental model:
+Ví dụ mô hình tư duy:
 
 ```text
 *.c
@@ -1101,7 +1123,7 @@ nếu không quote có thể bị shell glob-expand trước.
 
 `grep` có thể không bao giờ nhận đúng pattern intended.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 shell syntax layer
@@ -1115,7 +1137,10 @@ Hai parser khác nhau.
 
 ---
 
-## 5. Command Resolution và Execution Context
+## 5. Shell tìm command và tạo Execution Context
+
+> **Nói đơn giản:** Khi bạn gõ tên như `ls`, shell phải tìm xem `ls` là builtin, function hay executable nào trong `PATH`, rồi chạy nó trong đúng thư mục/environment hiện tại.
+
 
 ### 5.1 Shell builtin, shell function và external executable
 
@@ -1191,7 +1216,7 @@ Ví dụ common GNU/Linux utilities:
 
 Location phụ thuộc distro/system.
 
-Không nên hard-code mental model rằng mọi command nằm `/bin`.
+Không nên hard-code mô hình tư duy rằng mọi command nằm `/bin`.
 
 ---
 
@@ -1242,7 +1267,7 @@ Ví dụ:
 PATH=/usr/local/bin:/usr/bin:/bin
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 command = grep
@@ -1304,7 +1329,7 @@ không đồng nghĩa:
 
 Trong một số shell/POSIX semantics, empty field có thể biểu diễn current directory; đây là cấu hình dễ gây confusion/security risk.
 
-Mental model tốt:
+Mô hình tư duy tốt:
 
 ```text
 PATH defines command-search namespace
@@ -1330,7 +1355,7 @@ Mỗi process có current working directory (cwd).
 
 Shell cũng là process, nên shell có cwd.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 shell process
@@ -1378,7 +1403,10 @@ Topic File System sẽ đào sâu pathname, symlink và inode.
 
 ---
 
-## 6. Variables, Environment và `argv`
+## 6. Biến shell, Environment và `argv`
+
+> **Nói đơn giản:** Biến shell chỉ thuộc shell hiện tại; environment là phần dữ liệu được truyền sang process con. `argv` là danh sách đối số chương trình thực sự nhận được sau khi shell xử lý.
+
 
 ### 6.1 Shell variable và environment variable
 
@@ -1407,7 +1435,7 @@ name=value
 
 Linux `environ(7)` mô tả environment như một array pointer kết thúc bởi NULL.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 shell variables
@@ -1449,7 +1477,7 @@ envp[] / environ
 
 #### 6.1.5 Child không thể “export ngược” trực tiếp vào parent
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 parent shell env
@@ -1497,7 +1525,7 @@ Một C program thường nhìn command-line arguments qua:
 int main(int argc, char *argv[])
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 shell words after expansion
@@ -1557,7 +1585,12 @@ Hai channel khác nhau.
 
 ---
 
-## 7. Standard Streams và Redirection
+## 7. `stdin`, `stdout`, `stderr` và Redirection
+
+> **Nói đơn giản:** Hãy coi stdin/stdout/stderr là ba “đường ống logic” gắn vào process. Redirection chỉ đổi xem các đường đó đang nối tới terminal, file hay đối tượng nào.
+
+> **Hình dung:** Process có ba dây mặc định: dây vào `stdin`, dây ra thường `stdout`, dây báo lỗi `stderr`. Redirection chỉ cắm các dây sang chỗ khác.
+
 
 ### 7.1 Standard input, standard output và standard error
 
@@ -1570,7 +1603,7 @@ FD 1 -> stdout
 FD 2 -> stderr
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
           +----------------------+
@@ -1654,7 +1687,7 @@ không phải instruction mà external program tự parse.
 
 Shell xử lý redirection trước/khi setup execution context.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Without redirection
@@ -1838,6 +1871,9 @@ Bài học:
 
 ## 8. Pipe và Pipeline
 
+> **Nói đơn giản:** Pipeline là cách nối stdout của process A sang stdin của process B. Dữ liệu đi qua pipe của kernel chứ shell không cần tạo file tạm để chuyển từng dòng.
+
+
 ### 8.1 Pipe: kênh byte-stream do kernel quản lý
 
 
@@ -1914,7 +1950,7 @@ pipe
 stdin của command bên phải
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 +----------+       kernel pipe       +----------+
@@ -2009,6 +2045,9 @@ là hai concept riêng.
 
 ## 9. Exit Status và Shell Control Flow
 
+> **Nói đơn giản:** Mỗi command kết thúc bằng một exit status. Shell dùng con số đó để biết thành công/thất bại và quyết định có chạy tiếp với `&&`, `||` hay không.
+
+
 ### 9.1 Exit status và contract giữa các command
 
 
@@ -2085,7 +2124,7 @@ small control result
 
 Ba channel khác nhau.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 process result
@@ -2120,7 +2159,7 @@ A && B
 
 B chạy khi A có success status theo shell condition semantics.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 A
@@ -2170,6 +2209,9 @@ Tách:
 
 ## 10. Foreground, Background và Job Control
 
+> **Nói đơn giản:** Foreground/background chỉ mô tả cách shell quản lý job và terminal. Nó không có nghĩa background process luôn chạy nhanh/chậm hơn.
+
+
 ### 10.1 Foreground, background, session và job-control ở mức nền tảng
 
 
@@ -2181,7 +2223,7 @@ Foreground process group là group được terminal cho phép tương tác term
 
 TTY-generated signals như `SIGINT` thường nhắm foreground process group.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 controlling terminal
@@ -2218,7 +2260,7 @@ Một pipeline có thể gồm nhiều processes trong một process group để
 
 Chi tiết process group/session/signal sẽ học ở Process và Signal topics.
 
-Ở Topic 1 chỉ cần mental model:
+Ở Topic 1 chỉ cần mô hình tư duy:
 
 ```text
 terminal
@@ -2234,7 +2276,10 @@ jobs
 
 ---
 
-## 11. Các Utility cơ bản theo Abstraction
+## 11. Các utility cơ bản đang quan sát lớp nào?
+
+> **Nói đơn giản:** Các utility như `cat`, `ls`, `cp` là những chương trình nhỏ, mỗi chương trình trả lời một loại câu hỏi hoặc thực hiện một thao tác trên Linux.
+
 
 ### 11.1 Các utility cơ bản dưới góc nhìn abstraction
 
@@ -2251,7 +2296,7 @@ cd
 ls
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 pwd -> process current-working-directory view
@@ -2377,12 +2422,15 @@ du    -> usage attributed to file hierarchy
 
 ## 12. Search và Filtering: `grep`, `find`
 
+> **Nói đơn giản:** `grep` tìm pattern trong dữ liệu; `find` đi qua cây thư mục để tìm đối tượng. Một cái lọc nội dung, một cái duyệt filesystem.
+
+
 ### 12.1 `grep`: stream filtering bằng pattern matching
 
 
 GNU `grep` tìm lines match pattern.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 input stream/files
@@ -2481,7 +2529,7 @@ không luôn có nghĩa “program crashed”.
 
 GNU `find` bắt đầu từ một hoặc nhiều starting points và traverse directory hierarchy.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 start path(s)
@@ -2587,12 +2635,15 @@ find expression/pattern layer
 
 ## 13. Process Observation: `ps`, `top`
 
+> **Nói đơn giản:** `ps` cho ảnh chụp process tại một thời điểm; `top` cập nhật lặp lại. Chúng là công cụ quan sát, không phải chính scheduler.
+
+
 ### 13.1 `ps`: snapshot của process state
 
 
 `ps` thuộc procps-ng ecosystem trên Linux.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 kernel process state
@@ -2666,7 +2717,7 @@ Output nên hiểu là **observation của dynamic system**.
 
 Khác `ps`, `top` cập nhật display theo interval.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 sample system/process counters
@@ -2743,6 +2794,9 @@ Topic Process/Memory sẽ đi sâu.
 
 ## 14. Filesystem/Storage Observation: `mount`, `df`, `du`
 
+> **Nói đơn giản:** `mount`, `df`, `du` trả lời ba câu hỏi khác nhau: filesystem gắn ở đâu, filesystem còn bao nhiêu chỗ, và một cây file đang chiếm bao nhiêu dung lượng.
+
+
 ### 14.1 `mount`: quan sát và thay đổi filesystem attachment
 
 
@@ -2750,7 +2804,7 @@ Topic Process/Memory sẽ đi sâu.
 
 Command này liên quan cơ chế mount của kernel.
 
-Ở Topic 1 chỉ cần mental model:
+Ở Topic 1 chỉ cần mô hình tư duy:
 
 ```text
 filesystem instance
@@ -2823,7 +2877,7 @@ total size
 mount point
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 selected pathname
@@ -2873,7 +2927,7 @@ Do đó exact fields cần hiểu theo filesystem/utility semantics.
 
 GNU `du` ước lượng file space usage cho file/directory operands.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 starting path
@@ -2982,7 +3036,10 @@ Do đó chênh lệch không tự động là bug.
 
 ---
 
-## 15. Error Model và Debugging
+## 15. Khi command lỗi: tư duy Debugging
+
+> **Nói đơn giản:** Khi command lỗi, đừng đoán ngay. Xác định lỗi xảy ra ở shell, pathname/quyền truy cập, process hay utility rồi mới đọc thông báo/exit status.
+
 
 ### 15.1 Error model và tư duy debug command line
 
@@ -2991,7 +3048,7 @@ Khi command fail, đừng bắt đầu bằng việc đoán command syntax.
 
 Phân loại layer trước.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 1. terminal/input problem?
@@ -3089,7 +3146,7 @@ word splitting
 globbing
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 typed word
@@ -3156,6 +3213,9 @@ Therefore reproducibility requires understanding execution context.
 ---
 
 ## 16. Liên hệ với Embedded Linux
+
+> **Nói đơn giản:** Embedded Linux thường headless và debug qua UART/SSH, nên command line là giao diện quan trọng nhất khi bring-up và recovery.
+
 
 ### 16.1 Vì sao command line đặc biệt quan trọng trong Embedded Linux?
 
@@ -3239,7 +3299,7 @@ Sau này driver có thể expose:
 
 Command line trở thành observation/control surface.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 shell utility
@@ -3297,7 +3357,10 @@ diagnostics
 
 ---
 
-## 17. Tổng kết và Mental Model
+## 17. Tổng kết và Mô hình tư duy
+
+> **Nói đơn giản:** Phần này gom lại đường đi từ bàn phím → terminal → shell → process → kernel. Nếu bạn giải thích được luồng này thì Topic 1 đã đạt mục tiêu.
+
 
 ```text
 User
@@ -3327,6 +3390,9 @@ Các điểm cần giữ:
 ---
 
 ## 18. Tài liệu tham khảo
+
+> **Nói đơn giản:** Đây là danh sách nguồn để kiểm chứng. Người mới không cần đọc hết ngay; hãy quay lại khi một chi tiết trong chapter chưa rõ.
+
 
 - POSIX.1-2024, Shell Command Language: https://pubs.opengroup.org/onlinepubs/9799919799/utilities/V3_chap02.html
 - GNU Bash Reference Manual: https://www.gnu.org/software/bash/manual/

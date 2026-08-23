@@ -1,40 +1,52 @@
 # Chủ đề 8 — Interprocess Communication (IPC) trong Linux
 
-> **Phạm vi:** Linux/POSIX IPC fundamentals: unnamed pipe, FIFO, POSIX message queue, POSIX shared memory, shared-memory synchronization, blocking/backpressure và trade-off giữa các cơ chế.
+> **Mục tiêu dễ hiểu:** Hiểu các process tách biệt trao đổi dữ liệu bằng pipe, FIFO, message queue và shared memory như thế nào.
 >
-> Chương này chỉ trình bày **lý thuyết**. Không có lab, bài tập, chương trình mẫu hoàn chỉnh hoặc hướng dẫn thao tác thực hành.
+> **Bạn cần biết trước:** Biết process/fd và synchronization cơ bản. Unix domain socket được chuyển sang Topic 9 theo roadmap Socket Programming.
 >
-> **Giới hạn chủ đề:** Không đi sâu vào System V IPC internals, Unix-domain sockets, descriptor passing hoặc container namespaces; Unix-domain socket được học cùng Socket Programming ở Topic 9.
+> **Các từ khóa sẽ gặp nhiều:**
+> - **IPC** = interprocess communication
+> - **pipe/FIFO** = byte stream
+> - **message queue** = hàng đợi message có ranh giới
+> - **shared memory** = nhiều process map cùng vùng memory
+> - **backpressure** = bên gửi phải chậm lại khi bên nhận không theo kịp
 >
-> **Nguyên tắc bố cục:** `##` chỉ dành cho các khối kiến thức lớn; `###/####` dùng cho concept chi tiết. Các phần trùng hoặc thuộc topic khác đã được loại khỏi chapter này.
+> **Quy ước đọc thuật ngữ:** khi gặp `state`, `context`, `semantics`, `object`, hãy hiểu lần lượt là **trạng thái**, **ngữ cảnh**, **hành vi theo chuẩn**, **đối tượng/tài nguyên**. Tên API và thuật ngữ chuẩn như process, thread, socket, mutex được giữ nguyên để bạn quen dần với tài liệu kỹ thuật.
 >
-> **Điều hướng:** [← Chủ đề 7 — Thread Synchronization](README-topic-07.md) · [Chủ đề 9 — Socket Programming →](README-topic-09.md)
-
+> **Cách đọc nếu bạn mới bắt đầu:**
+> 1. Lượt đầu chỉ đọc các ô **“Nói đơn giản”**, sơ đồ ASCII/Mermaid và phần **Tổng kết**.
+> 2. Lượt hai đọc các mục `###` để hiểu API/khái niệm cụ thể.
+> 3. Các mục `####`, caveat POSIX/Linux và edge case có thể để lần đọc thứ ba. **Không cần hiểu hết trong một lượt.**
+>
+> Chương này chỉ có **lý thuyết**, không có lab hay bài tập thực hành. Thuật ngữ tiếng Anh được giữ khi đó là tên chuẩn, nhưng luôn ưu tiên giải thích ý nghĩa trước.
 ---
 
 ## Mục lục
 
-- [1. IPC Fundamentals](#1-ipc-fundamentals)
-- [2. Các chiều thiết kế của một IPC Mechanism](#2-các-chiều-thiết-kế-của-một-ipc-mechanism)
-- [3. Unnamed Pipe](#3-unnamed-pipe)
-- [4. FIFO — Named Pipe](#4-fifo-named-pipe)
-- [5. POSIX Message Queue](#5-posix-message-queue)
-- [6. Shared Memory Fundamentals](#6-shared-memory-fundamentals)
-- [7. Synchronization trong Shared Memory](#7-synchronization-trong-shared-memory)
-- [8. IPC Blocking, Backpressure và Flow Control](#8-ipc-blocking-backpressure-và-flow-control)
-- [9. So sánh và lựa chọn IPC Mechanism](#9-so-sánh-và-lựa-chọn-ipc-mechanism)
-- [10. Error Model và Tư duy Debug IPC](#10-error-model-và-tư-duy-debug-ipc)
+- [1. IPC là gì?](#1-ipc-là-gì)
+- [2. Trước khi chọn IPC cần hỏi những gì?](#2-trước-khi-chọn-ipc-cần-hỏi-những-gì)
+- [3. Unnamed Pipe: byte stream giữa các Process liên quan](#3-unnamed-pipe-byte-stream-giữa-các-process-liên-quan)
+- [4. FIFO: Pipe có tên trong Filesystem](#4-fifo-pipe-có-tên-trong-filesystem)
+- [5. POSIX Message Queue: gửi từng Message riêng](#5-posix-message-queue-gửi-từng-message-riêng)
+- [6. Shared Memory: nhiều Process cùng nhìn một vùng nhớ](#6-shared-memory-nhiều-process-cùng-nhìn-một-vùng-nhớ)
+- [7. Shared Memory cần Synchronization như thế nào?](#7-shared-memory-cần-synchronization-như-thế-nào)
+- [8. Blocking, Backpressure và Flow Control](#8-blocking-backpressure-và-flow-control)
+- [9. So sánh và chọn IPC Mechanism](#9-so-sánh-và-chọn-ipc-mechanism)
+- [10. Tư duy Debugging IPC](#10-tư-duy-debugging-ipc)
 - [11. Liên hệ với Embedded Linux](#11-liên-hệ-với-embedded-linux)
-- [12. Tổng kết và Mental Model](#12-tổng-kết-và-mental-model)
+- [12. Tổng kết và Mô hình tư duy](#12-tổng-kết-và-mô-hình-tư-duy)
 - [13. Tài liệu tham khảo](#13-tài-liệu-tham-khảo)
 
 ---
 
-## 1. IPC Fundamentals
+## 1. IPC là gì?
+
+> **Nói đơn giản:** Process có address space riêng nên cần IPC để trao đổi data/control. Mỗi IPC mechanism tạo một “cầu nối” với hành vi theo chuẩn khác nhau.
+
 
 ### 1.1 Vì sao process cần IPC?
 
-Topic 4 đã xây mental model:
+Topic 4 đã xây mô hình tư duy:
 
 ```text
 Process A
@@ -174,7 +186,7 @@ Unix socket
 
 The handle is how process refers to communication object.
 
-The object has its own lifecycle and semantics.
+The object has its own vòng đời and semantics.
 
 ---
 
@@ -199,7 +211,10 @@ The object has its own lifecycle and semantics.
 
 ---
 
-## 2. Các chiều thiết kế của một IPC Mechanism
+## 2. Trước khi chọn IPC cần hỏi những gì?
+
+> **Nói đơn giản:** Khi chọn IPC, hỏi: stream hay message? có tên hay chỉ inherited fd? một chiều hay hai chiều? buffer hữu hạn? đối tượng sống bao lâu?
+
 
 ### 2.1 Stream vs message-oriented
 
@@ -378,7 +393,7 @@ This is:
 backpressure
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Producer
@@ -413,11 +428,16 @@ When is kernel state destroyed?
 What remains after process crashes?
 ```
 
-Ignoring lifecycle creates many IPC bugs.
+Ignoring vòng đời creates many IPC bugs.
 
 ---
 
-## 3. Unnamed Pipe
+## 3. Unnamed Pipe: byte stream giữa các Process liên quan
+
+> **Nói đơn giản:** Unnamed pipe là byte stream có read end và write end. Nó tự nhiên cho parent-child vì fd có thể được kế thừa qua fork.
+
+> **Hình dung:** Pipe giống ống nước một chiều: bên viết đẩy byte vào đầu write, bên đọc lấy byte ở đầu read. Ống không biết đâu là “message số 1”.
+
 
 ### 3.1 Pipe abstraction
 
@@ -431,7 +451,7 @@ fd[1]
   write end
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Writer
@@ -455,7 +475,7 @@ Reader
 
 POSIX defines pipe with read and write ends.
 
-Portable mental model:
+Portable mô hình tư duy:
 
 ```text
 write end ─────────────> read end
@@ -582,7 +602,7 @@ Application must define framing if it needs logical messages.
 
 Bytes are consumed in order.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 written:
@@ -706,7 +726,7 @@ The pipe only provides ordered bytes.
 
 Kernel tracks references to both ends.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Read-end references:  R
@@ -792,7 +812,7 @@ EOF only occurs after **all** write-end references disappear.
 
 ---
 
-#### 3.7.5 Pipe lifecycle state machine
+#### 3.7.5 Pipe vòng đời state machine
 
 ```mermaid
 stateDiagram-v2
@@ -812,7 +832,7 @@ stateDiagram-v2
     Destroyable --> [*]
 ```
 
-This is a simplified lifecycle model; kernel reference details are more complex.
+This is a simplified vòng đời model; kernel reference details are more complex.
 
 ---
 
@@ -980,7 +1000,10 @@ But it can also create deadlock if both sides wait on full/empty channels incorr
 
 ---
 
-## 4. FIFO — Named Pipe
+## 4. FIFO: Pipe có tên trong Filesystem
+
+> **Nói đơn giản:** FIFO có pipe hành vi theo chuẩn nhưng có pathname để các process khởi động độc lập tìm thấy cùng kênh.
+
 
 ### 4.1 FIFO is a pipe with filesystem rendezvous name
 
@@ -996,7 +1019,7 @@ Common term:
 named pipe
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Filesystem namespace
@@ -1207,7 +1230,12 @@ Thus multiple openers rendezvous on same active FIFO channel.
 
 ---
 
-## 5. POSIX Message Queue
+## 5. POSIX Message Queue: gửi từng Message riêng
+
+> **Nói đơn giản:** POSIX message queue giữ từng message riêng và có priority. Nó phù hợp khi ranh giới message là một phần quan trọng của giao thức.
+
+> **Hình dung:** Message queue giống hộp thư có từng phong bì riêng; khác pipe ở chỗ ranh giới từng message được giữ lại.
+
 
 ### 5.1 Why message queue differs from pipe
 
@@ -1561,7 +1589,7 @@ Naming and open-reference lifetime are separate.
 
 ---
 
-#### 5.7.7 Message queue lifecycle state machine
+#### 5.7.7 Message queue vòng đời state machine
 
 ```mermaid
 stateDiagram-v2
@@ -1581,7 +1609,7 @@ stateDiagram-v2
     Destroyed --> [*]
 ```
 
-This is a conceptual lifecycle; exact kernel reference management is implementation-specific.
+This is a conceptual vòng đời; exact kernel reference management is implementation-specific.
 
 ---
 
@@ -1605,7 +1633,12 @@ It is not a portable POSIX requirement that every implementation represents queu
 
 ---
 
-## 6. Shared Memory Fundamentals
+## 6. Shared Memory: nhiều Process cùng nhìn một vùng nhớ
+
+> **Nói đơn giản:** Shared bộ nhớ cho nhiều process map cùng pages. Nó tránh việc phải send/receive từng payload qua stream/queue, nhưng ứng dụng tự định nghĩa layout.
+
+> **Hình dung:** Shared bộ nhớ giống hai process cùng nhìn một bảng trắng. Viết lên bảng rất trực tiếp, nhưng phải thống nhất ai được viết lúc nào để không giẫm lên nhau.
+
 
 ### 6.1 Shared memory changes the communication model
 
@@ -1723,7 +1756,7 @@ Application defines memory layout.
 
 ---
 
-### 6.6 POSIX Shared Memory Lifecycle
+### 6.6 POSIX Shared Memory Vòng đời
 
 #### 6.6.1 POSIX shared-memory object
 
@@ -1790,7 +1823,7 @@ mmap()
 
 the shared-memory object fd can be closed without invalidating the mapping.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 fd
@@ -1859,7 +1892,7 @@ This is Linux implementation behavior, not reason to treat shared-memory object 
 
 ---
 
-#### 6.6.8 Shared-memory lifecycle state machine
+#### 6.6.8 Shared-memory vòng đời state machine
 
 ```mermaid
 stateDiagram-v2
@@ -2003,7 +2036,7 @@ SIGBUS
 
 on Linux/POSIX-relevant conditions.
 
-Therefore underlying shared object resizing is itself a synchronization/lifecycle concern.
+Therefore underlying shared object resizing is itself a synchronization/vòng đời concern.
 
 ---
 
@@ -2027,7 +2060,10 @@ or process/address-space teardown.
 
 ---
 
-## 7. Synchronization trong Shared Memory
+## 7. Shared Memory cần Synchronization như thế nào?
+
+> **Nói đơn giản:** Shared bộ nhớ chỉ chia sẻ bytes; nó không tự đồng bộ. Mutex/semaphore/condition process-shared hoặc giao thức khác phải bảo vệ ownership/readiness.
+
 
 ### 7.1 Shared memory without synchronization is incomplete for mutable state
 
@@ -2173,7 +2209,10 @@ Topic 8 stays focused on core IPC mechanisms, so these are conceptual complement
 
 ---
 
-## 8. IPC Blocking, Backpressure và Flow Control
+## 8. Blocking, Backpressure và Flow Control
+
+> **Nói đơn giản:** Mọi buffered IPC đều có giới hạn. Khi producer nhanh hơn consumer, hệ thống cần block, drop, reject hoặc một backpressure policy khác.
+
 
 ### 8.1 All buffered IPC channels face producer/consumer imbalance
 
@@ -2322,7 +2361,10 @@ No IPC primitive can choose correct application policy automatically.
 
 ---
 
-## 9. So sánh và lựa chọn IPC Mechanism
+## 9. So sánh và chọn IPC Mechanism
+
+> **Nói đơn giản:** Không có IPC nào tốt nhất. Pipe đơn giản, FIFO có tên, MQ giữ message, SHM phù hợp dữ liệu lớn nhưng phức tạp synchronization hơn.
+
 
 ### 9.1 High-level comparison
 
@@ -2461,7 +2503,7 @@ large shared datasets
   -> shared memory
 ```
 
-Actual choice must include lifecycle/security/backpressure requirements.
+Actual choice must include vòng đời/security/backpressure requirements.
 
 ---
 
@@ -2486,7 +2528,10 @@ portability
 
 ---
 
-## 10. Error Model và Tư duy Debug IPC
+## 10. Tư duy Debugging IPC
+
+> **Nói đơn giản:** Debug IPC theo lớp: cùng đối tượng/name chưa? fd/quyền truy cập đúng? peer còn sống? buffer full/empty? framing/sync/lifetime đúng?
+
 
 ### 10.1 Debug by layers
 
@@ -2672,7 +2717,7 @@ mapping accesses beyond valid backing object size
 object truncated/resized unexpectedly
 ```
 
-Object size lifecycle must be coordinated.
+Object size vòng đời must be coordinated.
 
 ---
 
@@ -2691,6 +2736,9 @@ Use relative/offset-based data structures when appropriate.
 ---
 
 ## 11. Liên hệ với Embedded Linux
+
+> **Nói đơn giản:** Embedded system thường dùng IPC để tách sensor, logger, network, supervisor thành process có fault boundary riêng.
+
 
 ### 11.1 Multi-service embedded architecture
 
@@ -2928,7 +2976,10 @@ security
 
 ---
 
-## 12. Tổng kết và Mental Model
+## 12. Tổng kết và Mô hình tư duy
+
+> **Nói đơn giản:** Mô hình tư duy: process A ↔ IPC đối tượng/channel ↔ process B; điều quan trọng là hành vi theo chuẩn và vòng đời của kênh.
+
 
 ```text
 Process A
@@ -2954,6 +3005,9 @@ Các điểm cần giữ:
 ---
 
 ## 13. Tài liệu tham khảo
+
+> **Nói đơn giản:** Nguồn tham khảo để kiểm chứng POSIX/Linux IPC behavior.
+
 
 - POSIX.1-2024 IPC interfaces: https://pubs.opengroup.org/onlinepubs/9799919799/
 - `pipe(7)`: https://man7.org/linux/man-pages/man7/pipe.7.html

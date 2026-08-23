@@ -1,38 +1,49 @@
 # Chủ đề 5 — Signal trong Linux
 
-> **Phạm vi:** Linux/POSIX signal fundamentals: signal lifecycle, dispositions, standard signals, `sigaction()`, signal mask/pending state, `kill()/raise()`, handler safety và signal-interrupted system calls.
+> **Mục tiêu dễ hiểu:** Hiểu signal là cơ chế kernel báo một event bất đồng bộ cho process/thread và cách disposition, mask, pending trạng thái phối hợp.
 >
-> Chương này chỉ trình bày **lý thuyết**. Không có lab, bài tập, chương trình mẫu hoàn chỉnh hoặc hướng dẫn thao tác thực hành.
+> **Bạn cần biết trước:** Biết process vòng đời, PID và system-call error model từ Topic 3–4.
 >
-> **Giới hạn chủ đề:** Không đi sâu vào real-time signal queues, job-control internals, signalfd, multithreaded signal architecture hoặc dùng signal như một IPC data channel.
+> **Các từ khóa sẽ gặp nhiều:**
+> - **signal** = thông báo/event bất đồng bộ
+> - **disposition** = hành động process đã cấu hình cho signal
+> - **mask** = tập signal đang bị chặn tạm thời
+> - **pending** = signal đã phát sinh nhưng chưa được deliver
 >
-> **Nguyên tắc bố cục:** `##` chỉ dành cho các khối kiến thức lớn; `###/####` dùng cho concept chi tiết. Các phần trùng hoặc thuộc topic khác đã được loại khỏi chapter này.
+> **Quy ước đọc thuật ngữ:** khi gặp `state`, `context`, `semantics`, `object`, hãy hiểu lần lượt là **trạng thái**, **ngữ cảnh**, **hành vi theo chuẩn**, **đối tượng/tài nguyên**. Tên API và thuật ngữ chuẩn như process, thread, socket, mutex được giữ nguyên để bạn quen dần với tài liệu kỹ thuật.
 >
-> **Điều hướng:** [← Chủ đề 4 — Process](README-topic-04.md) · [Chủ đề 6 — Multithreading →](README-topic-06.md)
-
+> **Cách đọc nếu bạn mới bắt đầu:**
+> 1. Lượt đầu chỉ đọc các ô **“Nói đơn giản”**, sơ đồ ASCII/Mermaid và phần **Tổng kết**.
+> 2. Lượt hai đọc các mục `###` để hiểu API/khái niệm cụ thể.
+> 3. Các mục `####`, caveat POSIX/Linux và edge case có thể để lần đọc thứ ba. **Không cần hiểu hết trong một lượt.**
+>
+> Chương này chỉ có **lý thuyết**, không có lab hay bài tập thực hành. Thuật ngữ tiếng Anh được giữ khi đó là tên chuẩn, nhưng luôn ưu tiên giải thích ý nghĩa trước.
 ---
 
 ## Mục lục
 
-- [1. Signal Fundamentals và Lifecycle](#1-signal-fundamentals-và-lifecycle)
-- [2. Disposition, Default Action và Special Signals](#2-disposition-default-action-và-special-signals)
-- [3. Standard Signals và Fault Signals](#3-standard-signals-và-fault-signals)
-- [4. Signal State Model: Disposition, Mask và Pending](#4-signal-state-model-disposition-mask-và-pending)
-- [5. `sigaction()` và Handler Configuration](#5-sigaction-và-handler-configuration)
-- [6. Signal-set APIs: `sigset_t`, `sigprocmask()` và `sigpending()`](#6-signal-set-apis-sigsett-sigprocmask-và-sigpending)
-- [7. Sending Signals và Permission Model](#7-sending-signals-và-permission-model)
-- [8. Signal-handler Execution Model](#8-signal-handler-execution-model)
-- [9. Async-signal-safety và Handler Design](#9-async-signal-safety-và-handler-design)
-- [10. Signals, System Calls và `EINTR`](#10-signals-system-calls-và-eintr)
-- [11. Signal Lifecycle Diagrams](#11-signal-lifecycle-diagrams)
-- [12. Error Model và Debugging](#12-error-model-và-debugging)
+- [1. Signal là gì và đi qua những trạng thái nào?](#1-signal-là-gì-và-đi-qua-những-trạng-thái-nào)
+- [2. Process sẽ làm gì khi nhận Signal?](#2-process-sẽ-làm-gì-khi-nhận-signal)
+- [3. Các nhóm Signal thường gặp](#3-các-nhóm-signal-thường-gặp)
+- [4. Ba trạng thái cần nhớ: Disposition, Mask và Pending](#4-ba-trạng-thái-cần-nhớ-disposition-mask-và-pending)
+- [5. `sigaction()`: cấu hình cách xử lý Signal](#5-sigaction-cấu-hình-cách-xử-lý-signal)
+- [6. Tạo và thay đổi tập Signal](#6-tạo-và-thay-đổi-tập-signal)
+- [7. Gửi Signal và kiểm tra Permission](#7-gửi-signal-và-kiểm-tra-permission)
+- [8. Handler chen vào luồng chạy như thế nào?](#8-handler-chen-vào-luồng-chạy-như-thế-nào)
+- [9. Vì sao Signal Handler phải rất hạn chế?](#9-vì-sao-signal-handler-phải-rất-hạn-chế)
+- [10. Signal làm gián đoạn System Call như thế nào?](#10-signal-làm-gián-đoạn-system-call-như-thế-nào)
+- [11. Nhìn toàn bộ vòng đời Signal bằng sơ đồ](#11-nhìn-toàn-bộ-vòng-đời-signal-bằng-sơ-đồ)
+- [12. Khi Signal không hoạt động như mong đợi](#12-khi-signal-không-hoạt-động-như-mong-đợi)
 - [13. Liên hệ với Embedded Linux](#13-liên-hệ-với-embedded-linux)
-- [14. Tổng kết và Mental Model](#14-tổng-kết-và-mental-model)
+- [14. Tổng kết và Mô hình tư duy](#14-tổng-kết-và-mô-hình-tư-duy)
 - [15. Tài liệu tham khảo](#15-tài-liệu-tham-khảo)
 
 ---
 
-## 1. Signal Fundamentals và Lifecycle
+## 1. Signal là gì và đi qua những trạng thái nào?
+
+> **Nói đơn giản:** Signal giống một thông báo ngắn do kernel hoặc process khác gửi tới execution context. Nó không mang payload lớn như IPC message.
+
 
 ### 1.1 Signal trong Unix/Linux thực chất là gì?
 
@@ -57,7 +68,7 @@ child-process state change
 broken IPC stream
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Event
@@ -189,7 +200,7 @@ Vì vậy cách nói chính xác hơn:
 
 ---
 
-### 1.4 Signal lifecycle: generation → pending → delivery
+### 1.4 Signal vòng đời: generation → pending → delivery
 
 
 Linux `signal(7)` phân biệt ba concept quan trọng:
@@ -200,7 +211,7 @@ Pending
 Delivery
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Signal event
@@ -226,7 +237,7 @@ PENDING
       disposition
 ```
 
-Đây là mental model cốt lõi của toàn chapter.
+Đây là mô hình tư duy cốt lõi của toàn chapter.
 
 ---
 
@@ -264,7 +275,7 @@ Signal có thể bị block nên phải pending trước.
 
 > Signal bị block thì không được delivered cho tới khi được unblock. Trong thời gian từ generation tới delivery, signal được gọi là pending.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 signal generated
@@ -332,7 +343,10 @@ hoặc signal default action không cho resume.
 
 ---
 
-## 2. Disposition, Default Action và Special Signals
+## 2. Process sẽ làm gì khi nhận Signal?
+
+> **Nói đơn giản:** Mỗi signal có default action; process có thể ignore hoặc cài handler với nhiều signal, nhưng `SIGKILL`/`SIGSTOP` là ngoại lệ quan trọng.
+
 
 ### 2.1 Signal disposition
 
@@ -347,7 +361,7 @@ ignore
 user-defined handler
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 signal delivered
@@ -482,7 +496,7 @@ SIGKILL
 
 không cho user-space handler chạy cleanup.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 SIGTERM
@@ -497,7 +511,10 @@ no signal handler
 
 ---
 
-## 3. Standard Signals và Fault Signals
+## 3. Các nhóm Signal thường gặp
+
+> **Nói đơn giản:** Một số signal là control event (`SIGINT`, `SIGTERM`), một số phản ánh fault (`SIGSEGV`, `SIGILL`, `SIGFPE`). Không nên coi tất cả giống nhau.
+
 
 ### 3.1 Signal number và signal name
 
@@ -539,7 +556,7 @@ SIGSTOP
 
 có common numbers trên many systems, nhưng portable code vẫn dùng symbolic names.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 meaning
@@ -644,7 +661,7 @@ SIGKILL
 
 ---
 
-### 3.5 `SIGCHLD` và process lifecycle
+### 3.5 `SIGCHLD` và process vòng đời
 
 
 Khi child:
@@ -657,7 +674,7 @@ continues
 
 parent có thể nhận `SIGCHLD` theo signal/wait semantics.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Child state changes
@@ -672,7 +689,7 @@ kernel records child status
 
 Important:
 
-> `SIGCHLD` notification và `wait()` reaping là hai pieces của cùng lifecycle nhưng không phải cùng operation.
+> `SIGCHLD` notification và `wait()` reaping là hai pieces của cùng vòng đời nhưng không phải cùng operation.
 
 Handler không tự động reap child trừ khi program thiết kế như vậy.
 
@@ -745,7 +762,12 @@ trên mọi architecture/context.
 
 ---
 
-## 4. Signal State Model: Disposition, Mask và Pending
+## 4. Ba trạng thái cần nhớ: Disposition, Mask và Pending
+
+> **Nói đơn giản:** Để hiểu signal, luôn tách ba thứ: disposition “làm gì”, mask “đang chặn gì”, pending “đang chờ gì”.
+
+> **Hình dung:** Signal đã phát sinh nhưng đang bị mask giống một thông báo đã tới hộp thư nhưng bạn tạm bật “không làm phiền”. Nó ở pending cho tới khi có thể được deliver.
+
 
 ### 4.1 Signal disposition là process-wide
 
@@ -760,7 +782,7 @@ sigaction(SIGTERM, ...)
 
 disposition áp dụng cho process, không chỉ riêng thread đó.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Process
@@ -781,7 +803,7 @@ Process
 
 Signal mask là set các signals đang **blocked** đối với execution thread.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Thread signal mask
@@ -815,7 +837,7 @@ cho tới khi eligible for delivery.
 
 Program thay đổi signal mask bằng các signal-mask APIs phù hợp; trong phạm vi chapter này, interface cốt lõi là `sigprocmask()`.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Process dispositions
@@ -887,7 +909,10 @@ Pending state không phải general-purpose ordered queue cho standard signals.
 
 ---
 
-## 5. `sigaction()` và Handler Configuration
+## 5. `sigaction()`: cấu hình cách xử lý Signal
+
+> **Nói đơn giản:** `sigaction()` là interface chính để cấu hình handler/disposition và mask/flags áp dụng trong lúc handler chạy.
+
 
 ### 5.1 `sigaction()` — interface chuẩn để thiết lập disposition
 
@@ -909,7 +934,7 @@ configure behavior flags
 retrieve previous action
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 Signal number
@@ -997,7 +1022,7 @@ signal currently being handled
 
 signal current thường auto-block trong handler trừ khi `SA_NODEFER`.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 before handler:
@@ -1028,7 +1053,7 @@ Nhưng:
 
 > Không phải mọi syscall/library function đều được restart.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 blocking syscall
@@ -1070,7 +1095,7 @@ metadata
 portable POSIX control
 ```
 
-Do đó trong mental model hiện đại:
+Do đó trong mô hình tư duy hiện đại:
 
 ```text
 sigaction = canonical API
@@ -1079,7 +1104,10 @@ signal    = legacy/simple interface with history caveats
 
 ---
 
-## 6. Signal-set APIs: `sigset_t`, `sigprocmask()` và `sigpending()`
+## 6. Tạo và thay đổi tập Signal
+
+> **Nói đơn giản:** `sigset_t` chỉ là cách biểu diễn một tập signal; `sigprocmask()` thay mask và `sigpending()` xem signal đang pending.
+
 
 ### 6.1 `sigset_t` và signal sets
 
@@ -1117,7 +1145,7 @@ SIG_UNBLOCK
 SIG_SETMASK
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 old mask
@@ -1160,7 +1188,7 @@ are pending for calling thread/process context
 and blocked from delivery
 ```
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 generated signal
@@ -1178,7 +1206,10 @@ It does not consume signal.
 
 ---
 
-## 7. Sending Signals và Permission Model
+## 7. Gửi Signal và kiểm tra Permission
+
+> **Nói đơn giản:** `kill()` gửi signal theo PID/target hành vi theo chuẩn và kernel còn kiểm tra quyền truy cập. Tên “kill” không có nghĩa mọi signal đều giết process.
+
 
 ### 7.1 `kill()` không có nghĩa đơn giản là “kill process”
 
@@ -1290,7 +1321,7 @@ namespace context
 
 Exact security rules matter for production.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 sender
@@ -1306,7 +1337,12 @@ kernel permission check
 
 ---
 
-## 8. Signal-handler Execution Model
+## 8. Handler chen vào luồng chạy như thế nào?
+
+> **Nói đơn giản:** Handler chen vào control flow bất đồng bộ. Nó có thể chạy giữa lúc code bình thường đang ở một điểm khác, nên phải rất cẩn thận với shared/library trạng thái.
+
+> **Hình dung:** Handler không chạy ở một “luồng bí mật” tách biệt. Nó chen vào execution context tại một thời điểm bất đồng bộ rồi trả control về code bị gián đoạn.
+
 
 ### 8.1 Signal-handler execution model
 
@@ -1399,7 +1435,10 @@ This is one reason arbitrary library calls inside handlers are dangerous.
 
 ---
 
-## 9. Async-signal-safety và Handler Design
+## 9. Vì sao Signal Handler phải rất hạn chế?
+
+> **Nói đơn giản:** Không phải function nào cũng an toàn trong signal handler. Async-signal-safe là tập rất hạn chế được POSIX đảm bảo trong ngữ cảnh này.
+
 
 ### 9.1 Async-signal-safety
 
@@ -1471,7 +1510,7 @@ Signal handler can interrupt these operations at arbitrary point.
 ### 9.3 Signal handler nên làm gì ở mức thiết kế?
 
 
-Good mental model:
+Good mô hình tư duy:
 
 ```text
 handler = minimal notification bridge
@@ -1560,7 +1599,10 @@ handler executes in same thread context.
 
 ---
 
-## 10. Signals, System Calls và `EINTR`
+## 10. Signal làm gián đoạn System Call như thế nào?
+
+> **Nói đơn giản:** Signal có thể interrupt blocking syscall và gây `EINTR`; `SA_RESTART` giúp một số call restart nhưng không phải mọi call/mọi trường hợp.
+
 
 ### 10.1 Signal interrupting system calls
 
@@ -1688,7 +1730,7 @@ rather than:
 
 according to interface semantics.
 
-Mental model:
+Mô hình tư duy:
 
 ```text
 I/O starts
@@ -1705,9 +1747,12 @@ Therefore robust I/O code must prioritize actual return value over assuming “s
 
 ---
 
-## 11. Signal Lifecycle Diagrams
+## 11. Nhìn toàn bộ vòng đời Signal bằng sơ đồ
 
-### 11.1 Signal lifecycle state machine
+> **Nói đơn giản:** Các diagram ở đây chỉ để nối phát sinh → pending/mask → delivery → handler/default action thành một luồng duy nhất.
+
+
+### 11.1 Signal vòng đời state machine
 
 
 ```mermaid
@@ -1816,7 +1861,10 @@ This explains why same signal normally does not recursively re-enter its own han
 
 ---
 
-## 12. Error Model và Debugging
+## 12. Khi Signal không hoạt động như mong đợi
+
+> **Nói đơn giản:** Khi handler “không chạy”, hãy kiểm tra signal có phát sinh không, bị block không, disposition gì và process còn sống không.
+
 
 ### 12.1 Error model và tư duy debug Signal
 
@@ -1912,6 +1960,9 @@ Therefore “not instant in wall-clock time” does not mean process caught SIGK
 ---
 
 ## 13. Liên hệ với Embedded Linux
+
+> **Nói đơn giản:** SIGTERM/SIGINT thường được dùng cho graceful shutdown của service nhúng; fault signals giúp chẩn đoán crash.
+
 
 ### 13.1 Liên hệ với Embedded Linux
 
@@ -2079,7 +2130,10 @@ making them central to process control.
 
 ---
 
-## 14. Tổng kết và Mental Model
+## 14. Tổng kết và Mô hình tư duy
+
+> **Nói đơn giản:** Mô hình tư duy cần nhớ: generate → pending nếu bị chặn → deliver khi hợp lệ → default/ignore/handler.
+
 
 ```text
 event
@@ -2108,6 +2162,9 @@ Các điểm cần giữ:
 ---
 
 ## 15. Tài liệu tham khảo
+
+> **Nói đơn giản:** Nguồn tham khảo để kiểm chứng signal hành vi theo chuẩn và danh sách async-signal-safe.
+
 
 - POSIX.1-2024 signal interfaces: https://pubs.opengroup.org/onlinepubs/9799919799/
 - `signal(7)`: https://man7.org/linux/man-pages/man7/signal.7.html
