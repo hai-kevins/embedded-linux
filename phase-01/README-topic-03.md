@@ -2,6 +2,8 @@
 
 > **Phạm vi:** Linux low-level File I/O fundamentals — nền tảng về file descriptor, open file description, `open()`, `read()`, `write()`, `lseek()`, `close()`, file offset, blocking I/O cơ bản và mô hình lỗi I/O.
 >
+> Chương này chỉ trình bày **lý thuyết**. Không có lab, bài tập hoặc hướng dẫn thao tác thực hành.
+>
 > Chương này tập trung vào bản chất của low-level I/O trong Linux: vì sao userspace không thao tác trực tiếp với inode hay driver object mà thông qua **file descriptor**, điều gì thực sự được tạo ra khi `open()` thành công, file offset nằm ở đâu, vì sao hai file descriptor có thể chia sẻ cùng offset, `read()` và `write()` thực sự hứa hẹn điều gì, vì sao short read/short write không nhất thiết là lỗi, `lseek()` làm thay đổi vị trí nào, tại sao pipe/socket/terminal không seek được như regular file, `close()` đóng cái gì, và blocking/nonblocking I/O cần được hiểu như thế nào.
 >
 > Mục tiêu của chương **không phải học thuộc prototype hay viết chương trình mẫu**. Mục tiêu là hình thành mental model đúng:
@@ -16,76 +18,38 @@
 >
 > **Giới hạn chủ đề:** chương này chưa đi sâu vào buffered C `stdio`, `mmap`, asynchronous I/O, `io_uring`, `select/poll/epoll`, file locking, direct I/O, page cache internals, filesystem writeback, block layer hay driver implementation. Các phần này chỉ được nhắc khi cần để giữ mental model chính xác.
 >
-> **Điều hướng:** [← Chủ đề 2 — Linux File System](README-topic-02.md) · [Chủ đề 4 →](README-topic-04.md)
+> **Cấu trúc tài liệu:** các mục `##` là khối kiến thức lớn; các concept chi tiết được đặt ở `###`/`####` để giữ mục lục gọn nhưng không giảm chiều sâu nội dung.
+>
+> **Điều hướng:** [← Chủ đề 2 — Linux File System](README-topic-02.md) · [Chủ đề 4 — Process →](README-topic-04.md)
 
 ---
 
 ## Mục lục
 
-- [1. File I/O trong Linux thực chất là gì?](#1-file-io-trong-linux-thực-chất-là-gì)
-- [2. “File” trong File I/O rộng hơn regular file](#2-file-trong-file-io-rộng-hơn-regular-file)
-- [3. Pathname và file descriptor thuộc hai giai đoạn khác nhau](#3-pathname-và-file-descriptor-thuộc-hai-giai-đoạn-khác-nhau)
-- [4. File descriptor là gì?](#4-file-descriptor-là-gì)
-- [5. File-descriptor table của process](#5-file-descriptor-table-của-process)
-- [6. Open file description là object trung gian quan trọng](#6-open-file-description-là-object-trung-gian-quan-trọng)
-- [7. Quan hệ giữa pathname, dentry, inode, open file description và fd](#7-quan-hệ-giữa-pathname-dentry-inode-open-file-description-và-fd)
-- [8. `open()` thực sự làm gì?](#8-open-thực-sự-làm-gì)
-- [9. Access mode: `O_RDONLY`, `O_WRONLY`, `O_RDWR`](#9-access-mode-o_rdonly-o_wronly-o_rdwr)
-- [10. Creation flags và file-status flags](#10-creation-flags-và-file-status-flags)
-- [11. `O_CREAT`, `mode` và `umask`](#11-o_creat-mode-và-umask)
-- [12. `O_TRUNC`: mở file và làm thay đổi dữ liệu](#12-o_trunc-mở-file-và-làm-thay-đổi-dữ-liệu)
-- [13. `O_APPEND`: append là semantic của open file description](#13-o_append-append-là-semantic-của-open-file-description)
-- [14. `O_CLOEXEC` và vòng đời fd qua `exec`](#14-o_cloexec-và-vòng-đời-fd-qua-exec)
-- [15. `openat()` và directory-relative I/O](#15-openat-và-directory-relative-io)
-- [16. `read()` — yêu cầu đọc “up to count bytes”](#16-read--yêu-cầu-đọc-up-to-count-bytes)
-- [17. Short read không nhất thiết là lỗi](#17-short-read-không-nhất-thiết-là-lỗi)
-- [18. EOF khác error như thế nào?](#18-eof-khác-error-như-thế-nào)
-- [19. `write()` — yêu cầu ghi byte vào object](#19-write--yêu-cầu-ghi-byte-vào-object)
-- [20. Short write và vì sao một lần `write()` chưa chắc ghi hết](#20-short-write-và-vì-sao-một-lần-write-chưa-chắc-ghi-hết)
-- [21. `write()` thành công không đồng nghĩa dữ liệu đã bền vững trên storage](#21-write-thành-công-không-đồng-nghĩa-dữ-liệu-đã-bền-vững-trên-storage)
-- [22. File offset nằm ở đâu?](#22-file-offset-nằm-ở-đâu)
-- [23. `lseek()` thay đổi file offset chứ không đọc/ghi dữ liệu](#23-lseek-thay-đổi-file-offset-chứ-không-đọcghi-dữ-liệu)
-- [24. `SEEK_SET`, `SEEK_CUR`, `SEEK_END`](#24-seek_set-seek_cur-seek_end)
-- [25. Seek vượt EOF và sparse-file hole](#25-seek-vượt-eof-và-sparse-file-hole)
-- [26. Seekable và non-seekable objects](#26-seekable-và-non-seekable-objects)
-- [27. Vì sao nhiều fd có thể chia sẻ cùng file offset?](#27-vì-sao-nhiều-fd-có-thể-chia-sẻ-cùng-file-offset)
-- [28. `dup()` và `fork()` dưới góc nhìn open file description](#28-dup-và-fork-dưới-góc-nhìn-open-file-description)
-- [29. Nhiều lần `open()` cùng pathname không nhất thiết chia sẻ offset](#29-nhiều-lần-open-cùng-pathname-không-nhất-thiết-chia-sẻ-offset)
-- [30. `pread()` / `pwrite()` và I/O không phụ thuộc shared file offset](#30-pread--pwrite-và-io-không-phụ-thuộc-shared-file-offset)
-- [31. `close()` thực sự đóng cái gì?](#31-close-thực-sự-đóng-cái-gì)
-- [32. File descriptor number có thể được tái sử dụng](#32-file-descriptor-number-có-thể-được-tái-sử-dụng)
-- [33. Unlink pathname không đồng nghĩa đóng open file](#33-unlink-pathname-không-đồng-nghĩa-đóng-open-file)
-- [34. Vòng đời fd và open file description](#34-vòng-đời-fd-và-open-file-description)
-- [35. Standard input/output/error cũng chỉ là file descriptors](#35-standard-inputoutputerror-cũng-chỉ-là-file-descriptors)
-- [36. File descriptor và C `FILE *` stream khác nhau như thế nào?](#36-file-descriptor-và-c-file--stream-khác-nhau-như-thế-nào)
-- [37. Buffering của `stdio` không phải semantics của `read/write`](#37-buffering-của-stdio-không-phải-semantics-của-readwrite)
-- [38. Blocking I/O thực chất là gì?](#38-blocking-io-thực-chất-là-gì)
-- [39. Blocking phụ thuộc loại object và trạng thái hiện tại](#39-blocking-phụ-thuộc-loại-object-và-trạng-thái-hiện-tại)
-- [40. `O_NONBLOCK` và `EAGAIN`](#40-o_nonblock-và-eagain)
-- [41. Regular file và `O_NONBLOCK`: một nuance quan trọng](#41-regular-file-và-o_nonblock-một-nuance-quan-trọng)
-- [42. `read()` trên terminal, pipe, FIFO và device có semantics khác regular file](#42-read-trên-terminal-pipe-fifo-và-device-có-semantics-khác-regular-file)
-- [43. Return value: dữ liệu điều khiển quan trọng của I/O](#43-return-value-dữ-liệu-điều-khiển-quan-trọng-của-io)
-- [44. `size_t`, `ssize_t` và `off_t`](#44-size_t-ssize_t-và-off_t)
-- [45. `errno` và error model của system call](#45-errno-và-error-model-của-system-call)
-- [46. `EBADF`: lỗi ở tầng descriptor](#46-ebadf-lỗi-ở-tầng-descriptor)
-- [47. `EINTR`: I/O bị ngắt bởi signal](#47-eintr-io-bị-ngắt-bởi-signal)
-- [48. `EAGAIN` / `EWOULDBLOCK`: “chưa sẵn sàng” khác failure vĩnh viễn](#48-eagain--ewouldblock-chưa-sẵn-sàng-khác-failure-vĩnh-viễn)
-- [49. `EPIPE` và write khi không còn reader](#49-epipe-và-write-khi-không-còn-reader)
-- [50. VFS nối system call với filesystem hoặc driver như thế nào?](#50-vfs-nối-system-call-với-filesystem-hoặc-driver-như-thế-nào)
-- [51. `struct file` trong kernel và open file description](#51-struct-file-trong-kernel-và-open-file-description)
-- [52. I/O path cho regular file và device file khác nhau ở đâu?](#52-io-path-cho-regular-file-và-device-file-khác-nhau-ở-đâu)
-- [53. Sequence của `read()` dưới góc nhìn abstraction](#53-sequence-của-read-dưới-góc-nhìn-abstraction)
-- [54. Concurrency và shared file offset](#54-concurrency-và-shared-file-offset)
-- [55. Atomicity không đồng nghĩa “mọi I/O đều thread-safe theo ý ứng dụng”](#55-atomicity-không-đồng-nghĩa-mọi-io-đều-thread-safe-theo-ý-ứng-dụng)
-- [56. Error model và tư duy debug File I/O](#56-error-model-và-tư-duy-debug-file-io)
-- [57. Liên hệ với Embedded Linux](#57-liên-hệ-với-embedded-linux)
-- [58. Mô hình tư duy tổng hợp](#58-mô-hình-tư-duy-tổng-hợp)
-- [59. Các nguyên tắc cốt lõi](#59-các-nguyên-tắc-cốt-lõi)
-- [Tài liệu tham khảo](#tài-liệu-tham-khảo)
+- [1. Nền tảng File I/O và Descriptor Abstraction](#1-nền-tảng-file-io-và-descriptor-abstraction)
+- [2. File Descriptor Table và Open File Description](#2-file-descriptor-table-và-open-file-description)
+- [3. `open()` và Open Flags](#3-open-và-open-flags)
+- [4. `read()` và Read Semantics](#4-read-và-read-semantics)
+- [5. `write()` và Write Semantics](#5-write-và-write-semantics)
+- [6. File Offset, `lseek()` và Sparse Files](#6-file-offset-lseek-và-sparse-files)
+- [7. Shared Offset, `dup()`/`fork()` và Positioned I/O](#7-shared-offset-dupfork-và-positioned-io)
+- [8. `close()`, Descriptor Lifetime và Unlink](#8-close-descriptor-lifetime-và-unlink)
+- [9. Standard Descriptors và C `stdio`](#9-standard-descriptors-và-c-stdio)
+- [10. Blocking, Nonblocking và Object-specific I/O](#10-blocking-nonblocking-và-object-specific-io)
+- [11. Return Values, Types và Error Model](#11-return-values-types-và-error-model)
+- [12. VFS và Kernel I/O Path](#12-vfs-và-kernel-io-path)
+- [13. Concurrency và Atomicity](#13-concurrency-và-atomicity)
+- [14. Error Model và Debugging](#14-error-model-và-debugging)
+- [15. Liên hệ với Embedded Linux](#15-liên-hệ-với-embedded-linux)
+- [16. Tổng kết và Mental Model](#16-tổng-kết-và-mental-model)
+- [17. Tài liệu tham khảo](#17-tài-liệu-tham-khảo)
 
 ---
 
-# 1. File I/O trong Linux thực chất là gì?
+## 1. Nền tảng File I/O và Descriptor Abstraction
+
+### 1.1 File I/O trong Linux thực chất là gì?
+
 
 Ở Topic 2, filesystem được nhìn từ namespace:
 
@@ -152,7 +116,8 @@ Hai khái niệm này không đồng nghĩa.
 
 ---
 
-# 2. “File” trong File I/O rộng hơn regular file
+### 1.2 “File” trong File I/O rộng hơn regular file
+
 
 Low-level Linux I/O dùng file descriptor cho rất nhiều loại object:
 
@@ -215,7 +180,8 @@ Mental model:
 
 ---
 
-# 3. Pathname và file descriptor thuộc hai giai đoạn khác nhau
+### 1.3 Pathname và file descriptor thuộc hai giai đoạn khác nhau
+
 
 Một pathname như:
 
@@ -280,7 +246,10 @@ open I/O state
 
 ---
 
-# 4. File descriptor là gì?
+## 2. File Descriptor Table và Open File Description
+
+### 2.1 File descriptor là gì?
+
 
 Linux `open(2)` mô tả file descriptor là một **small nonnegative integer** dùng làm index vào table file descriptors của process.
 
@@ -312,7 +281,7 @@ fd 5 -> socket
 
 Chúng chỉ có ý nghĩa trong context của process sở hữu descriptor table.
 
-## 4.1 fd không phải inode number
+#### 2.1.1 fd không phải inode number
 
 Tách:
 
@@ -328,7 +297,7 @@ Một inode có thể được mở nhiều lần và tạo nhiều fd.
 
 Một fd có thể refer object không có persistent inode kiểu regular disk file.
 
-## 4.2 fd không phải pointer userspace
+#### 2.1.2 fd không phải pointer userspace
 
 Userspace nhìn fd như `int`.
 
@@ -338,7 +307,8 @@ Application không dereference fd như memory pointer.
 
 ---
 
-# 5. File-descriptor table của process
+### 2.2 File-descriptor table của process
+
 
 Mỗi process có file-descriptor table.
 
@@ -378,7 +348,8 @@ open-file-description state
 
 ---
 
-# 6. Open file description là object trung gian quan trọng
+### 2.3 Open file description là object trung gian quan trọng
+
 
 Đây là một trong những khái niệm quan trọng nhất của Linux I/O.
 
@@ -434,7 +405,8 @@ O_APPEND
 
 ---
 
-# 7. Quan hệ giữa pathname, dentry, inode, open file description và fd
+### 2.4 Quan hệ giữa pathname, dentry, inode, open file description và fd
+
 
 Một regular file có thể nhìn qua nhiều layer:
 
@@ -494,7 +466,10 @@ Nếu pathname sau đó bị rename/unlink, fd không tự biến thành invalid
 
 ---
 
-# 8. `open()` thực sự làm gì?
+## 3. `open()` và Open Flags
+
+### 3.1 `open()` thực sự làm gì?
+
 
 Prototype Linux/POSIX phổ biến:
 
@@ -544,7 +519,8 @@ errno = error code
 
 ---
 
-# 9. Access mode: `O_RDONLY`, `O_WRONLY`, `O_RDWR`
+### 3.2 Access mode: `O_RDONLY`, `O_WRONLY`, `O_RDWR`
+
 
 Ba access mode cơ bản:
 
@@ -570,7 +546,7 @@ Nuance quan trọng từ Linux `open(2)`:
 
 `O_RDWR` là access mode riêng.
 
-## 9.1 Access mode khác filesystem permission bits
+#### 3.2.1 Access mode khác filesystem permission bits
 
 Tách:
 
@@ -600,7 +576,8 @@ Ngược lại, request `O_RDWR` vẫn có thể fail nếu access policy không
 
 ---
 
-# 10. Creation flags và file-status flags
+### 3.3 Creation flags và file-status flags
+
 
 Linux `open(2)` phân biệt conceptually:
 
@@ -649,7 +626,8 @@ open file description
 
 ---
 
-# 11. `O_CREAT`, `mode` và `umask`
+### 3.4 `O_CREAT`, `mode` và `umask`
+
 
 Khi `O_CREAT` được dùng và file cần tạo mới, argument `mode` cung cấp requested permission bits.
 
@@ -687,7 +665,8 @@ nhưng current `open()` vẫn return writable fd vì current open access đã đ
 
 ---
 
-# 12. `O_TRUNC`: mở file và làm thay đổi dữ liệu
+### 3.5 `O_TRUNC`: mở file và làm thay đổi dữ liệu
+
 
 `O_TRUNC` là ví dụ cho việc:
 
@@ -728,7 +707,8 @@ Không nên coi nó là pure lookup operation.
 
 ---
 
-# 13. `O_APPEND`: append là semantic của open file description
+### 3.6 `O_APPEND`: append là semantic của open file description
+
 
 Nếu open file description có `O_APPEND`, trước mỗi `write()` kernel đảm bảo file offset được đặt ở end-of-file và write diễn ra theo append semantics của interface.
 
@@ -772,7 +752,8 @@ có thể có protocol limitations; `open(2)` nêu NFS là trường hợp cần
 
 ---
 
-# 14. `O_CLOEXEC` và vòng đời fd qua `exec`
+### 3.7 `O_CLOEXEC` và vòng đời fd qua `exec`
+
 
 Mặc định, một new fd có thể remain open qua `execve()` nếu `FD_CLOEXEC` không được đặt.
 
@@ -812,7 +793,8 @@ là hai operation, tạo race trong multithreaded context nơi thread khác có 
 
 ---
 
-# 15. `openat()` và directory-relative I/O
+### 3.8 `openat()` và directory-relative I/O
+
 
 `openat()` mở pathname relative tới một directory fd khi pathname không absolute.
 
@@ -856,7 +838,10 @@ Topic Fresher chỉ cần hiểu concept, chưa cần đi sâu `openat2()`.
 
 ---
 
-# 16. `read()` — yêu cầu đọc “up to count bytes”
+## 4. `read()` và Read Semantics
+
+### 4.1 `read()` — yêu cầu đọc “up to count bytes”
+
 
 Prototype:
 
@@ -907,7 +892,8 @@ Return:
 
 ---
 
-# 17. Short read không nhất thiết là lỗi
+### 4.2 Short read không nhất thiết là lỗi
+
 
 Nếu request:
 
@@ -963,7 +949,8 @@ one read == one complete logical message
 
 ---
 
-# 18. EOF khác error như thế nào?
+### 4.3 EOF khác error như thế nào?
+
 
 Đối với `read()`:
 
@@ -1024,7 +1011,10 @@ stateDiagram-v2
 
 ---
 
-# 19. `write()` — yêu cầu ghi byte vào object
+## 5. `write()` và Write Semantics
+
+### 5.1 `write()` — yêu cầu ghi byte vào object
+
 
 Prototype:
 
@@ -1068,7 +1058,8 @@ Với regular seekable file, normal write ảnh hưởng file offset.
 
 ---
 
-# 20. Short write và vì sao một lần `write()` chưa chắc ghi hết
+### 5.2 Short write và vì sao một lần `write()` chưa chắc ghi hết
+
 
 `write()` có thể return nhỏ hơn `count`.
 
@@ -1107,7 +1098,8 @@ nghĩa là toàn bộ buffer đã được ghi.
 
 ---
 
-# 21. `write()` thành công không đồng nghĩa dữ liệu đã bền vững trên storage
+### 5.3 `write()` thành công không đồng nghĩa dữ liệu đã bền vững trên storage
+
 
 Một trong những hiểu nhầm phổ biến:
 
@@ -1151,7 +1143,10 @@ Topic này không đi sâu durability, nhưng phải tránh mental model sai.
 
 ---
 
-# 22. File offset nằm ở đâu?
+## 6. File Offset, `lseek()` và Sparse Files
+
+### 6.1 File offset nằm ở đâu?
+
 
 Với seekable open file, current file position được lưu trong:
 
@@ -1199,7 +1194,8 @@ nếu object supports seek-style offset semantics.
 
 ---
 
-# 23. `lseek()` thay đổi file offset chứ không đọc/ghi dữ liệu
+### 6.2 `lseek()` thay đổi file offset chứ không đọc/ghi dữ liệu
+
 
 Prototype:
 
@@ -1236,7 +1232,8 @@ File data không tự thay đổi.
 
 ---
 
-# 24. `SEEK_SET`, `SEEK_CUR`, `SEEK_END`
+### 6.3 `SEEK_SET`, `SEEK_CUR`, `SEEK_END`
+
 
 Ba origin cơ bản:
 
@@ -1275,7 +1272,8 @@ SEEK_END
 
 ---
 
-# 25. Seek vượt EOF và sparse-file hole
+### 6.4 Seek vượt EOF và sparse-file hole
+
 
 POSIX/Linux cho phép `lseek()` đặt offset vượt current EOF trên regular seekable file.
 
@@ -1326,7 +1324,8 @@ physical allocation
 
 ---
 
-# 26. Seekable và non-seekable objects
+### 6.5 Seekable và non-seekable objects
+
 
 Không phải mọi fd có meaningful random-access offset.
 
@@ -1372,7 +1371,10 @@ pipe/socket/terminal
 
 ---
 
-# 27. Vì sao nhiều fd có thể chia sẻ cùng file offset?
+## 7. Shared Offset, `dup()`/`fork()` và Positioned I/O
+
+### 7.1 Vì sao nhiều fd có thể chia sẻ cùng file offset?
+
 
 Vì fd không tự chứa offset.
 
@@ -1404,11 +1406,12 @@ fd 7 cũng nhìn cùng shared offset vì cả hai refer same open file descripti
 
 ---
 
-# 28. `dup()` và `fork()` dưới góc nhìn open file description
+### 7.2 `dup()` và `fork()` dưới góc nhìn open file description
+
 
 Linux `open(2)` nêu rằng duplicated fd dùng `dup()` và inherited descriptors qua `fork()` có thể refer cùng open file description.
 
-## 28.1 `dup()`
+#### 7.2.1 `dup()`
 
 Concept:
 
@@ -1434,7 +1437,7 @@ file status flags
 
 Nhưng per-descriptor flags như close-on-exec có semantics riêng.
 
-## 28.2 `fork()`
+#### 7.2.2 `fork()`
 
 Concept:
 
@@ -1463,7 +1466,8 @@ Topic Process sẽ đi sâu `fork()`.
 
 ---
 
-# 29. Nhiều lần `open()` cùng pathname không nhất thiết chia sẻ offset
+### 7.3 Nhiều lần `open()` cùng pathname không nhất thiết chia sẻ offset
+
 
 Giả sử:
 
@@ -1516,7 +1520,8 @@ same open file description
 
 ---
 
-# 30. `pread()` / `pwrite()` và I/O không phụ thuộc shared file offset
+### 7.4 `pread()` / `pwrite()` và I/O không phụ thuộc shared file offset
+
 
 `pread()` và `pwrite()` cho phép I/O tại explicit offset mà không thay open file description's shared current file offset theo normal semantics.
 
@@ -1548,7 +1553,10 @@ Nuance Linux:
 
 ---
 
-# 31. `close()` thực sự đóng cái gì?
+## 8. `close()`, Descriptor Lifetime và Unlink
+
+### 8.1 `close()` thực sự đóng cái gì?
+
 
 Prototype:
 
@@ -1584,7 +1592,7 @@ kernel reference
 
 OFD/object vẫn có thể sống.
 
-## 31.1 Reference-count mental model
+#### 8.1.1 Reference-count mental model
 
 ```text
 fd3 ----+
@@ -1606,7 +1614,8 @@ OFD chỉ eligible for final cleanup khi relevant final references mất.
 
 ---
 
-# 32. File descriptor number có thể được tái sử dụng
+### 8.2 File descriptor number có thể được tái sử dụng
+
 
 Sau:
 
@@ -1642,7 +1651,8 @@ có thể tình cờ refer object hoàn toàn khác sau reuse.
 
 ---
 
-# 33. Unlink pathname không đồng nghĩa đóng open file
+### 8.3 Unlink pathname không đồng nghĩa đóng open file
+
 
 Topic 2 đã giới thiệu:
 
@@ -1694,7 +1704,8 @@ object/data may be reclaimed
 
 ---
 
-# 34. Vòng đời fd và open file description
+### 8.4 Vòng đời fd và open file description
+
 
 State diagram:
 
@@ -1732,7 +1743,10 @@ async operations
 
 ---
 
-# 35. Standard input/output/error cũng chỉ là file descriptors
+## 9. Standard Descriptors và C `stdio`
+
+### 9.1 Standard input/output/error cũng chỉ là file descriptors
+
 
 Topic 1 đã giới thiệu:
 
@@ -1774,7 +1788,8 @@ Chỉ target của fd 0 đã thay.
 
 ---
 
-# 36. File descriptor và C `FILE *` stream khác nhau như thế nào?
+### 9.2 File descriptor và C `FILE *` stream khác nhau như thế nào?
+
 
 GNU C Library phân biệt hai I/O mechanism:
 
@@ -1831,7 +1846,8 @@ Không nên trộn operation mà không hiểu buffering/offset coordination.
 
 ---
 
-# 37. Buffering của `stdio` không phải semantics của `read/write`
+### 9.3 Buffering của `stdio` không phải semantics của `read/write`
+
 
 `stdio` có userspace buffer.
 
@@ -1879,7 +1895,10 @@ Topic này chỉ tập trung layer đầu và syscall boundary đủ để trán
 
 ---
 
-# 38. Blocking I/O thực chất là gì?
+## 10. Blocking, Nonblocking và Object-specific I/O
+
+### 10.1 Blocking I/O thực chất là gì?
+
 
 “Blocking” nghĩa là operation có thể làm calling thread phải chờ cho tới khi condition cần thiết xảy ra hoặc operation hoàn thành/tiến triển theo interface semantics.
 
@@ -1915,11 +1934,12 @@ Thread thường bị scheduler đưa khỏi runnable state trong khi đợi eve
 
 ---
 
-# 39. Blocking phụ thuộc loại object và trạng thái hiện tại
+### 10.2 Blocking phụ thuộc loại object và trạng thái hiện tại
+
 
 Cùng `read()` nhưng behavior khác:
 
-## Regular file
+#### 10.2.1 Regular file
 
 Data có thể cần:
 
@@ -1931,7 +1951,7 @@ filesystem work
 
 operation có thể chờ I/O.
 
-## Pipe/FIFO
+#### 10.2.2 Pipe/FIFO
 
 Nếu không có data nhưng writer còn tồn tại:
 
@@ -1941,7 +1961,7 @@ blocking read
 
 có thể sleep chờ data.
 
-## Terminal
+#### 10.2.3 Terminal
 
 Read behavior phụ thuộc:
 
@@ -1951,11 +1971,11 @@ line discipline
 input availability
 ```
 
-## Socket
+#### 10.2.4 Socket
 
 Read/receive có thể chờ network data.
 
-## Device
+#### 10.2.5 Device
 
 Driver định nghĩa readiness/blocking behavior theo subsystem/API.
 
@@ -1965,7 +1985,8 @@ Do đó:
 
 ---
 
-# 40. `O_NONBLOCK` và `EAGAIN`
+### 10.3 `O_NONBLOCK` và `EAGAIN`
+
 
 Nếu fd/open file description được đặt nonblocking và operation sẽ phải chờ, interface có thể return ngay:
 
@@ -2009,7 +2030,8 @@ EAGAIN
 
 ---
 
-# 41. Regular file và `O_NONBLOCK`: một nuance quan trọng
+### 10.4 Regular file và `O_NONBLOCK`: một nuance quan trọng
+
 
 Linux `open(2)` ghi rõ:
 
@@ -2046,7 +2068,8 @@ terminals/devices
 
 ---
 
-# 42. `read()` trên terminal, pipe, FIFO và device có semantics khác regular file
+### 10.5 `read()` trên terminal, pipe, FIFO và device có semantics khác regular file
+
 
 Một API thống nhất:
 
@@ -2056,14 +2079,14 @@ read(fd, buf, count)
 
 không có nghĩa underlying object identical.
 
-## Regular file
+#### 10.5.1 Regular file
 
 ```text
 offset-based byte sequence
 EOF based on file size/current position
 ```
 
-## Pipe/FIFO
+#### 10.5.2 Pipe/FIFO
 
 ```text
 producer-consumer byte stream
@@ -2071,7 +2094,7 @@ no lseek
 EOF depends on writer references/state
 ```
 
-## Terminal
+#### 10.5.3 Terminal
 
 ```text
 TTY line discipline
@@ -2080,7 +2103,7 @@ special-character handling
 no normal random seek
 ```
 
-## Character device
+#### 10.5.4 Character device
 
 ```text
 driver-defined read semantics
@@ -2097,7 +2120,10 @@ different object semantics
 
 ---
 
-# 43. Return value: dữ liệu điều khiển quan trọng của I/O
+## 11. Return Values, Types và Error Model
+
+### 11.1 Return value: dữ liệu điều khiển quan trọng của I/O
+
 
 Một robust mental model luôn nhìn:
 
@@ -2105,14 +2131,14 @@ Một robust mental model luôn nhìn:
 return value first
 ```
 
-## `open()`
+#### 11.1.1 `open()`
 
 ```text
 >= 0  fd
 -1    error
 ```
 
-## `read()`
+#### 11.1.2 `read()`
 
 ```text
 >0  bytes read
@@ -2120,21 +2146,21 @@ return value first
 -1  error
 ```
 
-## `write()`
+#### 11.1.3 `write()`
 
 ```text
 >=0 bytes written/accepted
 -1  error
 ```
 
-## `lseek()`
+#### 11.1.4 `lseek()`
 
 ```text
 >=0 resulting offset normally
 -1 error
 ```
 
-## `close()`
+#### 11.1.5 `close()`
 
 ```text
 0   success
@@ -2145,11 +2171,12 @@ Tuy nhiên `close()` error handling có caveats đặc biệt, sẽ nói ở ph�
 
 ---
 
-# 44. `size_t`, `ssize_t` và `off_t`
+### 11.2 `size_t`, `ssize_t` và `off_t`
+
 
 Ba type này phản ánh ba loại quantity khác nhau.
 
-## 44.1 `size_t`
+#### 11.2.1 `size_t`
 
 Unsigned integer type dùng cho object sizes/counts.
 
@@ -2167,7 +2194,7 @@ Nó biểu diễn:
 requested byte count
 ```
 
-## 44.2 `ssize_t`
+#### 11.2.2 `ssize_t`
 
 Signed type dùng cho return byte count.
 
@@ -2190,7 +2217,7 @@ ssize_t
   result count or negative error sentinel
 ```
 
-## 44.3 `off_t`
+#### 11.2.3 `off_t`
 
 Type biểu diễn file offsets.
 
@@ -2210,7 +2237,8 @@ off_t == int
 
 ---
 
-# 45. `errno` và error model của system call
+### 11.3 `errno` và error model của system call
+
 
 Linux/POSIX functions thường signal failure bằng:
 
@@ -2263,7 +2291,8 @@ return value
 
 ---
 
-# 46. `EBADF`: lỗi ở tầng descriptor
+### 11.4 `EBADF`: lỗi ở tầng descriptor
+
 
 `EBADF` thường biểu diễn:
 
@@ -2307,7 +2336,8 @@ không phải trước tiên ở pathname layer.
 
 ---
 
-# 47. `EINTR`: I/O bị ngắt bởi signal
+### 11.5 `EINTR`: I/O bị ngắt bởi signal
+
 
 Blocking syscall có thể bị signal interrupt.
 
@@ -2355,7 +2385,8 @@ Topic Signal sẽ mở rộng.
 
 ---
 
-# 48. `EAGAIN` / `EWOULDBLOCK`: “chưa sẵn sàng” khác failure vĩnh viễn
+### 11.6 `EAGAIN` / `EWOULDBLOCK`: “chưa sẵn sàng” khác failure vĩnh viễn
+
 
 Với nonblocking I/O:
 
@@ -2400,7 +2431,8 @@ event-driven I/O
 
 ---
 
-# 49. `EPIPE` và write khi không còn reader
+### 11.7 `EPIPE` và write khi không còn reader
+
 
 Pipe/FIFO/socket-like stream có producer-consumer lifetime.
 
@@ -2429,7 +2461,10 @@ Topic IPC/Signal sẽ đi sâu.
 
 ---
 
-# 50. VFS nối system call với filesystem hoặc driver như thế nào?
+## 12. VFS và Kernel I/O Path
+
+### 12.1 VFS nối system call với filesystem hoặc driver như thế nào?
+
 
 Topic 2 đã giới thiệu VFS.
 
@@ -2468,7 +2503,8 @@ có cùng API shape dù underlying implementation khác.
 
 ---
 
-# 51. `struct file` trong kernel và open file description
+### 12.2 `struct file` trong kernel và open file description
+
 
 Linux Kernel VFS documentation dùng `struct file` cho open file object ở kernel.
 
@@ -2502,7 +2538,8 @@ Exact fields thay đổi theo kernel version.
 
 ---
 
-# 52. I/O path cho regular file và device file khác nhau ở đâu?
+### 12.3 I/O path cho regular file và device file khác nhau ở đâu?
+
 
 Cùng userspace API:
 
@@ -2512,7 +2549,7 @@ read(fd, ...)
 
 nhưng dispatch path khác.
 
-## Regular file
+#### 12.3.1 Regular file
 
 ```text
 read()
@@ -2526,7 +2563,7 @@ page cache / filesystem logic
 storage as needed
 ```
 
-## Character device
+#### 12.3.2 Character device
 
 ```text
 read()
@@ -2558,7 +2595,8 @@ Mental model:
 
 ---
 
-# 53. Sequence của `read()` dưới góc nhìn abstraction
+### 12.4 Sequence của `read()` dưới góc nhìn abstraction
+
 
 ```mermaid
 sequenceDiagram
@@ -2608,7 +2646,10 @@ và nhiều chi tiết khác.
 
 ---
 
-# 54. Concurrency và shared file offset
+## 13. Concurrency và Atomicity
+
+### 13.1 Concurrency và shared file offset
+
 
 Nếu nhiều execution contexts share same open file description:
 
@@ -2642,7 +2683,8 @@ Linux trước 3.14 từng có bug khiến concurrent `read()` trên shared OFD 
 
 ---
 
-# 55. Atomicity không đồng nghĩa “mọi I/O đều thread-safe theo ý ứng dụng”
+### 13.2 Atomicity không đồng nghĩa “mọi I/O đều thread-safe theo ý ứng dụng”
+
 
 Có nhiều loại atomicity:
 
@@ -2681,7 +2723,10 @@ under which standard/kernel/filesystem?
 
 ---
 
-# 56. Error model và tư duy debug File I/O
+## 14. Error Model và Debugging
+
+### 14.1 Error model và tư duy debug File I/O
+
 
 Một I/O failure nên được phân lớp.
 
@@ -2709,7 +2754,7 @@ Mental model:
 10. durability requirement?
 ```
 
-## 56.1 `open()` fail
+#### 14.1.1 `open()` fail
 
 Likely categories:
 
@@ -2725,7 +2770,7 @@ symlink/path issue
 device-specific failure
 ```
 
-## 56.2 `read()` returns 0
+#### 14.1.2 `read()` returns 0
 
 Do not log as generic error.
 
@@ -2737,7 +2782,7 @@ pipe peer closed?
 object-specific end condition?
 ```
 
-## 56.3 `read()` returns fewer bytes
+#### 14.1.3 `read()` returns fewer bytes
 
 Do not assume corruption.
 
@@ -2750,13 +2795,13 @@ near EOF?
 signal/availability?
 ```
 
-## 56.4 `write()` returns positive short count
+#### 14.1.4 `write()` returns positive short count
 
 Do not discard unwritten tail conceptually.
 
 The operation succeeded partially.
 
-## 56.5 `lseek()` returns `ESPIPE`
+#### 14.1.5 `lseek()` returns `ESPIPE`
 
 Likely:
 
@@ -2767,7 +2812,7 @@ pipe/FIFO/socket/terminal
 
 Not necessarily a broken fd.
 
-## 56.6 `close()` reports error
+#### 14.1.6 `close()` reports error
 
 `close()` has subtle semantics.
 
@@ -2787,11 +2832,14 @@ Data/writeback errors may also be reported at close time on some filesystems/sto
 
 ---
 
-# 57. Liên hệ với Embedded Linux
+## 15. Liên hệ với Embedded Linux
+
+### 15.1 Liên hệ với Embedded Linux
+
 
 File I/O là một trong những abstraction quan trọng nhất của Embedded Linux.
 
-## 57.1 Device nodes
+#### 15.1.1 Device nodes
 
 Userspace có thể:
 
@@ -2828,7 +2876,7 @@ sẽ nối trực tiếp với mental model Topic 3.
 
 ---
 
-## 57.2 UART
+#### 15.1.2 UART
 
 UART userspace interface thường xuất hiện như:
 
@@ -2857,7 +2905,7 @@ Nhưng terminal line discipline có semantics riêng nên raw byte I/O không lu
 
 ---
 
-## 57.3 I2C / SPI
+#### 15.1.3 I2C / SPI
 
 Embedded Linux có nhiều cách expose hardware.
 
@@ -2886,7 +2934,7 @@ là handle tới kernel interface.
 
 ---
 
-## 57.4 GPIO
+#### 15.1.4 GPIO
 
 Modern GPIO character-device userspace API sử dụng file descriptors cho chip/line requests/events.
 
@@ -2894,7 +2942,7 @@ Dù API không chỉ đơn giản là `read/write` traditional style, fd abstrac
 
 ---
 
-## 57.5 `/sys` và `/proc`
+#### 15.1.5 `/sys` và `/proc`
 
 Nhiều pseudo-filesystem attributes có thể đọc/ghi qua standard file I/O path:
 
@@ -2921,7 +2969,7 @@ persistent disk data
 
 ---
 
-## 57.6 Blocking hardware I/O
+#### 15.1.6 Blocking hardware I/O
 
 Một device read có thể chờ:
 
@@ -2961,7 +3009,7 @@ device-driver design
 
 ---
 
-## 57.7 Board bring-up
+#### 15.1.7 Board bring-up
 
 Khi peripheral “không hoạt động”, cần tách:
 
@@ -2980,7 +3028,7 @@ Nếu không hiểu return semantics và fd lifetime, rất dễ debug sai layer
 
 ---
 
-## 57.8 BusyBox và minimal userspace
+#### 15.1.8 BusyBox và minimal userspace
 
 Minimal Embedded Linux vẫn dùng same kernel syscalls.
 
@@ -2996,7 +3044,10 @@ Do đó File I/O knowledge không phụ thuộc desktop GUI.
 
 ---
 
-# 58. Mô hình tư duy tổng hợp
+## 16. Tổng kết và Mental Model
+
+### 16.1 Mô hình tư duy tổng hợp
+
 
 Sơ đồ tổng thể:
 
@@ -3122,7 +3173,8 @@ return blocking fd? ---- yes ---> sleep/wake
 
 ---
 
-# 59. Các nguyên tắc cốt lõi
+### 16.2 Các nguyên tắc cốt lõi
+
 
 1. Pathname và file descriptor là hai abstraction khác nhau: pathname định danh qua namespace; fd là open I/O handle của process.
 
@@ -3272,7 +3324,8 @@ errno only on failure
 
 ---
 
-# Tài liệu tham khảo
+## 17. Tài liệu tham khảo
+
 
 Nguồn trong chapter được ưu tiên theo thứ tự:
 
@@ -3302,9 +3355,9 @@ nhưng không thay specification/upstream documentation khi xác định system-
 
 ---
 
-## 1. POSIX.1-2024 / The Open Group
+### POSIX.1-2024 / The Open Group
 
-### `open()`
+#### `open()`
 
 - https://pubs.opengroup.org/onlinepubs/9799919799/functions/open.html
 
@@ -3326,7 +3379,7 @@ fd refers to an open file description
 new open description starts with file offset at beginning
 ```
 
-### `read()` / `pread()`
+#### `read()` / `pread()`
 
 - https://pubs.opengroup.org/onlinepubs/9799919799/functions/read.html
 
@@ -3342,7 +3395,7 @@ EBADF
 EINTR
 ```
 
-### `write()` / `pwrite()`
+#### `write()` / `pwrite()`
 
 - https://pubs.opengroup.org/onlinepubs/9799919799/functions/write.html
 
@@ -3357,7 +3410,7 @@ pipe/FIFO semantics
 errors
 ```
 
-### `lseek()`
+#### `lseek()`
 
 - https://pubs.opengroup.org/onlinepubs/9799919799/functions/lseek.html
 
@@ -3374,13 +3427,13 @@ ESPIPE
 seek beyond EOF
 ```
 
-### `close()`
+#### `close()`
 
 - https://pubs.opengroup.org/onlinepubs/9799919799/functions/close.html
 
 Nguồn chuẩn cho descriptor close semantics.
 
-### POSIX General Information — File Descriptors / Handles
+#### POSIX General Information — File Descriptors / Handles
 
 - https://pubs.opengroup.org/onlinepubs/9799919799/functions/V2_chap02.html
 
@@ -3395,11 +3448,11 @@ stream/descriptor coordination
 
 ---
 
-## 2. Linux man-pages project
+### Linux man-pages project
 
 Linux man-pages là nguồn chính cho Linux-specific syscall behavior.
 
-### `open(2)`
+#### `open(2)`
 
 - https://man7.org/linux/man-pages/man2/open.2.html
 
@@ -3430,7 +3483,7 @@ a call to open() creates a new open file description
 a file descriptor is a reference to that open file description
 ```
 
-### `read(2)`
+#### `read(2)`
 
 - https://man7.org/linux/man-pages/man2/read.2.html
 
@@ -3449,7 +3502,7 @@ Linux transfer limits
 shared-offset atomicity history
 ```
 
-### `write(2)`
+#### `write(2)`
 
 - https://man7.org/linux/man-pages/man2/write.2.html
 
@@ -3465,7 +3518,7 @@ O_APPEND
 writeback/durability caveats
 ```
 
-### `lseek(2)`
+#### `lseek(2)`
 
 - https://man7.org/linux/man-pages/man2/lseek.2.html
 
@@ -3481,7 +3534,7 @@ ESPIPE
 O_APPEND interaction
 ```
 
-### `close(2)`
+#### `close(2)`
 
 - https://man7.org/linux/man-pages/man2/close.2.html
 
@@ -3495,7 +3548,7 @@ close error caveats
 why retrying close() blindly can be dangerous on Linux
 ```
 
-### `dup(2)`
+#### `dup(2)`
 
 - https://man7.org/linux/man-pages/man2/dup.2.html
 
@@ -3508,7 +3561,7 @@ shared file-status flags
 per-fd close-on-exec distinction
 ```
 
-### `fcntl(2)`
+#### `fcntl(2)`
 
 - https://man7.org/linux/man-pages/man2/fcntl.2.html
 
@@ -3522,7 +3575,7 @@ O_NONBLOCK
 descriptor operations
 ```
 
-### `pread(2)`
+#### `pread(2)`
 
 - https://man7.org/linux/man-pages/man2/pread.2.html
 
@@ -3535,7 +3588,7 @@ no shared-offset modification in normal semantics
 Linux O_APPEND/pwrite caveat
 ```
 
-### `errno(3)`
+#### `errno(3)`
 
 - https://man7.org/linux/man-pages/man3/errno.3.html
 
@@ -3547,7 +3600,7 @@ error-number semantics
 only meaningful after a documented failure
 ```
 
-### `pipe(7)`
+#### `pipe(7)`
 
 - https://man7.org/linux/man-pages/man7/pipe.7.html
 
@@ -3561,7 +3614,7 @@ pipe capacity
 nonblocking behavior
 ```
 
-### `signal(7)`
+#### `signal(7)`
 
 - https://man7.org/linux/man-pages/man7/signal.7.html
 
@@ -3575,9 +3628,9 @@ signal interruption of blocking calls
 
 ---
 
-## 3. Linux Kernel Documentation — VFS
+### Linux Kernel Documentation — VFS
 
-### Overview of the Linux Virtual File System
+#### Overview of the Linux Virtual File System
 
 - https://docs.kernel.org/filesystems/vfs.html
 
@@ -3608,9 +3661,9 @@ Không dùng nó để đi sâu filesystem-driver implementation trong chapter n
 
 ---
 
-## 4. GNU C Library Manual
+### GNU C Library Manual
 
-### Input/Output Overview
+#### Input/Output Overview
 
 - https://www.gnu.org/software/libc/manual/html_node/I_002fO-Overview.html
 - https://www.gnu.org/software/libc/manual/
@@ -3647,9 +3700,9 @@ fread/fwrite/fprintf
 
 ---
 
-## 5. Bootlin Embedded Linux training
+### Bootlin Embedded Linux training
 
-### Embedded Linux System Development
+#### Embedded Linux System Development
 
 - https://bootlin.com/training/embedded-linux/
 - https://bootlin.com/doc/training/embedded-linux/
@@ -3664,7 +3717,7 @@ serial console
 userspace ↔ kernel interfaces
 ```
 
-### Linux Kernel and Driver Development
+#### Linux Kernel and Driver Development
 
 - https://bootlin.com/training/kernel/
 - https://bootlin.com/doc/training/linux-kernel/
@@ -3682,7 +3735,7 @@ Topic 3 chỉ xây nền userspace; driver implementation thuộc phase Device D
 
 ---
 
-## 6. The Linux Programming Interface / man7.org
+### The Linux Programming Interface / man7.org
 
 Michael Kerrisk — maintainer/author lâu năm của Linux man-pages và tác giả *The Linux Programming Interface*.
 
@@ -3704,11 +3757,11 @@ Chapter vẫn ưu tiên Linux man-pages/POSIX làm authority cho exact semantics
 
 ---
 
-## 7. Reputable community references
+### Reputable community references
 
 Community source chỉ là nguồn bổ sung.
 
-### Unix & Linux Stack Exchange
+#### Unix & Linux Stack Exchange
 
 - https://unix.stackexchange.com/
 
@@ -3722,7 +3775,7 @@ blocking behavior
 filesystem/device-specific edge cases
 ```
 
-### Stack Overflow — system programming discussions
+#### Stack Overflow — system programming discussions
 
 - https://stackoverflow.com/
 
@@ -3746,7 +3799,7 @@ libc docs
 
 ---
 
-## Nguyên tắc kiểm chứng khi đọc tài liệu File I/O
+### Nguyên tắc kiểm chứng khi đọc tài liệu File I/O
 
 Khi hai nguồn có vẻ mâu thuẫn, kiểm tra theo thứ tự:
 
@@ -3773,4 +3826,4 @@ có thể có behavior khác rõ rệt tùy object mà `fd` đang tham chiếu.
 
 ---
 
-> **Điều hướng:** [← Chủ đề 2 — Linux File System](README-topic-02.md) · [Chủ đề 4 →](README-topic-04.md)
+> **Điều hướng:** [← Chủ đề 2 — Linux File System](README-topic-02.md) · [Chủ đề 4 — Process →](README-topic-04.md)

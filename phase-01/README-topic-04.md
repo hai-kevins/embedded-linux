@@ -14,75 +14,38 @@
 >
 > **Giới hạn chủ đề:** Signal programming, POSIX threads, synchronization, scheduler policy/nice/CPU affinity, IPC, namespaces/cgroups, `clone()` nâng cao và virtual-memory internals sẽ được học ở topic/phần sau.
 >
+> **Cấu trúc tài liệu:** các mục `##` là khối kiến thức lớn; các concept chi tiết được đặt ở `###`/`####` để giữ mục lục gọn nhưng không giảm chiều sâu nội dung.
+>
 > **Điều hướng:** [← Chủ đề 3 — File I/O](README-topic-03.md) · [Chủ đề 5 — Signal →](README-topic-05.md)
 
 ---
 
 ## Mục lục
 
-1. [Program và process khác nhau ở đâu?](#1-program-và-process-khác-nhau-ở-đâu)
-2. [Process là một execution context](#2-process-là-một-execution-context)
-3. [Linux kernel nhìn process như thế nào?](#3-linux-kernel-nhìn-process-như-thế-nào)
-4. [PID và process identity](#4-pid-và-process-identity)
-5. [PPID và quan hệ parent/child](#5-ppid-và-quan-hệ-parentchild)
-6. [PID reuse và vì sao PID không phải identity vĩnh viễn](#6-pid-reuse-và-vì-sao-pid-không-phải-identity-vĩnh-viễn)
-7. [Process hierarchy](#7-process-hierarchy)
-8. [Process resources](#8-process-resources)
-9. [Virtual address space](#9-virtual-address-space)
-10. [Code, data, BSS, heap, mappings và stack](#10-code-data-bss-heap-mappings-và-stack)
-11. [Virtual memory không đồng nghĩa physical RAM](#11-virtual-memory-không-đồng-nghĩa-physical-ram)
-12. [File descriptor table trong process](#12-file-descriptor-table-trong-process)
-13. [Filesystem context: cwd, root, umask](#13-filesystem-context-cwd-root-umask)
-14. [`argv` và environment](#14-argv-và-environment)
-15. [Process credentials](#15-process-credentials)
-16. [Process states](#16-process-states)
-17. [Running và runnable](#17-running-và-runnable)
-18. [Sleeping: `S` và `D`](#18-sleeping-s-và-d)
-19. [Stopped, traced, zombie và dead](#19-stopped-traced-zombie-và-dead)
-20. [Context switch ở mức mental model](#20-context-switch-ở-mức-mental-model)
-21. [Vì sao Unix tách `fork()` và `exec()`?](#21-vì-sao-unix-tách-fork-và-exec)
-22. [`fork()` tạo child như thế nào?](#22-fork-tạo-child-như-thế-nào)
-23. [Parent và child có address space riêng](#23-parent-và-child-có-address-space-riêng)
-24. [Copy-on-write](#24-copy-on-write)
-25. [Return value của `fork()`](#25-return-value-của-fork)
-26. [Inheritance sau `fork()`](#26-inheritance-sau-fork)
-27. [File descriptors sau `fork()`](#27-file-descriptors-sau-fork)
-28. [`fork()` không chạy program mới](#28-fork-không-chạy-program-mới)
-29. [`execve()` thay program image](#29-execve-thay-program-image)
-30. [`execve()` thành công không return](#30-execve-thành-công-không-return)
-31. [PID qua `execve()`](#31-pid-qua-execve)
-32. [State nào bị thay và state nào còn lại qua `execve()`?](#32-state-nào-bị-thay-và-state-nào-còn-lại-qua-execve)
-33. [File descriptors và close-on-exec](#33-file-descriptors-và-close-on-exec)
-34. [Executable binary và interpreter script](#34-executable-binary-và-interpreter-script)
-35. [`fork()` + `exec()` trong shell](#35-fork--exec-trong-shell)
-36. [Process termination](#36-process-termination)
-37. [`exit()` và `_exit()`](#37-exit-và-_exit)
-38. [Exit status](#38-exit-status)
-39. [Zombie process](#39-zombie-process)
-40. [`wait()` / `waitpid()` và reaping](#40-wait--waitpid-và-reaping)
-41. [Orphan process và reparenting](#41-orphan-process-và-reparenting)
-42. [PID 1, init và subreaper](#42-pid-1-init-và-subreaper)
-43. [Process lifecycle state machine](#43-process-lifecycle-state-machine)
-44. [`/proc/<pid>` là gì?](#44-procpid-là-gì)
-45. [`/proc/<pid>/status` và `/proc/<pid>/stat`](#45-procpidstatus-và-procpidstat)
-46. [`/proc/<pid>/cmdline` và `/proc/<pid>/environ`](#46-procpidcmdline-và-procpidenviron)
-47. [`/proc/<pid>/cwd`, `root`, `exe`, `fd`](#47-procpidcwd-root-exe-fd)
-48. [`/proc/<pid>/maps`](#48-procpidmaps)
-49. [`ps` và `top` dưới góc nhìn process model](#49-ps-và-top-dưới-góc-nhìn-process-model)
-50. [Process và thread: phân biệt tối thiểu cần thiết](#50-process-và-thread-phân-biệt-tối-thiểu-cần-thiết)
-51. [PID, TID và TGID](#51-pid-tid-và-tgid)
-52. [Process isolation và resource sharing](#52-process-isolation-và-resource-sharing)
-53. [Resource limits ở mức khái niệm](#53-resource-limits-ở-mức-khái-niệm)
-54. [Scheduling ở mức đủ để hiểu process lifecycle](#54-scheduling-ở-mức-đủ-để-hiểu-process-lifecycle)
-55. [Error model và tư duy debug process](#55-error-model-và-tư-duy-debug-process)
-56. [Liên hệ với Embedded Linux](#56-liên-hệ-với-embedded-linux)
-57. [Mô hình tư duy tổng hợp](#57-mô-hình-tư-duy-tổng-hợp)
-58. [Các nguyên tắc cốt lõi](#58-các-nguyên-tắc-cốt-lõi)
-59. [Tài liệu tham khảo](#tài-liệu-tham-khảo)
+- [1. Program, Process và Linux Task Model](#1-program-process-và-linux-task-model)
+- [2. Process Identity và Hierarchy](#2-process-identity-và-hierarchy)
+- [3. Process Resources, Memory và Execution Context](#3-process-resources-memory-và-execution-context)
+- [4. Process States và Context Switch](#4-process-states-và-context-switch)
+- [5. `fork()` và Child Process Model](#5-fork-và-child-process-model)
+- [6. `execve()` và Program-image Replacement](#6-execve-và-program-image-replacement)
+- [7. Process Termination và Exit Status](#7-process-termination-và-exit-status)
+- [8. Zombie, `wait()`, Orphan và Reparenting](#8-zombie-wait-orphan-và-reparenting)
+- [9. Process Lifecycle State Machine](#9-process-lifecycle-state-machine)
+- [10. Process Observation qua `/proc/<pid>`](#10-process-observation-qua-procpid)
+- [11. Process Observation với `ps` và `top`](#11-process-observation-với-ps-và-top)
+- [12. Process và Thread ở mức nền tảng](#12-process-và-thread-ở-mức-nền-tảng)
+- [13. Isolation, Resource Limits và Scheduling](#13-isolation-resource-limits-và-scheduling)
+- [14. Error Model và Debugging](#14-error-model-và-debugging)
+- [15. Liên hệ với Embedded Linux](#15-liên-hệ-với-embedded-linux)
+- [16. Tổng kết và Mental Model](#16-tổng-kết-và-mental-model)
+- [17. Tài liệu tham khảo](#17-tài-liệu-tham-khảo)
 
 ---
 
-# 1. Program và process khác nhau ở đâu?
+## 1. Program, Process và Linux Task Model
+
+### 1.1 Program và process khác nhau ở đâu?
+
 
 Một **program** là mô tả tĩnh về code/dữ liệu cần để thực thi. Nó có thể là:
 
@@ -146,7 +109,8 @@ execution progress
 
 ---
 
-# 2. Process là một execution context
+### 1.2 Process là một execution context
+
 
 Định nghĩa “program đang chạy” là đúng nhưng chưa đủ.
 
@@ -202,7 +166,8 @@ report status to parent/userspace
 
 ---
 
-# 3. Linux kernel nhìn process như thế nào?
+### 1.3 Linux kernel nhìn process như thế nào?
+
 
 Ở userspace ta nói “process”.
 
@@ -242,7 +207,10 @@ Topic này chủ yếu dùng single-threaded mental model để làm rõ `fork/e
 
 ---
 
-# 4. PID và process identity
+## 2. Process Identity và Hierarchy
+
+### 2.1 PID và process identity
+
 
 Mỗi process có process ID:
 
@@ -282,7 +250,8 @@ Linux hiện đại có PID namespaces, vì vậy cùng một task có thể có
 
 ---
 
-# 5. PPID và quan hệ parent/child
+### 2.2 PPID và quan hệ parent/child
+
 
 Một process còn có:
 
@@ -319,7 +288,8 @@ Sau fork, child là process riêng.
 
 ---
 
-# 6. PID reuse và vì sao PID không phải identity vĩnh viễn
+### 2.3 PID reuse và vì sao PID không phải identity vĩnh viễn
+
 
 PID được cấp từ finite ID space.
 
@@ -346,7 +316,8 @@ parent relation
 
 ---
 
-# 7. Process hierarchy
+### 2.4 Process hierarchy
+
 
 Parent/child relationships tạo process tree:
 
@@ -377,7 +348,10 @@ CPU-priority hierarchy
 
 ---
 
-# 8. Process resources
+## 3. Process Resources, Memory và Execution Context
+
+### 3.1 Process resources
+
 
 Process giữ private state và references tới shared kernel resources.
 
@@ -425,7 +399,8 @@ same pipe/socket endpoints
 
 ---
 
-# 9. Virtual address space
+### 3.2 Virtual address space
+
 
 Normal userspace process có virtual address space.
 
@@ -459,7 +434,8 @@ Cùng virtual address ở process A và B không nhất thiết trỏ cùng phys
 
 ---
 
-# 10. Code, data, BSS, heap, mappings và stack
+### 3.3 Code, data, BSS, heap, mappings và stack
+
 
 Textbook layout:
 
@@ -496,33 +472,34 @@ compiler/linker
 mmap activity
 ```
 
-## Code/Text
+#### 3.3.1 Code/Text
 
 Executable instructions/mappings.
 
-## Initialized data
+#### 3.3.2 Initialized data
 
 Global/static objects có initial data stored by executable.
 
-## BSS
+#### 3.3.3 BSS
 
 Zero-initialized/uninitialized static storage.
 
-## Heap
+#### 3.3.4 Heap
 
 Dynamic-allocation region concept; allocators có thể dùng cả `brk` lẫn `mmap`.
 
-## Stack
+#### 3.3.5 Stack
 
 Execution frames, local automatic variables, call/return state theo ABI/compiler.
 
-## Mappings
+#### 3.3.6 Mappings
 
 Shared libraries, mapped files, anonymous mappings, VDSO, shared memory...
 
 ---
 
-# 11. Virtual memory không đồng nghĩa physical RAM
+### 3.4 Virtual memory không đồng nghĩa physical RAM
+
 
 Một process có thể có:
 
@@ -563,7 +540,8 @@ VmSize != amount of RAM exclusively owned by process
 
 ---
 
-# 12. File descriptor table trong process
+### 3.5 File descriptor table trong process
+
 
 Topic 3 đã xây:
 
@@ -597,7 +575,8 @@ Vì vậy process creation ảnh hưởng trực tiếp I/O state.
 
 ---
 
-# 13. Filesystem context: cwd, root, umask
+### 3.6 Filesystem context: cwd, root, umask
+
 
 Process có:
 
@@ -625,7 +604,8 @@ Child thường inherit filesystem context qua fork.
 
 ---
 
-# 14. `argv` và environment
+### 3.7 `argv` và environment
+
 
 Khi program image mới được tạo bởi `execve()`:
 
@@ -658,7 +638,8 @@ environment
 
 ---
 
-# 15. Process credentials
+### 3.8 Process credentials
+
 
 Linux process có nhiều identity/credential values:
 
@@ -688,7 +669,10 @@ Capabilities và security modules là tầng nâng cao.
 
 ---
 
-# 16. Process states
+## 4. Process States và Context Switch
+
+### 4.1 Process states
+
 
 `/proc/<pid>/status` có user-visible states như:
 
@@ -724,7 +708,8 @@ Kernel internal state model chi tiết hơn.
 
 ---
 
-# 17. Running và runnable
+### 4.2 Running và runnable
+
 
 Hai khái niệm:
 
@@ -753,9 +738,10 @@ Trên multicore, nhiều tasks có thể running đồng thời trên các CPU k
 
 ---
 
-# 18. Sleeping: `S` và `D`
+### 4.3 Sleeping: `S` và `D`
 
-## `S` — interruptible sleeping
+
+#### 4.3.1 `S` — interruptible sleeping
 
 Task đang đợi event/resource, ví dụ:
 
@@ -768,7 +754,7 @@ event
 
 và có thể được đánh thức theo event/signal semantics.
 
-## `D` — uninterruptible sleep
+#### 4.3.2 `D` — uninterruptible sleep
 
 Task đang đợi trong kernel state không xử lý normal interruption theo cùng cách.
 
@@ -784,21 +770,22 @@ Tên “disk sleep” là shorthand lịch sử.
 
 ---
 
-# 19. Stopped, traced, zombie và dead
+### 4.4 Stopped, traced, zombie và dead
 
-## Stopped
+
+#### 4.4.1 Stopped
 
 Process execution đang dừng, ví dụ job-control/debug context.
 
-## Traced
+#### 4.4.2 Traced
 
 Debugger/ptrace stop.
 
-## Zombie
+#### 4.4.3 Zombie
 
 Execution đã kết thúc nhưng parent chưa collect status.
 
-## Dead
+#### 4.4.4 Dead
 
 Kernel có internal/user-visible dead state trong một số context, thường transient.
 
@@ -813,7 +800,8 @@ Zombie không còn chạy normal user code.
 
 ---
 
-# 20. Context switch ở mức mental model
+### 4.5 Context switch ở mức mental model
+
 
 Scheduler có thể chuyển CPU:
 
@@ -843,7 +831,10 @@ Không có nghĩa toàn bộ address space bị copy mỗi lần switch.
 
 ---
 
-# 21. Vì sao Unix tách `fork()` và `exec()`?
+## 5. `fork()` và Child Process Model
+
+### 5.1 Vì sao Unix tách `fork()` và `exec()`?
+
 
 Unix process model tách:
 
@@ -884,7 +875,8 @@ resource limits
 
 ---
 
-# 22. `fork()` tạo child như thế nào?
+### 5.2 `fork()` tạo child như thế nào?
+
 
 Linux `fork(2)` mô tả:
 
@@ -913,7 +905,8 @@ inherited/copy/share state theo rules
 
 ---
 
-# 23. Parent và child có address space riêng
+### 5.3 Parent và child có address space riêng
+
 
 Tại thời điểm fork, private-memory contents logically giống nhau.
 
@@ -943,7 +936,8 @@ Shared mappings là trường hợp khác.
 
 ---
 
-# 24. Copy-on-write
+### 5.4 Copy-on-write
+
 
 Linux `fork()` dùng copy-on-write cho many private memory pages.
 
@@ -986,7 +980,8 @@ later COW faults
 
 ---
 
-# 25. Return value của `fork()`
+### 5.5 Return value của `fork()`
+
 
 Một call tạo hai return paths:
 
@@ -1009,7 +1004,8 @@ Do đó source code sau fork có thể chạy ở cả parent và child, phân b
 
 ---
 
-# 26. Inheritance sau `fork()`
+### 5.6 Inheritance sau `fork()`
+
 
 Child bắt đầu với nhiều state giống/inherited từ parent:
 
@@ -1041,7 +1037,8 @@ Do đó câu đúng hơn:
 
 ---
 
-# 27. File descriptors sau `fork()`
+### 5.7 File descriptors sau `fork()`
+
 
 Parent và child descriptor-table entries thường refer same open file descriptions.
 
@@ -1067,7 +1064,8 @@ Nếu child đọc và advance offset, parent có thể quan sát offset mới.
 
 ---
 
-# 28. `fork()` không chạy program mới
+### 5.8 `fork()` không chạy program mới
+
 
 Ngay sau `fork()` child chạy same program image/control point as parent.
 
@@ -1085,7 +1083,10 @@ child calls exec()
 
 ---
 
-# 29. `execve()` thay program image
+## 6. `execve()` và Program-image Replacement
+
+### 6.1 `execve()` thay program image
+
 
 `execve()` không tạo process mới.
 
@@ -1114,7 +1115,8 @@ và xây image mới theo executable/interpreter.
 
 ---
 
-# 30. `execve()` thành công không return
+### 6.2 `execve()` thành công không return
+
 
 ```text
 old program
@@ -1131,7 +1133,8 @@ Nếu success, old instruction stream không còn để return tới.
 
 ---
 
-# 31. PID qua `execve()`
+### 6.3 PID qua `execve()`
+
 
 PID được giữ qua successful exec.
 
@@ -1147,9 +1150,10 @@ Một process có thể thay executable/program nhưng tiếp tục với same P
 
 ---
 
-# 32. State nào bị thay và state nào còn lại qua `execve()`?
+### 6.4 State nào bị thay và state nào còn lại qua `execve()`?
 
-## Bị thay/reset đáng kể
+
+#### 6.4.1 Bị thay/reset đáng kể
 
 ```text
 code/data/BSS/stack
@@ -1160,7 +1164,7 @@ atexit registrations
 many userspace runtime structures
 ```
 
-## Thường được giữ theo exec rules
+#### 6.4.2 Thường được giữ theo exec rules
 
 ```text
 PID/PPID
@@ -1177,7 +1181,8 @@ Exact security/attribute list cần xem `execve(2)` khi làm production code.
 
 ---
 
-# 33. File descriptors và close-on-exec
+### 6.5 File descriptors và close-on-exec
+
 
 Fd không mang `FD_CLOEXEC` có thể survive exec.
 
@@ -1205,7 +1210,8 @@ resource-leak prevention
 
 ---
 
-# 34. Executable binary và interpreter script
+### 6.6 Executable binary và interpreter script
+
 
 `execve()` có thể load:
 
@@ -1237,7 +1243,8 @@ new program image
 
 ---
 
-# 35. `fork()` + `exec()` trong shell
+### 6.7 `fork()` + `exec()` trong shell
+
 
 Command external:
 
@@ -1272,7 +1279,10 @@ Shell
 
 ---
 
-# 36. Process termination
+## 7. Process Termination và Exit Status
+
+### 7.1 Process termination
+
 
 Process có thể terminate qua:
 
@@ -1297,9 +1307,10 @@ Execution kết thúc không đồng nghĩa kernel quên process ngay lập tứ
 
 ---
 
-# 37. `exit()` và `_exit()`
+### 7.2 `exit()` và `_exit()`
 
-## `exit()`
+
+#### 7.2.1 `exit()`
 
 Libc-level normal termination:
 
@@ -1309,7 +1320,7 @@ flush/close stdio streams
 then terminate process
 ```
 
-## `_exit()` / `_Exit()`
+#### 7.2.2 `_exit()` / `_Exit()`
 
 Không thực hiện atexit/stdio-flush userspace cleanup như `exit()`.
 
@@ -1332,7 +1343,8 @@ Distinction này rất quan trọng sau `fork()`.
 
 ---
 
-# 38. Exit status
+### 7.3 Exit status
+
 
 Child để lại termination status cho parent.
 
@@ -1361,7 +1373,10 @@ Shell sử dụng child status để xây command exit status.
 
 ---
 
-# 39. Zombie process
+## 8. Zombie, `wait()`, Orphan và Reparenting
+
+### 8.1 Zombie process
+
 
 Zombie là:
 
@@ -1386,7 +1401,8 @@ Problem của zombie accumulation là process-table/PID bookkeeping leak.
 
 ---
 
-# 40. `wait()` / `waitpid()` và reaping
+### 8.2 `wait()` / `waitpid()` và reaping
+
 
 Parent dùng wait-family để:
 
@@ -1417,7 +1433,8 @@ Zombie record removed
 
 ---
 
-# 41. Orphan process và reparenting
+### 8.3 Orphan process và reparenting
+
 
 Nếu parent terminate trước child:
 
@@ -1447,7 +1464,8 @@ zombie
 
 ---
 
-# 42. PID 1, init và subreaper
+### 8.4 PID 1, init và subreaper
+
 
 Traditional process hierarchy có PID 1 là init.
 
@@ -1476,7 +1494,10 @@ PID namespaces có PID 1 riêng trong namespace context.
 
 ---
 
-# 43. Process lifecycle state machine
+## 9. Process Lifecycle State Machine
+
+### 9.1 Process lifecycle state machine
+
 
 ```mermaid
 stateDiagram-v2
@@ -1505,7 +1526,10 @@ stateDiagram-v2
 
 ---
 
-# 44. `/proc/<pid>` là gì?
+## 10. Process Observation qua `/proc/<pid>`
+
+### 10.1 `/proc/<pid>` là gì?
+
 
 `procfs` export process/kernel state qua filesystem interface.
 
@@ -1553,9 +1577,10 @@ Access chịu permission/security rules.
 
 ---
 
-# 45. `/proc/<pid>/status` và `/proc/<pid>/stat`
+### 10.2 `/proc/<pid>/status` và `/proc/<pid>/stat`
 
-## `status`
+
+#### 10.2.1 `status`
 
 Human-readable summary:
 
@@ -1575,7 +1600,7 @@ context-switch counters
 ...
 ```
 
-## `stat`
+#### 10.2.2 `stat`
 
 Compact ordered fields, dùng bởi tools/process monitors.
 
@@ -1599,9 +1624,10 @@ Hai files là snapshots của dynamic state.
 
 ---
 
-# 46. `/proc/<pid>/cmdline` và `/proc/<pid>/environ`
+### 10.3 `/proc/<pid>/cmdline` và `/proc/<pid>/environ`
 
-## `cmdline`
+
+#### 10.3.1 `cmdline`
 
 Common layout:
 
@@ -1613,7 +1639,7 @@ Zombie thường đọc empty.
 
 Process có thể sửa visible argv memory, vì vậy không nên coi `cmdline` là immutable historical launch record.
 
-## `environ`
+#### 10.3.2 `environ`
 
 NUL-separated initial environment associated with current executed program.
 
@@ -1621,7 +1647,8 @@ Linux man-page có caveat: changes sau exec không nhất thiết được refle
 
 ---
 
-# 47. `/proc/<pid>/cwd`, `root`, `exe`, `fd`
+### 10.4 `/proc/<pid>/cwd`, `root`, `exe`, `fd`
+
 
 Concept:
 
@@ -1649,7 +1676,8 @@ fd table
 
 ---
 
-# 48. `/proc/<pid>/maps`
+### 10.5 `/proc/<pid>/maps`
+
 
 `maps` mô tả mapped virtual-memory regions.
 
@@ -1689,7 +1717,10 @@ physical RAM layout
 
 ---
 
-# 49. `ps` và `top` dưới góc nhìn process model
+## 11. Process Observation với `ps` và `top`
+
+### 11.1 `ps` và `top` dưới góc nhìn process model
+
 
 ```text
 kernel process/task state
@@ -1717,7 +1748,10 @@ Tools format/derive metrics từ process/system state; field names không nhất
 
 ---
 
-# 50. Process và thread: phân biệt tối thiểu cần thiết
+## 12. Process và Thread ở mức nền tảng
+
+### 12.1 Process và thread: phân biệt tối thiểu cần thiết
+
 
 Process có thể chứa nhiều threads.
 
@@ -1752,7 +1786,8 @@ Important fork caveat: child of `fork()` in a multithreaded process initially co
 
 ---
 
-# 51. PID, TID và TGID
+### 12.2 PID, TID và TGID
+
 
 Linux distinguishes:
 
@@ -1783,7 +1818,10 @@ Thread group TGID 100
 
 ---
 
-# 52. Process isolation và resource sharing
+## 13. Isolation, Resource Limits và Scheduling
+
+### 13.1 Process isolation và resource sharing
+
 
 Process model combines:
 
@@ -1818,7 +1856,8 @@ Do not equate “separate process” with “everything physically duplicated”
 
 ---
 
-# 53. Resource limits ở mức khái niệm
+### 13.2 Resource limits ở mức khái niệm
+
 
 Process has resource limits for categories such as:
 
@@ -1846,7 +1885,8 @@ Detailed `getrlimit/setrlimit` belongs later.
 
 ---
 
-# 54. Scheduling ở mức đủ để hiểu process lifecycle
+### 13.3 Scheduling ở mức đủ để hiểu process lifecycle
+
 
 Scheduler handles runnable tasks.
 
@@ -1884,7 +1924,10 @@ Nice values, CPU affinity and scheduling policies are outside Topic 4 core.
 
 ---
 
-# 55. Error model và tư duy debug process
+## 14. Error Model và Debugging
+
+### 14.1 Error model và tư duy debug process
+
 
 Debug by layers:
 
@@ -1912,7 +1955,7 @@ terminated but zombie?
 reaped correctly?
 ```
 
-## Process disappeared
+#### 14.1.1 Process disappeared
 
 Potential classes:
 
@@ -1923,7 +1966,7 @@ exec-launch failure
 OOM/security/service-manager action
 ```
 
-## PID exists but program name changed
+#### 14.1.2 PID exists but program name changed
 
 Possible:
 
@@ -1934,15 +1977,15 @@ PID was reused
 tool displays comm vs argv vs exe
 ```
 
-## State `D`
+#### 14.1.3 State `D`
 
 Interpret as uninterruptible sleep first, then investigate actual wait context. Không nên mặc định “process chết”.
 
-## Many zombies
+#### 14.1.4 Many zombies
 
 Likely parent reaping problem.
 
-## Memory appears huge
+#### 14.1.5 Memory appears huge
 
 Separate:
 
@@ -1954,15 +1997,18 @@ shared/file mappings
 anonymous memory
 ```
 
-## Parent/child file position surprises
+#### 14.1.6 Parent/child file position surprises
 
 Recall shared open file description after fork.
 
 ---
 
-# 56. Liên hệ với Embedded Linux
+## 15. Liên hệ với Embedded Linux
 
-## PID 1 / init
+### 15.1 Liên hệ với Embedded Linux
+
+
+#### 15.1.1 PID 1 / init
 
 After kernel mounts rootfs:
 
@@ -1986,7 +2032,7 @@ init
  +--> application
 ```
 
-## BusyBox
+#### 15.1.2 BusyBox
 
 Minimal systems may use:
 
@@ -1998,7 +2044,7 @@ small service processes
 
 Process fundamentals remain the same.
 
-## Daemon/service architecture
+#### 15.1.3 Daemon/service architecture
 
 Embedded product may have:
 
@@ -2027,7 +2073,7 @@ IPC
 lifecycle complexity
 ```
 
-## Device fd inheritance
+#### 15.1.4 Device fd inheritance
 
 A process can hold:
 
@@ -2052,7 +2098,7 @@ shared file/device state
 
 `FD_CLOEXEC` becomes important.
 
-## `/proc` on headless targets
+#### 15.1.5 `/proc` on headless targets
 
 Process diagnostics can rely on:
 
@@ -2069,7 +2115,10 @@ without GUI.
 
 ---
 
-# 57. Mô hình tư duy tổng hợp
+## 16. Tổng kết và Mental Model
+
+### 16.1 Mô hình tư duy tổng hợp
+
 
 ```text
                        EXECUTABLE FILE
@@ -2155,7 +2204,8 @@ Kernel process state
 
 ---
 
-# 58. Các nguyên tắc cốt lõi
+### 16.2 Các nguyên tắc cốt lõi
+
 
 1. Program là static executable description; process là dynamic execution instance.
 
@@ -2297,7 +2347,8 @@ wait/reap
 
 ---
 
-# Tài liệu tham khảo
+## 17. Tài liệu tham khảo
+
 
 Nguồn được ưu tiên theo thứ tự:
 
@@ -2315,9 +2366,9 @@ recognized Linux/Embedded Linux training
 reputable community discussion for edge cases
 ```
 
-## 1. POSIX / The Open Group
+### POSIX / The Open Group
 
-### POSIX.1-2024
+#### POSIX.1-2024
 - https://pubs.opengroup.org/onlinepubs/9799919799/
 
 Các interface liên quan:
@@ -2331,22 +2382,22 @@ getpid()/getppid()
 process-termination consequences
 ```
 
-### `fork()`
+#### `fork()`
 - https://pubs.opengroup.org/onlinepubs/9799919799/functions/fork.html
 
-### `exec`
+#### `exec`
 - https://pubs.opengroup.org/onlinepubs/9799919799/functions/exec.html
 
-### `wait()` / `waitpid()`
+#### `wait()` / `waitpid()`
 - https://pubs.opengroup.org/onlinepubs/9799919799/functions/wait.html
 
 POSIX được dùng để phân biệt portable process semantics với Linux-specific details.
 
 ---
 
-## 2. Linux man-pages — process creation and identity
+### Linux man-pages — process creation and identity
 
-### `fork(2)`
+#### `fork(2)`
 - https://man7.org/linux/man-pages/man2/fork.2.html
 
 Nguồn chính cho:
@@ -2361,7 +2412,7 @@ fork in multithreaded process
 resource-limit errors
 ```
 
-### `getpid(2)` / `getppid(2)`
+#### `getpid(2)` / `getppid(2)`
 - https://man7.org/linux/man-pages/man2/getppid.2.html
 
 Nguồn cho:
@@ -2374,7 +2425,7 @@ PID namespace caveat
 TGID/TID distinction note
 ```
 
-### `credentials(7)`
+#### `credentials(7)`
 - https://man7.org/linux/man-pages/man7/credentials.7.html
 
 Nguồn cho:
@@ -2390,9 +2441,9 @@ PID preserved across execve
 
 ---
 
-## 3. Linux man-pages — program execution
+### Linux man-pages — program execution
 
-### `execve(2)`
+#### `execve(2)`
 - https://man7.org/linux/man-pages/man2/execve.2.html
 
 Nguồn trung tâm cho:
@@ -2407,16 +2458,16 @@ FD_CLOEXEC
 credential transitions
 ```
 
-### `exec(3)`
+#### `exec(3)`
 - https://man7.org/linux/man-pages/man3/exec.3.html
 
 Dùng để đối chiếu libc exec-family variants.
 
 ---
 
-## 4. Linux man-pages — termination and child monitoring
+### Linux man-pages — termination and child monitoring
 
-### `wait(2)` / `waitpid(2)`
+#### `wait(2)` / `waitpid(2)`
 - https://man7.org/linux/man-pages/man2/waitpid.2.html
 
 Nguồn cho:
@@ -2429,7 +2480,7 @@ normal/signal termination status
 stopped/continued state
 ```
 
-### `exit(3)`
+#### `exit(3)`
 - https://man7.org/linux/man-pages/man3/exit.3.html
 
 Nguồn cho libc-level normal termination:
@@ -2440,7 +2491,7 @@ stdio flushing
 exit status
 ```
 
-### `_exit(2)`
+#### `_exit(2)`
 - https://man7.org/linux/man-pages/man2/exit.2.html
 
 Nguồn cho:
@@ -2453,14 +2504,14 @@ parent notification
 glibc/kernel exit_group nuance
 ```
 
-### `atexit(3)`
+#### `atexit(3)`
 - https://man7.org/linux/man-pages/man3/atexit.3.html
 
 ---
 
-## 5. Linux Kernel Documentation — `/proc`
+### Linux Kernel Documentation — `/proc`
 
-### The `/proc` Filesystem
+#### The `/proc` Filesystem
 - https://docs.kernel.org/filesystems/proc.html
 
 Nguồn kernel cho:
@@ -2477,27 +2528,27 @@ accounting
 
 ---
 
-## 6. Linux man-pages — `/proc/<pid>`
+### Linux man-pages — `/proc/<pid>`
 
-### `proc_pid(5)`
+#### `proc_pid(5)`
 - https://man7.org/linux/man-pages/man5/proc_pid.5.html
 
-### `proc_pid_status(5)`
+#### `proc_pid_status(5)`
 - https://man7.org/linux/man-pages/man5/proc_pid_status.5.html
 
-### `proc_pid_stat(5)`
+#### `proc_pid_stat(5)`
 - https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html
 
-### `proc_pid_cmdline(5)`
+#### `proc_pid_cmdline(5)`
 - https://man7.org/linux/man-pages/man5/proc_pid_cmdline.5.html
 
-### `proc_pid_environ(5)`
+#### `proc_pid_environ(5)`
 - https://man7.org/linux/man-pages/man5/proc_pid_environ.5.html
 
-### `proc_pid_maps(5)`
+#### `proc_pid_maps(5)`
 - https://man7.org/linux/man-pages/man5/proc_pid_maps.5.html
 
-### `proc_pid_smaps(5)`
+#### `proc_pid_smaps(5)`
 - https://man7.org/linux/man-pages/man5/proc_pid_smaps.5.html
 
 Các nguồn này hỗ trợ:
@@ -2512,22 +2563,22 @@ process metadata
 
 ---
 
-## 7. procps-ng
+### procps-ng
 
-### Upstream
+#### Upstream
 - https://gitlab.com/procps-ng/procps
 
-### `ps(1)`
+#### `ps(1)`
 - https://man7.org/linux/man-pages/man1/ps.1.html
 
-### `top(1)`
+#### `top(1)`
 - https://man7.org/linux/man-pages/man1/top.1.html
 
 Dùng để đối chiếu cách userspace tools biểu diễn process state.
 
 ---
 
-## 8. Linux scheduler documentation
+### Linux scheduler documentation
 
 - https://docs.kernel.org/scheduler/
 
@@ -2543,9 +2594,9 @@ Scheduler policy/nice/affinity nằm ngoài Topic 4.
 
 ---
 
-## 9. GNU C Library
+### GNU C Library
 
-### GNU C Library Manual
+#### GNU C Library Manual
 - https://www.gnu.org/software/libc/manual/
 
 Nguồn bổ sung cho:
@@ -2560,9 +2611,9 @@ exit vs _exit context
 
 ---
 
-## 10. Bootlin
+### Bootlin
 
-### Embedded Linux System Development
+#### Embedded Linux System Development
 - https://bootlin.com/training/embedded-linux/
 - https://bootlin.com/doc/training/embedded-linux/
 
@@ -2577,12 +2628,12 @@ process/service execution
 root filesystem
 ```
 
-### Bootlin documentation index
+#### Bootlin documentation index
 - https://bootlin.com/docs/
 
 ---
 
-## 11. The Linux Programming Interface / man7.org
+### The Linux Programming Interface / man7.org
 
 - https://man7.org/tlpi/
 - https://man7.org/training/
@@ -2602,12 +2653,12 @@ Exact semantics vẫn ưu tiên POSIX/man-pages.
 
 ---
 
-## 12. Reputable community references
+### Reputable community references
 
-### Unix & Linux Stack Exchange
+#### Unix & Linux Stack Exchange
 - https://unix.stackexchange.com/
 
-### Stack Overflow
+#### Stack Overflow
 - https://stackoverflow.com/
 
 Chỉ dùng để nghiên cứu edge cases thực tế như:
@@ -2632,7 +2683,7 @@ glibc docs
 
 ---
 
-## Nguyên tắc kiểm chứng khi đọc tài liệu Process
+### Nguyên tắc kiểm chứng khi đọc tài liệu Process
 
 Khi hai nguồn có vẻ khác nhau, cần hỏi:
 
