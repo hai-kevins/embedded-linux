@@ -185,18 +185,20 @@ TARGET — BeagleBone Black
 **Điểm kết thúc Fresher:** không cần biết mọi phần của Linux kernel. Quan trọng là có thể **build → boot → tích hợp hardware → debug** một hệ thống Embedded Linux cơ bản và giải thích rõ vì sao từng thành phần hoạt động.
 
 ## Kiến trúc Embedded Linux
-┌──────────────────────────────────────────┐
-│ 6. PRODUCT / APPLICATION                 │
-├──────────────────────────────────────────┤
-│ 5. SYSTEM SERVICES / MIDDLEWARE          │
-├──────────────────────────────────────────┤
-│ 4. ROOTFS / BUILD SYSTEM                 │
-├──────────────────────────────────────────┤
-│ 3. KERNEL / DRIVER / BSP                 │
-├──────────────────────────────────────────┤
-│ 2. BOOTLOADER                            │
-├──────────────────────────────────────────┤
-│ 1. HARDWARE / SoC                        │
-└──────────────────────────────────────────┘
+```text
+┌──────────────────────────────────┐
+│ 6. PRODUCT / APPLICATION         │
+├──────────────────────────────────┤
+│ 5. SYSTEM SERVICES / MIDDLEWARE  │
+├──────────────────────────────────┤
+│ 4. ROOTFS / BUILD SYSTEM         │
+├──────────────────────────────────┤
+│ 3. KERNEL / DRIVER / BSP         │
+├──────────────────────────────────┤
+│ 2. BOOTLOADER                    │
+├──────────────────────────────────┤
+│ 1. HARDWARE / SoC                │
+└──────────────────────────────────┘
+```
 
 Roadmap trên bao phủ hoàn toàn, cực kỳ đầy đủ và chi tiết toàn bộ kiến thức từ Tầng 1 → Tầng 4 của hệ thống Embedded Linux.
