@@ -8,10 +8,11 @@
 >
 > Chương này chỉ có **lý thuyết**, không có bài thực hành. Mutex, condition variable, semaphore và các cơ chế đồng bộ chi tiết thuộc **Chủ đề 7**.
 
-> **Cách đọc tài liệu này nếu bạn mới bắt đầu:**
-> 1. Đọc câu **Nói đơn giản** ở đầu mỗi mục lớn để biết mục đó đang giải quyết vấn đề gì.
-> 2. Xem sơ đồ và ví dụ trước; chưa cần nhớ ngay mọi cờ, mã lỗi hay trường hợp đặc biệt.
-> 3. Sau khi đã hiểu ý chính, mới đọc các mục `###` theo thứ tự. Nếu gặp thuật ngữ mới, hãy quay lại câu giải thích đầu mục thay vì cố học thuộc định nghĩa.
+Một tiến trình có thể chứa nhiều luồng thực thi. Các luồng **dùng chung phần lớn tài nguyên của tiến trình** như không gian địa chỉ và file descriptor, nhưng mỗi luồng vẫn cần ngăn xếp, thanh ghi CPU, trạng thái lập lịch và định danh riêng. Chính việc “dùng chung nhiều nhưng chạy độc lập” tạo ra cả lợi ích lẫn rủi ro của multithreading.
+
+Chương này tập trung vào mô hình luồng và vòng đời Pthreads: tạo bằng `pthread_create()`, kết thúc, `join` hoặc `detach`, chi phí ngăn xếp, khác biệt giữa concurrency và parallelism, rồi mới chạm tới race condition để chuẩn bị cho chủ đề đồng bộ tiếp theo.
+
+**Cách đọc nếu bạn mới bắt đầu.** Trước hết hãy đọc phần **Nói đơn giản** ở đầu mỗi mục lớn để nắm câu hỏi mà mục đó đang giải quyết. Sau đó xem sơ đồ và ví dụ để hình thành mô hình trong đầu; chưa cần nhớ mọi cờ, mã lỗi hay trường hợp đặc biệt. Khi ý chính đã rõ, hãy đọc các mục `###` theo thứ tự và quay lại phần giải thích trước đó nếu gặp một thuật ngữ chưa quen.
 
 ---
 
@@ -68,15 +69,7 @@ Các luồng cùng thuộc một tiến trình nhưng bộ lập lịch của nh
 
 ### 1.2 Vì sao cần nhiều luồng?
 
-Một chương trình thực tế có thể phải làm nhiều việc:
-
-```text
-đọc thiết bị
-xử lý dữ liệu
-gửi mạng
-ghi log
-chờ yêu cầu người dùng
-```
+Một chương trình thực tế có thể phải làm nhiều việc: đọc thiết bị, xử lý dữ liệu, gửi mạng, ghi log và chờ yêu cầu người dùng.
 
 Nếu mọi việc nằm trên một luồng duy nhất, một thao tác bị chặn có thể làm dòng thực thi đó đứng lại:
 
@@ -102,15 +95,7 @@ Luồng mạng          ---> vẫn có thể chạy
 
 ### 1.3 Luồng không chỉ là “một hàm chạy nền”
 
-Một luồng thường bắt đầu tại một hàm, nhưng bản thân luồng là **ngữ cảnh thực thi** có:
-
-```text
-bộ thanh ghi riêng
-bộ đếm lệnh riêng
-con trỏ ngăn xếp riêng
-ngăn xếp riêng
-trạng thái lập lịch riêng
-```
+Một luồng thường bắt đầu tại một hàm, nhưng bản thân luồng là **ngữ cảnh thực thi** có: bộ thanh ghi riêng, bộ đếm lệnh riêng, con trỏ ngăn xếp riêng, ngăn xếp riêng và trạng thái lập lịch riêng.
 
 Hàm bắt đầu chỉ là nơi luồng đi vào mã chương trình.
 
@@ -122,17 +107,7 @@ Hàm bắt đầu chỉ là nơi luồng đi vào mã chương trình.
 
 ### 2.1 Tiến trình là vùng chứa tài nguyên
 
-Một tiến trình có những thành phần như:
-
-```text
-không gian địa chỉ ảo
-mã chương trình
-dữ liệu toàn cục
-heap
-bảng bộ mô tả tệp
-thư mục làm việc
-cách xử lý signal
-```
+Một tiến trình có những thành phần như: không gian địa chỉ ảo, mã chương trình, dữ liệu toàn cục, heap, bảng bộ mô tả tệp, thư mục làm việc và cách xử lý signal.
 
 Nếu tạo một **tiến trình khác**, hai tiến trình bình thường có không gian địa chỉ riêng.
 
@@ -378,13 +353,7 @@ Cách hình dung:
 
 Đây là điểm phải nhớ:
 
-```text
-pthread_t
-  định danh ở lớp POSIX / thư viện
-
-TID
-  định danh luồng ở lớp nhân Linux
-```
+`pthread_t`: định danh ở lớp POSIX / thư viện; `TID`: định danh luồng ở lớp nhân Linux.
 
 Chúng có liên hệ tới cùng một luồng nhưng không phải cùng một kiểu giá trị.
 
@@ -427,18 +396,7 @@ Luồng B cũng có thể dùng fd 5
 
 ### 5.2 Phần riêng của từng luồng
 
-Mỗi luồng có những thành phần riêng như:
-
-```text
-ngăn xếp
-thanh ghi CPU
-bộ đếm lệnh
-TID
-pthread_t
-mặt nạ signal
-errno theo luồng
-trạng thái lập lịch
-```
+Mỗi luồng có những thành phần riêng như: ngăn xếp, thanh ghi CPU, bộ đếm lệnh, `TID`, `pthread_t`, mặt nạ signal, errno theo luồng và trạng thái lập lịch.
 
 ---
 
@@ -485,13 +443,7 @@ Một `errno` dùng chung duy nhất cho toàn tiến trình sẽ không phù h�
 
 Nhắc lại Chủ đề 5:
 
-```text
-cách xử lý signal (disposition)
-  dùng chung ở cấp tiến trình
-
-mặt nạ signal
-  riêng cho từng luồng
-```
+`cách xử lý signal (disposition)`: dùng chung ở cấp tiến trình; **mặt nạ signal**: riêng cho từng luồng.
 
 Chi tiết kiến trúc signal với nhiều luồng không thuộc phạm vi chính của Topic 6.
 
@@ -505,14 +457,7 @@ Chi tiết kiến trúc signal với nhiều luồng không thuộc phạm vi ch
 
 Giao diện khái niệm:
 
-```text
-pthread_create(
-    nơi nhận pthread_t,
-    thuộc tính,
-    hàm bắt đầu,
-    đối số
-)
-```
+`pthread_create(`: nơi nhận pthread_t, thuộc tính, hàm bắt đầu, đối số ).
 
 Sau khi thành công:
 
@@ -567,13 +512,7 @@ Luồng mới --------+
 
 hai luồng có thể đang nhìn cùng một vùng nhớ.
 
-Do đó phải quan tâm:
-
-```text
-đối tượng còn tồn tại bao lâu?
-ai được thay đổi nó?
-khi nào luồng mới đọc nó?
-```
+Do đó phải xác định rõ đối tượng sống bao lâu, luồng nào được phép thay đổi nó và thời điểm luồng mới bắt đầu đọc dữ liệu.
 
 Cơ chế đồng bộ cụ thể thuộc Chủ đề 7.
 
@@ -609,13 +548,7 @@ Theo Linux/Pthreads, luồng mới nhận một số trạng thái từ luồng 
 
 Điểm cần nhớ:
 
-```text
-Tạo luồng
-  không đồng nghĩa
-mọi trạng thái đều mới hoàn toàn
-```
-
-nhưng mỗi loại trạng thái có quy tắc riêng.
+Tạo một luồng mới không có nghĩa mọi trạng thái đều được tạo mới hoàn toàn; từng loại trạng thái có quy tắc dùng chung, kế thừa hoặc khởi tạo riêng.
 
 ---
 
@@ -623,21 +556,7 @@ nhưng mỗi loại trạng thái có quy tắc riêng.
 
 Nhiều API Pthreads dùng quy ước:
 
-```text
-0
-  thành công
-
-mã lỗi khác 0
-  thất bại
-```
-
-chứ không nhất thiết dùng:
-
-```text
--1 và errno
-```
-
-như nhiều lời gọi hệ thống Linux.
+Nhiều hàm Pthreads trả `0` khi thành công và trả trực tiếp một mã lỗi khác `0` khi thất bại. Đây là quy ước khác với nhiều lời gọi hệ thống Linux, vốn thường trả `-1` và đặt mã lỗi trong `errno`.
 
 Đây là điểm dễ nhầm khi học song song lời gọi hệ thống và Pthreads.
 
@@ -711,13 +630,7 @@ Tương tự, khi `main()` trả về theo luồng thực thi thông thường, 
 
 Do đó:
 
-```text
-pthread_exit()
-  kết thúc một luồng
-
-exit()/return từ main
-  kết thúc tiến trình
-```
+`pthread_exit()`: kết thúc một luồng; `exit()/return từ main`: kết thúc tiến trình.
 
 ---
 
@@ -833,14 +746,7 @@ detached
 
 chỉ nói về **cách xử lý tài nguyên sau khi luồng kết thúc**.
 
-Nó không nói rằng luồng:
-
-```text
-có ưu tiên thấp hơn
-không chiếm CPU
-không thể chạy song song
-trở thành daemon
-```
+Nó không nói rằng luồng: có ưu tiên thấp hơn, không chiếm CPU, không thể chạy song song và trở thành daemon.
 
 ---
 
@@ -942,15 +848,7 @@ Nó không phải lớp bảo vệ tuyệt đối chống mọi lỗi bộ nhớ
 
 ### 9.5 Một luồng không “miễn phí”
 
-Mỗi luồng có chi phí:
-
-```text
-ngăn xếp
-trạng thái trong nhân
-thông tin lập lịch
-TLS và dữ liệu thư viện
-các cấu trúc quản lý khác
-```
+Mỗi luồng có chi phí: ngăn xếp, trạng thái trong nhân, thông tin lập lịch, TLS và dữ liệu thư viện và các cấu trúc quản lý khác.
 
 Vì vậy:
 
@@ -1018,22 +916,9 @@ Luồng B -> xử lý dữ liệu
 
 ### 10.4 CPU-bound và số lõi
 
-Nếu tất cả luồng đều chỉ tính toán liên tục:
+Nếu máy chỉ có 2 lõi CPU nhưng có 100 luồng luôn ở trạng thái runnable, tối đa chỉ một số nhỏ luồng thực sự chạy đồng thời. Tạo thêm luồng không tạo thêm lõi CPU.
 
-```text
-2 lõi CPU
-100 luồng luôn runnable
-```
-
-thì việc có 100 luồng không tạo 100 luồng chạy song song.
-
-Nó có thể tăng:
-
-```text
-chuyển ngữ cảnh
-áp lực cache
-độ trễ lập lịch
-```
+Nó có thể tăng: chuyển ngữ cảnh, áp lực cache và độ trễ lập lịch.
 
 ---
 
@@ -1049,13 +934,7 @@ Nhìn ở mã nguồn:
 counter = counter + 1
 ```
 
-nhưng về ý tưởng có thể gồm:
-
-```text
-đọc counter
-cộng 1
-ghi lại counter
-```
+nhưng về ý tưởng có thể gồm: đọc counter, cộng 1 và ghi lại counter.
 
 Hai luồng có thể xen kẽ:
 
@@ -1126,12 +1005,7 @@ Linux thể hiện các luồng của một tiến trình dưới:
 
 Ví dụ:
 
-```text
-/proc/4200/task/
-    4200/
-    4201/
-    4202/
-```
+`/proc/4200/task/`: 4200/ 4201/ 4202/.
 
 Có thể hiểu:
 
@@ -1177,24 +1051,11 @@ Do bộ lập lịch làm việc với các thực thể luồng/tác vụ, mứ
 
 ### 12.4 Tên luồng không phải ID
 
-Một luồng có thể có tên để dễ gỡ lỗi, ví dụ:
-
-```text
-sensor
-network
-logger
-```
+Một luồng có thể có tên để dễ gỡ lỗi, ví dụ: sensor, network và logger.
 
 Nhưng tên chỉ là nhãn quan sát.
 
-Không nên dùng nó thay cho:
-
-```text
-pthread_t
-TID
-```
-
-trong các API yêu cầu định danh thật.
+Tên luồng chỉ phục vụ quan sát và gỡ lỗi; không nên dùng nó thay cho `pthread_t` hoặc TID trong các API yêu cầu định danh thực.
 
 ---
 
@@ -1254,27 +1115,13 @@ nên các luồng phụ không giữ tiến trình tồn tại theo cách ngư�
 
 ### 13.4 “Số luồng/tài nguyên cứ tăng”
 
-Cần nghĩ tới:
-
-```text
-liên tục tạo luồng mới
-luồng không kết thúc
-luồng joinable kết thúc nhưng không được join
-ngăn xếp cấu hình quá lớn
-```
+Cần nghĩ tới: liên tục tạo luồng mới, luồng không kết thúc, luồng joinable kết thúc nhưng không được join và ngăn xếp cấu hình quá lớn.
 
 ---
 
 ### 13.5 “Dữ liệu lúc đúng lúc sai”
 
-Đây là dấu hiệu điển hình để nghĩ tới:
-
-```text
-race condition
-đối tượng hết vòng đời
-con trỏ dùng sau khi đối tượng không còn hợp lệ
-nhiều luồng cùng thay đổi trạng thái
-```
+Đây là dấu hiệu điển hình để nghĩ tới: race condition, đối tượng hết vòng đời, con trỏ dùng sau khi đối tượng không còn hợp lệ và nhiều luồng cùng thay đổi trạng thái.
 
 Thay đổi timing do thêm log có thể làm lỗi biến mất tạm thời nhưng không chứng minh lỗi đã được sửa.
 
@@ -1312,13 +1159,7 @@ Luồng B cũng có thể dùng fd 5
 
 Nhưng điều đó không có nghĩa ứng dụng nên để mọi luồng đọc/ghi tùy ý.
 
-Thiết kế cần xác định:
-
-```text
-ai sở hữu thiết bị?
-ai được gửi lệnh?
-ai đọc phản hồi?
-```
+Thiết kế cần xác định rõ luồng nào sở hữu thiết bị, luồng nào được gửi lệnh và luồng nào chịu trách nhiệm đọc phản hồi.
 
 Cơ chế đồng bộ cụ thể thuộc Topic 7.
 
@@ -1326,12 +1167,7 @@ Cơ chế đồng bộ cụ thể thuộc Topic 7.
 
 ### 14.3 Giới hạn RAM
 
-Trên board nhúng:
-
-```text
-RAM hữu hạn
-số lõi hữu hạn
-```
+Trên board nhúng: RAM hữu hạn và số lõi hữu hạn.
 
 Mỗi luồng thêm một ngăn xếp và trạng thái quản lý.
 
@@ -1349,34 +1185,15 @@ không nên được dùng máy móc.
 
 Các SoC như Cortex-A đa lõi có thể cho nhiều luồng CPU-bound chạy song song.
 
-Nhưng tốc độ còn phụ thuộc:
-
-```text
-cache
-băng thông bộ nhớ
-cách chia công việc
-đồng bộ
-scheduler
-```
+Nhưng tốc độ còn phụ thuộc: `cache`, băng thông bộ nhớ, cách chia công việc, đồng bộ và scheduler.
 
 ---
 
 ### 14.5 Ranh giới giữa thread và process là quyết định kiến trúc
 
-Dùng luồng khi cần:
+Dùng luồng khi cần: chia sẻ dữ liệu nhanh và cùng một miền tài nguyên.
 
-```text
-chia sẻ dữ liệu nhanh
-cùng một miền tài nguyên
-```
-
-Dùng tiến trình riêng khi cần mạnh hơn về:
-
-```text
-cách ly lỗi
-phân quyền
-khởi động lại độc lập
-```
+Dùng tiến trình riêng khi cần mạnh hơn về: cách ly lỗi, phân quyền và khởi động lại độc lập.
 
 Một sản phẩm Embedded Linux thường kết hợp cả hai.
 
@@ -1483,19 +1300,11 @@ Nguồn chuẩn cho ngữ nghĩa Pthreads có tính di động.
 
 - GNU C Library Manual: https://www.gnu.org/software/libc/manual/
 - Bootlin Embedded Linux: https://bootlin.com/doc/training/embedded-linux/
-- The Linux Programming Giao diện: https://man7.org/tlpi/
+- The Linux Programming Interface: https://man7.org/tlpi/
 
 ### Cách ưu tiên nguồn
 
-```text
-POSIX
-  ↓
-Linux man-pages / glibc
-  ↓
-Tài liệu đào tạo kỹ thuật uy tín
-  ↓
-Cộng đồng để tìm tình huống thực tế
-```
+`POSIX`: ↓ Linux man-pages / glibc ↓ Tài liệu đào tạo kỹ thuật uy tín ↓ Cộng đồng để tìm tình huống thực tế.
 
 Khi đọc bài cộng đồng về `pthread_t`, TID, stack hoặc scheduling, nên đối chiếu lại với POSIX/Linux man-pages trước khi coi đó là ngữ nghĩa chuẩn.
 

@@ -8,10 +8,11 @@
 >
 > Chương này chỉ có **lý thuyết**, không có bài thực hành.
 
-> **Cách đọc tài liệu này nếu bạn mới bắt đầu:**
-> 1. Đọc câu **Nói đơn giản** ở đầu mỗi mục lớn để biết mục đó đang giải quyết vấn đề gì.
-> 2. Xem sơ đồ và ví dụ trước; chưa cần nhớ ngay mọi cờ, mã lỗi hay trường hợp đặc biệt.
-> 3. Sau khi đã hiểu ý chính, mới đọc các mục `###` theo thứ tự. Nếu gặp thuật ngữ mới, hãy quay lại câu giải thích đầu mục thay vì cố học thuộc định nghĩa.
+Signal nên được hiểu là **một cơ chế thông báo do kernel chuyển tới tiến trình hoặc luồng**, chứ không phải một lời gọi hàm bình thường. Khi tín hiệu phát sinh, nó có thể đang chờ, bị chặn bởi mask, bị bỏ qua, thực hiện hành động mặc định hoặc làm chương trình chuyển sang một handler đã đăng ký.
+
+Điểm khó nhất của signal không nằm ở tên `SIGINT` hay `SIGTERM`, mà ở thời điểm delivery và những giới hạn khi handler chen vào luồng thực thi hiện tại. Vì vậy chương này đi từ vòng đời signal tới `sigaction()`, signal mask, `EINTR` và quy tắc async-signal-safe.
+
+**Cách đọc nếu bạn mới bắt đầu.** Trước hết hãy đọc phần **Nói đơn giản** ở đầu mỗi mục lớn để nắm câu hỏi mà mục đó đang giải quyết. Sau đó xem sơ đồ và ví dụ để hình thành mô hình trong đầu; chưa cần nhớ mọi cờ, mã lỗi hay trường hợp đặc biệt. Khi ý chính đã rõ, hãy đọc các mục `###` theo thứ tự và quay lại phần giải thích trước đó nếu gặp một thuật ngữ chưa quen.
 
 ---
 
@@ -92,15 +93,7 @@ Một số tín hiệu gắn chặt với instruction đang thực thi, ví dụ
 
 Một số tín hiệu đến từ sự kiện bên ngoài luồng code hiện tại, như `SIGTERM` do tiến trình khác gửi.
 
-Do đó nên phân biệt:
-
-```text
-synchronous fault relative to hiện tại execution
-vs
-asynchronous external notification
-```
-
-nhưng cả hai đều đi qua signal mechanism.
+Do đó nên phân biệt lỗi đồng bộ phát sinh từ chính luồng thực thi hiện tại với thông báo bất đồng bộ đến từ bên ngoài. Cả hai trường hợp đều có thể được biểu diễn qua cơ chế signal, nhưng nguyên nhân và cách suy luận khác nhau.
 
 ---
 
@@ -148,13 +141,7 @@ tín hiệu đang bị chặn bởi signal mask
 
 ### 2.3 Phân phối
 
-Khi tín hiệu đủ điều kiện được delivery, nhân Linux áp dụng cách xử lý tương ứng:
-
-```text
-ignore
-handler
-hành động mặc định
-```
+Khi tín hiệu đủ điều kiện được delivery, nhân Linux áp dụng cách xử lý tương ứng: `ignore`, `handler` và hành động mặc định.
 
 ### 2.4 Sơ đồ trạng thái
 
@@ -183,25 +170,11 @@ stateDiagram-v2
 
 Mỗi signal có một **cách xử lý** (`disposition`).
 
-Ba hướng chính:
-
-```text
-hành động mặc định
-bỏ qua
-chạy handler do application cài
-```
+Ba hướng chính: hành động mặc định, bỏ qua và chạy handler do application cài.
 
 ### 3.2 Hành động mặc định
 
-Tùy tín hiệu, hành động mặc định có thể là:
-
-```text
-terminate
-terminate + core dump
-ignore
-stop
-continue
-```
+Tùy tín hiệu, hành động mặc định có thể là: `terminate`, terminate + core dump, `ignore`, `stop` và `continue`.
 
 Không phải mọi tín hiệu mặc định đều “kill tiến trình”.
 
@@ -234,13 +207,7 @@ nếu signal/action không làm tiến trình kết thúc hoặc dừng.
 
 ### 3.5 `SIGKILL` và `SIGSTOP`
 
-Hai tín hiệu này đặc biệt:
-
-```text
-không catch
-không ignore
-không block
-```
+Hai tín hiệu này đặc biệt: không catch, không ignore và không block.
 
 Chúng dành cho cơ chế điều khiển bắt buộc của nhân Linux.
 
@@ -252,15 +219,7 @@ Chúng dành cho cơ chế điều khiển bắt buộc của nhân Linux.
 
 ### 4.1 Không hard-code số tín hiệu
 
-Ứng dụng nên dùng tên:
-
-```text
-SIGINT
-SIGTERM
-SIGKILL
-```
-
-thay vì giả định một số numeric cố định trên mọi kiến trúc.
+Ứng dụng nên dùng các tên chuẩn như `SIGINT`, `SIGTERM` và `SIGKILL` thay vì hard-code một số tín hiệu cố định cho mọi kiến trúc.
 
 ### 4.2 `SIGINT`
 
@@ -272,14 +231,7 @@ Thường gắn với yêu cầu interrupt từ terminal, ví dụ `Ctrl+C` tron
 
 Là yêu cầu kết thúc có thể được ứng dụng bắt và xử lý.
 
-Nó phù hợp với graceful service shutdown vì chương trình có cơ hội:
-
-```text
-dừng nhận việc mới
-flush trạng thái phù hợp
-đóng tài nguyên
-thoát có kiểm soát
-```
+Nó phù hợp với graceful service shutdown vì chương trình có cơ hội: dừng nhận việc mới, flush trạng thái phù hợp, đóng tài nguyên và thoát có kiểm soát.
 
 ### 4.4 `SIGKILL`
 
@@ -341,16 +293,7 @@ Liên quan lớp arithmetic exception; tên lịch sử không có nghĩa nó ch
 
 Ba trạng thái dễ nhầm:
 
-```text
-disposition
-  tiến trình sẽ làm gì khi signal delivery?
-
-mask
-  signal nào đang bị block?
-
-đang chờ
-  signal nào đã phát sinh nhưng chưa delivery?
-```
+`disposition` cho biết tiến trình sẽ xử lý tín hiệu như thế nào khi tín hiệu được phân phối; `mask` cho biết tín hiệu nào đang bị chặn; trạng thái **pending** cho biết tín hiệu nào đã phát sinh nhưng chưa được phân phối.
 
 ### 5.1 Disposition là process-wide
 
@@ -384,13 +327,7 @@ Topic 6 sẽ giải thích luồng sâu hơn.
 
 ### 5.4 Block không bằng ignore
 
-```text
-blocked
-  giữ signal ở đang chờ cho tới khi được phép delivery
-
-ignored
-  disposition yêu cầu bỏ qua signal
-```
+`blocked`: giữ signal ở đang chờ cho tới khi được phép delivery; `ignored`: disposition yêu cầu bỏ qua signal.
 
 Hai cơ chế có ý nghĩa khác nhau.
 
@@ -404,13 +341,7 @@ Hai cơ chế có ý nghĩa khác nhau.
 
 `signal()` có lịch sử ngữ nghĩa khác nhau giữa các hệ thống cũ.
 
-`sigaction()` là giao diện chuẩn và rõ ràng hơn để cấu hình:
-
-```text
-handler
-tập signal block trong handler
-flags
-```
+`sigaction()` là giao diện chuẩn và rõ ràng hơn để cấu hình: `handler`, tập signal block trong handler và flags.
 
 ### 6.2 `struct sigaction`
 
@@ -424,13 +355,7 @@ sa_flags
 
 ### 6.3 `sa_handler`
 
-Có thể chỉ:
-
-```text
-function handler
-SIG_DFL
-SIG_IGN
-```
+Có thể chỉ: function handler, `SIG_DFL` và `SIG_IGN`.
 
 ### 6.4 `sa_mask`
 
@@ -440,7 +365,7 @@ Theo mặc định, signal đang được xử lý cũng thường bị block tr
 
 ### 6.5 `SA_RESTART`
 
-Yêu cầu nhân Linux/libc tự restart một số lời gọi hệ thống bị signal gián đoạn.
+`SA_RESTART` yêu cầu hệ thống tự khởi động lại một số lời gọi hệ thống khi chúng bị signal làm gián đoạn. Việc restart cụ thể phụ thuộc lời gọi và ngữ nghĩa của hệ thống.
 
 Điểm cần nhớ:
 
@@ -462,15 +387,7 @@ Chi tiết trường nào hợp lệ phụ thuộc loại signal và nguồn ph�
 
 POSIX dùng `sigset_t` để biểu diễn tập signal.
 
-Các API tập hợp cho phép:
-
-```text
-khởi tạo tập rỗng
-khởi tạo tập đầy
-thêm signal
-xóa signal
-kiểm tra membership
-```
+Các API tập hợp cho phép: khởi tạo tập rỗng, khởi tạo tập đầy, thêm signal, xóa signal và kiểm tra membership.
 
 ### 7.2 `sigprocmask()`
 
@@ -478,16 +395,7 @@ Trong single-threaded tiến trình, API này thay signal mask.
 
 Ba thao tác logic:
 
-```text
-SIG_BLOCK
-  thêm signal vào mask
-
-SIG_UNBLOCK
-  bỏ signal khỏi mask
-
-SIG_SETMASK
-  thay mask bằng tập mới
-```
+`SIG_BLOCK`: thêm signal vào mask; `SIG_UNBLOCK`: bỏ signal khỏi mask; `SIG_SETMASK`: thay mask bằng tập mới.
 
 Trong chương trình đa luồng nên dùng API luồng-aware phù hợp như `pthread_sigmask()`.
 
@@ -495,7 +403,7 @@ Trong chương trình đa luồng nên dùng API luồng-aware phù hợp như `
 
 Cho phép hỏi tập tín hiệu đang đang chờ đối với tiến trình/luồng ngữ cảnh theo ngữ nghĩa.
 
-Đang chờ set không phải một message hàng đợi tổng quát.
+Tập tín hiệu pending không phải một hàng đợi thông điệp tổng quát.
 
 ---
 
@@ -524,14 +432,7 @@ signal 0 để kiểm tra existence/permission theo ngữ nghĩa
 
 ### 8.2 Ý nghĩa của PID argument
 
-Ở mức khái niệm, `kill()` có thể nhắm:
-
-```text
-một PID cụ thể
-tiến trình group của caller
-a tiến trình group cụ thể
-một tập tiến trình được phép theo ngữ nghĩa đặc biệt
-```
+Ở mức khái niệm, `kill()` có thể nhắm: một PID cụ thể, tiến trình group của caller, a tiến trình group cụ thể và một tập tiến trình được phép theo ngữ nghĩa đặc biệt.
 
 Cần đọc `kill(2)` khi dùng các giá trị đặc biệt.
 
@@ -601,16 +502,7 @@ POSIX định nghĩa một tập hàm an toàn để gọi từ asynchronous hà
 
 Nhiều hàm thư viện **không** async-signal-safe.
 
-Ví dụ các cơ chế dùng:
-
-```text
-malloc internal trạng thái
-stdio buffers
-mutex nội bộ
-global non-reentrant trạng thái
-```
-
-có thể bị gián đoạn đúng lúc chưa nhất quán.
+Các hàm như `malloc()` hoặc `stdio` có thể đang giữ trạng thái nội bộ hay mutex đúng lúc signal handler chen vào. Nếu handler gọi lại một hàm không async-signal-safe, nó có thể đụng vào trạng thái đang dở dang và gây deadlock hoặc lỗi khó đoán.
 
 ### 10.2 Ví dụ deadlock nội bộ
 
@@ -739,13 +631,7 @@ Nhiều instance cùng loại có thể được gộp theo đang chờ ngữ ng
 
 ### 12.3 “Chương trình treo sau khi thêm handler”
 
-Nghi ngờ:
-
-```text
-handler gọi function không async-signal-safe
-handler deadlock trên lock nội bộ
-handler thực hiện logic quá lớn
-```
+Nghi ngờ: handler gọi function không async-signal-safe, handler deadlock trên lock nội bộ và handler thực hiện logic quá lớn.
 
 ### 12.4 “`read()` đột nhiên trả -1”
 
@@ -759,19 +645,13 @@ shutdown policy?
 
 ### 12.5 “SIGTERM không dừng process”
 
-`SIGTERM` có thể bị:
-
-```text
-caught
-ignored
-blocked tạm thời
-```
+`SIGTERM` có thể bị: caught, ignored và blocked tạm thời.
 
 Không có ngữ nghĩa cưỡng bức giống `SIGKILL`.
 
 ### 12.6 “SIGKILL không biến mất ngay”
 
-Nếu task đang ở nhân Linux trạng thái đặc biệt như uninterruptible sleep, delivery/termination observable có thể chờ tới khi task thoát khỏi trạng thái đó.
+Nếu task đang ở trạng thái của Linux kernel đặc biệt như uninterruptible sleep, delivery/termination observable có thể chờ tới khi task thoát khỏi trạng thái đó.
 
 Điều này không có nghĩa `SIGKILL` bị catch/ignore.
 
@@ -807,15 +687,7 @@ Nhân Linux không quy định universal meaning “SIGHUP luôn là reload conf
 
 ### 13.3 Child worker
 
-Supervisor có thể kết hợp:
-
-```text
-fork
-SIGCHLD
-waitpid
-```
-
-để quản lý luồng xử lý tiến trình.
+Một supervisor có thể kết hợp `fork()`, `SIGCHLD` và `waitpid()` để quản lý vòng đời các tiến trình con.
 
 ### 13.4 UART/TTY
 
@@ -871,7 +743,7 @@ Các ý cần nhớ:
 10. Handler chạy trong luồng ngữ cảnh nhận signal, không phải luồng riêng.
 11. Chỉ gọi async-signal-safe operations từ asynchronous handler.
 12. Signal có thể làm syscall trả `EINTR`; `SA_RESTART` không áp dụng cho mọi syscall.
-13. Standard signal đang chờ không phải lossless message hàng đợi.
+13. Tín hiệu chuẩn ở trạng thái pending không phải một hàng đợi thông điệp bảo toàn mọi lần phát sinh.
 
 ---
 
@@ -887,6 +759,6 @@ Các ý cần nhớ:
 - `signal-safety(7)`: https://man7.org/linux/man-pages/man7/signal-safety.7.html
 - `wait(2)`: https://man7.org/linux/man-pages/man2/wait.2.html
 - POSIX.1-2024: https://pubs.opengroup.org/onlinepubs/9799919799/
-- The Linux Programming Giao diện: https://man7.org/tlpi/
+- The Linux Programming Interface: https://man7.org/tlpi/
 
 > **Điều hướng:** [← Chủ đề 4 — Tiến trình](README-topic-04.md) · [Chủ đề 6 — Đa luồng →](README-topic-06.md)

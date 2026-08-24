@@ -8,10 +8,11 @@
 >
 > Chương này chỉ có **lý thuyết**, không có bài thực hành.
 
-> **Cách đọc tài liệu này nếu bạn mới bắt đầu:**
-> 1. Đọc câu **Nói đơn giản** ở đầu mỗi mục lớn để biết mục đó đang giải quyết vấn đề gì.
-> 2. Xem sơ đồ và ví dụ trước; chưa cần nhớ ngay mọi cờ, mã lỗi hay trường hợp đặc biệt.
-> 3. Sau khi đã hiểu ý chính, mới đọc các mục `###` theo thứ tự. Nếu gặp thuật ngữ mới, hãy quay lại câu giải thích đầu mục thay vì cố học thuộc định nghĩa.
+Cách dễ nhất để học filesystem Linux là tách hai câu hỏi: **một tên tệp được tìm thấy như thế nào trong cây thư mục**, và **đối tượng mà tên đó trỏ tới được filesystem lưu giữ ra sao**. Pathname, directory và mount thuộc nhiều về không gian tên; còn `inode`, block và metadata mô tả đối tượng phía dưới. `VFS` là lớp giúp Linux nối hai góc nhìn này lại với nhau.
+
+Chương này vì thế đi theo đúng đường mà hệ thống đi khi một chương trình truy cập tệp: từ cây `/` và pathname, qua `dentry`/`inode`, tới quyền truy cập và mount, rồi cuối cùng là các filesystem đặc biệt như `/dev`, `/proc` và `/sys`.
+
+**Cách đọc nếu bạn mới bắt đầu.** Trước hết hãy đọc phần **Nói đơn giản** ở đầu mỗi mục lớn để nắm câu hỏi mà mục đó đang giải quyết. Sau đó xem sơ đồ và ví dụ để hình thành mô hình trong đầu; chưa cần nhớ mọi cờ, mã lỗi hay trường hợp đặc biệt. Khi ý chính đã rõ, hãy đọc các mục `###` theo thứ tự và quay lại phần giải thích trước đó nếu gặp một thuật ngữ chưa quen.
 
 ---
 
@@ -58,16 +59,7 @@ Ví dụ:
 
 là một **đường dẫn trong không gian tên**.
 
-Còn việc tệp nằm trên:
-
-```text
-ext4
-F2FS
-SquashFS
-tmpfs
-```
-
-là câu chuyện của filesystem bên dưới.
+Còn việc dữ liệu và metadata của tệp được lưu trên `ext4`, `F2FS`, `SquashFS` hay `tmpfs` là câu chuyện của filesystem cụ thể bên dưới.
 
 ### 1.2 Linux cho nhiều filesystem cùng xuất hiện trong một cây
 
@@ -93,7 +85,7 @@ tệp thông thường
 directory
 nút thiết bị (device node)
 FIFO
-socket pathname
+pathname của socket
 mục trong procfs/sysfs
 ```
 
@@ -145,13 +137,7 @@ Mount không gian tên, `chroot`, container và boot configuration có thể tha
 
 Chứa cấu hình hệ thống/dịch vụ mang tính cục bộ cho máy.
 
-Trong hệ nhúng có thể gặp:
-
-```text
-network configuration
-service configuration
-startup configuration
-```
+Trong hệ nhúng có thể gặp: network configuration, service configuration và startup configuration.
 
 #### `/usr`
 
@@ -159,14 +145,7 @@ Chứa phần lớn chương trình, thư viện và dữ liệu dùng chung c�
 
 #### `/var`
 
-Chứa dữ liệu có tính thay đổi trong quá trình vận hành:
-
-```text
-log
-cache
-trạng thái
-spool
-```
+Chứa dữ liệu có tính thay đổi trong quá trình vận hành: `log`, `cache`, trạng thái và `spool`.
 
 Trong Embedded Linux, cách ghi `/var` liên quan trực tiếp đến tuổi thọ flash và thiết kế rootfs chỉ đọc.
 
@@ -200,14 +179,7 @@ Ví dụ:
 /home/user/docs/report.txt
 ```
 
-Các thành phần:
-
-```text
-home
-user
-docs
-report.txt
-```
+Các thành phần: `home`, `user`, docs và `report.txt`.
 
 Mỗi thành phần phải được tra cứu trong thư mục tương ứng.
 
@@ -271,16 +243,7 @@ Ví dụ:
 /a/b/c
 ```
 
-Có thể lỗi vì:
-
-```text
-a không tồn tại
-b không phải directory
-thiếu quyền search trên a hoặc b
-symlink loop
-mount trạng thái thay đổi
-c không tồn tại
-```
+Có thể lỗi vì: a không tồn tại, b không phải directory, thiếu quyền search trên a hoặc b, symlink loop, mount trạng thái thay đổi và c không tồn tại.
 
 ### 3.7 Symbolic link làm thay đổi đường tra cứu
 
@@ -300,17 +263,7 @@ Khi theo liên kết, nhân Linux tiếp tục phân giải pathname mục tiêu
 
 ### 4.1 VFS là gì?
 
-`VFS` là lớp trừu tượng trong nhân Linux cho phép cùng các API như:
-
-```text
-open
-read
-write
-stat
-mount
-```
-
-làm việc với nhiều filesystem khác nhau.
+`VFS` là lớp trừu tượng trong nhân Linux cho phép cùng các API như `open`, `read`, `write`, `stat` và `mount` làm việc với nhiều filesystem khác nhau.
 
 ```text
 Ứng dụng
@@ -365,13 +318,7 @@ link count
 
 Đây là điểm cực kỳ quan trọng.
 
-```text
-Tên/pathname
-  thuộc namespace/directory entry
-
-Inode
-  thuộc đối tượng/metadata
-```
+`Tên/pathname`: thuộc namespace/directory entry; `Inode`: thuộc đối tượng/metadata.
 
 Một inode có thể có nhiều tên thông qua hard link.
 
@@ -419,14 +366,7 @@ size = 1000 bytes
 
 Filesystem thường quản lý dữ liệu theo đơn vị block.
 
-Một tệp logic 1000 byte có thể cần nhiều dung lượng vật lý hơn do:
-
-```text
-block allocation
-metadata
-alignment
-filesystem overhead
-```
+Một tệp logic 1000 byte có thể cần nhiều dung lượng vật lý hơn do: block allocation, metadata, alignment và filesystem overhead.
 
 Ngược lại, sparse file có thể có logical size rất lớn nhưng chỉ cấp phát ít block.
 
@@ -434,16 +374,7 @@ Ngược lại, sparse file có thể có logical size rất lớn nhưng chỉ 
 
 Về mặt khái niệm:
 
-```text
-st_size
-  kích thước logic của tệp
-
-st_blocks
-  số block lưu trữ đã cấp phát theo đơn vị API quy định
-
-st_blksize
-  kích thước block ưu tiên cho I/O, không nhất thiết là allocation block của filesystem
-```
+`st_size`: kích thước logic của tệp; `st_blocks`: số block lưu trữ đã cấp phát theo đơn vị API quy định; `st_blksize`: kích thước block ưu tiên cho I/O, không nhất thiết là allocation block của filesystem.
 
 Không nên đồng nhất ba khái niệm này.
 
@@ -455,15 +386,7 @@ Không nên đồng nhất ba khái niệm này.
 
 ### 6.1 Regular file
 
-Tệp dữ liệu thông thường:
-
-```text
-text
-binary
-executable
-image
-database
-```
+Tệp dữ liệu thông thường: `text`, `binary`, executable, `image` và `database`.
 
 Extension không quyết định loại tệp ở mức inode.
 
@@ -481,14 +404,7 @@ Symbolic link chứa pathname mục tiêu.
 link -> target path
 ```
 
-Mục tiêu có thể:
-
-```text
-tồn tại
-không tồn tại
-là đường dẫn tương đối
-là đường dẫn tuyệt đối
-```
+Mục tiêu có thể: tồn tại, không tồn tại, là đường dẫn tương đối và là đường dẫn tuyệt đối.
 
 ### 6.4 Character device
 
@@ -500,14 +416,7 @@ là đường dẫn tuyệt đối
 
 ### 6.6 Major và minor
 
-Device node mang:
-
-```text
-major
-minor
-```
-
-nhằm giúp nhân Linux liên hệ node với lớp driver/device tương ứng.
+Device node mang cặp số major/minor để giúp nhân Linux liên hệ node đó với lớp driver và thiết bị tương ứng.
 
 Có nút thiết bị (device node) **không chứng minh** phần cứng chắc chắn đang hoạt động.
 
@@ -547,29 +456,11 @@ timestamps
 
 Mô hình:
 
-```text
-stat(path)
-  lấy metadata của target sau khi theo symlink
-
-lstat(path)
-  lấy metadata của chính symlink ở phần cuối
-
-fstat(fd)
-  lấy metadata qua bộ mô tả tệp đã mở
-```
+`stat(path)`: lấy metadata của target sau khi theo symlink; `lstat(path)`: lấy metadata của chính symlink ở phần cuối; `fstat(fd)`: lấy metadata qua bộ mô tả tệp đã mở.
 
 ### 7.3 `mtime`, `ctime`, `atime`
 
-```text
-mtime
-  thời điểm nội dung tệp được sửa gần nhất
-
-ctime
-  thời điểm trạng thái/metadata inode thay đổi gần nhất
-
-atime
-  thời điểm truy cập gần nhất theo mount/filesystem policy
-```
+**mtime**: thời điểm nội dung tệp được sửa gần nhất; **ctime**: thời điểm trạng thái/metadata inode thay đổi gần nhất; **atime**: thời điểm truy cập gần nhất theo mount/filesystem policy.
 
 `ctime` **không phải** “creation time”.
 
@@ -587,22 +478,13 @@ Do đó siêu dữ liệu là ảnh chụp của trạng thái tại những th�
 
 ### 8.1 UID và GID
 
-Filesystem lưu chủ sở hữu bằng numeric ID:
-
-```text
-UID
-GID
-```
+Filesystem lưu chủ sở hữu bằng numeric ID: `UID` và `GID`.
 
 Tên người dùng/nhóm là cách không gian người dùng ánh xạ ID sang tên dễ đọc.
 
 ### 8.2 Ba lớp quyền cơ bản
 
-```text
-user
- group
- others
-```
+**user**: group others.
 
 Mỗi lớp có thể có:
 
@@ -612,7 +494,7 @@ w  write
 x  execute/search
 ```
 
-### 8.3 Với regular file
+### 8.3 Với tệp thông thường
 
 ```text
 r -> đọc nội dung
@@ -656,14 +538,7 @@ tiến trình cần quyền traverse/search phù hợp trên các thư mục cha
 
 Có hai cách biểu diễn phổ biến:
 
-```text
-symbolic
-  u+rwx,g+rx,o-r
-
-octal
-  755
-  644
-```
+`symbolic`: u+rwx,g+rx,o-r; `octal`: 755 644.
 
 ### 9.2 `chown`
 
@@ -760,7 +635,7 @@ Trên Linux hiện đại, `devtmpfs` có thể được nhân Linux dùng để
 
 ```text
 processes
-nhân Linux trạng thái
+trạng thái của Linux kernel
 mounts
 memory
 system settings/interfaces nhất định
@@ -772,15 +647,7 @@ Nội dung thường được tạo động khi đọc.
 
 `sysfs` biểu diễn mô hình thiết bị và nhiều đối tượng nhân Linux theo dạng cây.
 
-Nó rất quan trọng với Embedded Linux vì giúp quan sát:
-
-```text
-devices
-drivers
-buses
-classes
-firmware-related objects
-```
+Nó rất quan trọng với Embedded Linux vì giúp quan sát: devices, drivers, buses, classes và firmware-related objects.
 
 ### 11.4 Đây là giao diện, không phải dữ liệu “nằm sẵn trên đĩa”
 
@@ -813,13 +680,7 @@ Nó không quyết định inode file type dựa vào extension.
 
 ### 12.4 `df`
 
-Quan sát accounting ở mức filesystem:
-
-```text
-tổng dung lượng
-đã dùng
-còn sẵn
-```
+Quan sát accounting ở mức filesystem: tổng dung lượng, đã dùng và còn sẵn.
 
 ### 12.5 `du`
 
@@ -827,12 +688,7 @@ Duyệt cây pathname và cộng usage của các đối tượng được nhìn
 
 ### 12.6 Vì sao `df` và `du` có thể khác?
 
-Ví dụ:
-
-```text
-một file bị unlink
-nhưng vẫn đang mở bởi tiến trình
-```
+Ví dụ: một file bị unlink và nhưng vẫn đang mở bởi tiến trình.
 
 Filesystem vẫn giữ block cho file đó, nên `df` vẫn tính dung lượng; `du` không còn thấy pathname để duyệt.
 
@@ -964,45 +820,22 @@ Tuy nhỏ, các quy tắc về pathname, inode, permissions và mount vẫn gi�
 
 ### 15.2 Rootfs chỉ đọc
 
-Sản phẩm nhúng có thể dùng:
-
-```text
-SquashFS
-read-only ext filesystem
-verified image
-```
-
-và tách dữ liệu ghi được sang:
+Sản phẩm nhúng có thể dùng `SquashFS`, filesystem ext chỉ đọc hoặc image đã được xác minh, rồi tách dữ liệu cần ghi sang một vùng lưu trữ riêng:
 
 ```text
 /data
 /var
 /tmpfs
-persistent partition riêng
+phân vùng lưu bền vững riêng
 ```
 
 ### 15.3 `/dev`, `/proc`, `/sys` là ba cửa sổ quan trọng khi bring-up
 
-Chúng giúp trả lời:
-
-```text
-nhân Linux thấy thiết bị chưa?
-driver bind chưa?
-tiến trình đang có trạng thái gì?
-mount đang ra sao?
-```
+Chúng giúp trả lời các câu hỏi: nhân Linux đã nhận ra thiết bị chưa? Driver đã bind chưa? Tiến trình đang ở trạng thái nào? Các filesystem đã được mount đúng chưa?
 
 ### 15.4 Flash khác ổ cứng desktop
 
-Thiết kế filesystem cần cân nhắc:
-
-```text
-wear
-power loss
-read-only partitions
-log volume
-persistent trạng thái
-```
+Thiết kế filesystem cần cân nhắc: wear, power loss, read-only partitions, log volume và trạng thái cần lưu bền vững.
 
 Đây là lý do hiểu filesystem quan trọng hơn việc chỉ biết `ls` và `cd`.
 
@@ -1051,8 +884,8 @@ Các ý cần nhớ:
 > **Nói đơn giản:** Phần này liệt kê nguồn chuẩn để tra cứu chi tiết về filesystem, quyền truy cập và mount.
 
 - Filesystem Hierarchy Standard: https://refspecs.linuxfoundation.org/FHS_3.0/fhs/index.html
-- Linux VFS documentation: https://docs.nhân Linux.org/filesystems/vfs.html
-- Linux pathname lookup documentation: https://docs.nhân Linux.org/filesystems/path-lookup.html
+- Linux VFS documentation: https://docs.kernel.org/filesystems/vfs.html
+- Linux pathname lookup documentation: https://docs.kernel.org/filesystems/path-lookup.html
 - `path_resolution(7)`: https://man7.org/linux/man-pages/man7/path_resolution.7.html
 - `inode(7)`: https://man7.org/linux/man-pages/man7/inode.7.html
 - `stat(2)`: https://man7.org/linux/man-pages/man2/stat.2.html
@@ -1060,8 +893,8 @@ Các ý cần nhớ:
 - `chown(2)`: https://man7.org/linux/man-pages/man2/chown.2.html
 - `umask(2)`: https://man7.org/linux/man-pages/man2/umask.2.html
 - `mount(8)`: https://man7.org/linux/man-pages/man8/mount.8.html
-- Linux procfs documentation: https://docs.nhân Linux.org/filesystems/proc.html
-- Linux sysfs documentation: https://docs.nhân Linux.org/filesystems/sysfs.html
+- Linux procfs documentation: https://docs.kernel.org/filesystems/proc.html
+- Linux sysfs documentation: https://docs.kernel.org/filesystems/sysfs.html
 - Bootlin Embedded Linux training: https://bootlin.com/training/embedded-linux/
 
 > **Điều hướng:** [← Chủ đề 1 — Dòng lệnh Linux cơ bản](README-topic-01.md) · [Chủ đề 3 — Vào/ra tệp →](README-topic-03.md)

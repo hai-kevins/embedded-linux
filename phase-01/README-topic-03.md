@@ -8,10 +8,11 @@
 >
 > Chương này chỉ có **lý thuyết**, không có bài thực hành.
 
-> **Cách đọc tài liệu này nếu bạn mới bắt đầu:**
-> 1. Đọc câu **Nói đơn giản** ở đầu mỗi mục lớn để biết mục đó đang giải quyết vấn đề gì.
-> 2. Xem sơ đồ và ví dụ trước; chưa cần nhớ ngay mọi cờ, mã lỗi hay trường hợp đặc biệt.
-> 3. Sau khi đã hiểu ý chính, mới đọc các mục `###` theo thứ tự. Nếu gặp thuật ngữ mới, hãy quay lại câu giải thích đầu mục thay vì cố học thuộc định nghĩa.
+Ý tưởng trung tâm của File I/O trên Linux rất đơn giản: **pathname chủ yếu dùng để tìm và mở một đối tượng; sau khi mở thành công, chương trình làm việc với đối tượng đó thông qua file descriptor (`fd`)**. Vì thế cần phân biệt rõ tên tệp, `inode`, open file description và con số `fd` mà tiến trình đang giữ.
+
+Từ mô hình đó, các API `open()`, `read()`, `write()`, `lseek()` và `close()` trở thành một chuỗi logic thay vì năm hàm rời rạc. Phần còn lại của chương tập trung vào giá trị trả về, I/O từng phần, EOF, blocking/nonblocking và cách suy luận khi một lời gọi thất bại.
+
+**Cách đọc nếu bạn mới bắt đầu.** Trước hết hãy đọc phần **Nói đơn giản** ở đầu mỗi mục lớn để nắm câu hỏi mà mục đó đang giải quyết. Sau đó xem sơ đồ và ví dụ để hình thành mô hình trong đầu; chưa cần nhớ mọi cờ, mã lỗi hay trường hợp đặc biệt. Khi ý chính đã rõ, hãy đọc các mục `###` theo thứ tự và quay lại phần giải thích trước đó nếu gặp một thuật ngữ chưa quen.
 
 ---
 
@@ -37,7 +38,7 @@
 
 > **Nói đơn giản:** Sau khi mở một đối tượng I/O, Linux trả về một số nguyên nhỏ gọi là `file descriptor` (`fd`). Chương trình dùng số này cho các thao tác đọc, ghi và đóng.
 
-### 1.1 File I/O rộng hơn regular file
+### 1.1 File I/O rộng hơn tệp thông thường
 
 Trong Linux, các API `read()` và `write()` có thể làm việc với nhiều loại đối tượng:
 
@@ -209,22 +210,11 @@ Nếu thành công:
 return >= 0
 ```
 
-Nếu thất bại:
-
-```text
-return -1
-errno chứa nguyên nhân
-```
+Nếu thất bại: return -1 và errno chứa nguyên nhân.
 
 ### 3.2 Chế độ truy cập
 
-Ba chế độ cơ bản:
-
-```text
-O_RDONLY
-O_WRONLY
-O_RDWR
-```
+Ba chế độ cơ bản: `O_RDONLY`, `O_WRONLY` và `O_RDWR`.
 
 Đây là chế độ của **lần mở hiện tại**.
 
@@ -397,12 +387,7 @@ Vì vậy “`read() == 0`” phải được hiểu trong ngữ cảnh đối t
 write(fd, buffer, count)
 ```
 
-có thể trả về:
-
-```text
-M
-0 < M < count
-```
+có thể trả về: `M` và 0 < M < count.
 
 Nghĩa là chỉ `M` byte đầu đã được chấp nhận/ghi theo ngữ nghĩa API.
 
@@ -425,14 +410,7 @@ Do đó code đúng phải xem **giá trị trả về**, không chỉ xem có `
 
 Một `write()` thành công thường chỉ chứng minh nhân Linux/filesystem đã chấp nhận dữ liệu theo giao diện.
 
-Dữ liệu có thể còn ở:
-
-```text
-page cache
-filesystem cache
-controller cache
-storage cache
-```
+Dữ liệu có thể còn ở: page cache, filesystem cache, controller cache và storage cache.
 
 Độ bền khi mất điện là vấn đề khác, liên quan `fsync()`, filesystem, thiết bị và policy.
 
@@ -484,16 +462,7 @@ Nó không tự đọc hay ghi dữ liệu.
 
 ### 6.3 Ba mốc phổ biến
 
-```text
-SEEK_SET
-  tính từ đầu tệp
-
-SEEK_CUR
-  tính từ vị trí hiện tại
-
-SEEK_END
-  tính từ cuối tệp
-```
+`SEEK_SET`: tính từ đầu tệp; `SEEK_CUR`: tính từ vị trí hiện tại; `SEEK_END`: tính từ cuối tệp.
 
 ### 6.4 Seek vượt qua EOF
 
@@ -505,15 +474,7 @@ Nếu sau đó ghi dữ liệu tại vị trí xa hơn, filesystem có thể t�
 
 ### 6.5 Không phải object nào cũng seek được
 
-Ví dụ thường không seek:
-
-```text
-pipe
-FIFO
-socket
-terminal
-nhiều character device
-```
+Ví dụ thường không seek: pipe, `FIFO`, socket, terminal và nhiều character device.
 
 `lseek()` có thể trả `ESPIPE` với đối tượng không hỗ trợ seek.
 
@@ -625,15 +586,8 @@ phụ thuộc driver, mode, line discipline
 
 ### 8.4 `O_NONBLOCK`
 
-Khi trạng thái không chặn được bật, một thao tác vốn phải chờ có thể trả ngay với:
+Khi trạng thái không chặn được bật, một thao tác vốn phải chờ có thể trả về ngay với `EAGAIN` hoặc `EWOULDBLOCK`, tùy giao diện.
 
-```text
-EAGAIN
-hoặc
-EWOULDBLOCK
-```
-
-Tùy giao diện.
 
 ### 8.5 Không chặn không có nghĩa “không bao giờ chậm”
 
@@ -651,32 +605,11 @@ Nó không hứa mọi đường đi trong filesystem/nhân Linux/hardware đề
 
 Với I/O, giá trị trả về là một phần của giao thức.
 
-```text
-open
-  fd hoặc -1
-
-read/write
-  số byte / 0 / -1
-
-lseek
-  offset mới hoặc -1
-
-close
-  0 hoặc -1
-```
+**open**: fd hoặc -1; `read/write`: số byte / 0 / -1; **lseek**: offset mới hoặc -1; **close**: 0 hoặc -1.
 
 ### 9.2 `size_t`, `ssize_t`, `off_t`
 
-```text
-size_t
-  kiểu không dấu dùng cho kích thước/count
-
-ssize_t
-  kiểu có dấu để vừa biểu diễn byte count vừa biểu diễn -1
-
-off_t
-  kiểu biểu diễn vị trí đọc/ghi hiện tại (file offset)
-```
+`size_t`: kiểu không dấu dùng cho kích thước/count; `ssize_t`: kiểu có dấu để vừa biểu diễn byte count vừa biểu diễn -1; `off_t`: kiểu biểu diễn vị trí đọc/ghi hiện tại (file offset).
 
 ### 9.3 `errno`
 
@@ -688,13 +621,7 @@ Không nên đọc `errno` sau một lời gọi thành công rồi suy luận l
 
 Thường biểu thị bộ mô tả không hợp lệ cho thao tác hiện tại.
 
-Hỏi:
-
-```text
-fd đã đóng?
-fd chưa từng mở?
-fd có đúng access mode?
-```
+Hãy kiểm tra: `fd` đã bị đóng chưa, nó có thực sự được mở thành công không và access mode có phù hợp với thao tác hiện tại không.
 
 ### 9.5 `EINTR`
 
@@ -706,13 +633,7 @@ Không nên hiểu:
 EINTR = cứ retry vô điều kiện
 ```
 
-Cần xem:
-
-```text
-đã có partial progress chưa?
-application có muốn hủy không?
-hàm xử lý signal có thay trạng thái không?
-```
+Cần xem lời gọi đã xử lý được một phần dữ liệu chưa, ứng dụng có chủ động muốn hủy thao tác không và signal handler có làm thay đổi trạng thái liên quan hay không.
 
 ### 9.6 `EAGAIN` / `EWOULDBLOCK`
 
@@ -832,16 +753,7 @@ Linux GPIO hiện đại dùng bộ mô tả tệp cho chip/line request/event.
 
 ### 11.4 `/proc` và `/sys`
 
-Một số giao diện đọc/ghi dạng text vẫn dùng:
-
-```text
-open
-read
-write
-close
-```
-
-nhưng nội dung được tạo/xử lý bởi nhân Linux subsystem chứ không phải tệp thông thường trên storage.
+Một số giao diện dạng văn bản vẫn dùng `open`, `read`, `write` và `close`, nhưng nội dung được tạo hoặc xử lý bởi subsystem của kernel chứ không phải một tệp thông thường nằm trên thiết bị lưu trữ.
 
 ### 11.5 Board bring-up
 
@@ -908,9 +820,9 @@ Các ý cần nhớ:
 - `close(2)`: https://man7.org/linux/man-pages/man2/close.2.html
 - `fcntl(2)`: https://man7.org/linux/man-pages/man2/fcntl.2.html
 - `errno(3)`: https://man7.org/linux/man-pages/man3/errno.3.html
-- Linux VFS documentation: https://docs.nhân Linux.org/filesystems/vfs.html
+- Linux VFS documentation: https://docs.kernel.org/filesystems/vfs.html
 - POSIX.1-2024 System Interfaces: https://pubs.opengroup.org/onlinepubs/9799919799/
-- The Linux Programming Giao diện: https://man7.org/tlpi/
+- The Linux Programming Interface: https://man7.org/tlpi/
 - Bootlin Embedded Linux training: https://bootlin.com/training/embedded-linux/
 
 > **Điều hướng:** [← Chủ đề 2 — Hệ thống tệp Linux](README-topic-02.md) · [Chủ đề 4 — Tiến trình →](README-topic-04.md)

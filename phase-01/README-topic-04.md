@@ -6,10 +6,11 @@
 >
 > Chương này chỉ có **lý thuyết**, không có bài thực hành.
 
-> **Cách đọc tài liệu này nếu bạn mới bắt đầu:**
-> 1. Đọc câu **Nói đơn giản** ở đầu mỗi mục lớn để biết mục đó đang giải quyết vấn đề gì.
-> 2. Xem sơ đồ và ví dụ trước; chưa cần nhớ ngay mọi cờ, mã lỗi hay trường hợp đặc biệt.
-> 3. Sau khi đã hiểu ý chính, mới đọc các mục `###` theo thứ tự. Nếu gặp thuật ngữ mới, hãy quay lại câu giải thích đầu mục thay vì cố học thuộc định nghĩa.
+Một **chương trình** là mã và dữ liệu nằm trên đĩa; một **tiến trình** là một lần chương trình đó đang được thực thi với PID, không gian địa chỉ, file descriptor, thông tin quyền và trạng thái lập lịch riêng. Đây là phân biệt nền tảng để hiểu `fork()`, `execve()` và `wait()`.
+
+Chương này trước hết xây mô hình “một tiến trình đang sở hữu những gì”, sau đó theo dõi vòng đời của nó: được tạo ra, có thể thay ảnh chương trình bằng `execve()`, kết thúc, trở thành zombie trong một khoảng thời gian và được tiến trình cha thu hồi bằng `wait()`.
+
+**Cách đọc nếu bạn mới bắt đầu.** Trước hết hãy đọc phần **Nói đơn giản** ở đầu mỗi mục lớn để nắm câu hỏi mà mục đó đang giải quyết. Sau đó xem sơ đồ và ví dụ để hình thành mô hình trong đầu; chưa cần nhớ mọi cờ, mã lỗi hay trường hợp đặc biệt. Khi ý chính đã rõ, hãy đọc các mục `###` theo thứ tự và quay lại phần giải thích trước đó nếu gặp một thuật ngữ chưa quen.
 
 ---
 
@@ -65,7 +66,7 @@ Tiến trình
     +--> file descriptors
     +--> credentials
     +--> thư mục làm việc hiện tại
-    +--> signal trạng thái
+    +--> trạng thái signal
 ```
 
 Một executable có thể tạo ra nhiều tiến trình độc lập.
@@ -145,7 +146,7 @@ Quan hệ này có thể thay đổi khi tiến trình cha kết thúc và tiế
 
 ## 3. Một tiến trình đang nắm giữ những gì?
 
-> **Nói đơn giản:** Một tiến trình không chỉ có code. Nó còn có không gian địa chỉ, `fd`, thư mục làm việc, biến môi trường, signal trạng thái và nhiều tài nguyên khác.
+> **Nói đơn giản:** Một tiến trình không chỉ có code. Nó còn có không gian địa chỉ, `fd`, thư mục làm việc, biến môi trường, trạng thái signal và nhiều tài nguyên khác.
 
 ### 3.1 Không gian địa chỉ ảo
 
@@ -175,34 +176,11 @@ Mô hình đơn giản:
 
 ### 3.2 Code, data, BSS, heap, stack
 
-```text
-code/text
-  mã máy của chương trình
-
-data
-  biến global/static có giá trị khởi tạo
-
-BSS
-  vùng static/global zero-initialized
-
-heap
-  vùng cấp phát động
-
-stack
-  frame lời gọi hàm, biến tự động và trạng thái thực thi
-```
+`code/text`: mã máy của chương trình; **data**: biến global/static có giá trị khởi tạo; `BSS`: vùng static/global zero-initialized; **heap**: vùng cấp phát động; **stack**: frame lời gọi hàm, biến tự động và trạng thái thực thi.
 
 ### 3.3 Các ánh xạ `mmap`
 
-Không gian địa chỉ còn có thể chứa:
-
-```text
-shared libraries
-file-backed mappings
-anonymous mappings
-shared memory
-VDSO
-```
+Không gian địa chỉ còn có thể chứa: shared libraries, file-backed mappings, anonymous mappings, shared memory và `VDSO`.
 
 ### 3.4 Bộ nhớ ảo không bằng RAM vật lý
 
@@ -233,25 +211,13 @@ Sau `fork()`, tiến trình con nhận các bộ mô tả theo quy tắc kế th
 
 ### 3.6 Ngữ cảnh filesystem
 
-Tiến trình có:
-
-```text
-thư mục làm việc hiện tại
-root directory view
-umask
-mount namespace context
-```
+Tiến trình có: thư mục làm việc hiện tại, root directory view, umask và mount namespace context.
 
 Những trạng thái này ảnh hưởng pathname lookup và tạo tệp.
 
 ### 3.7 `argv` và environment
 
-Ảnh chương trình mới nhận:
-
-```text
-argument vector
-environment
-```
+Ảnh chương trình mới nhận: argument vector và environment.
 
 Đây là dữ liệu đầu vào lúc chương trình bắt đầu thực thi sau `exec`.
 
@@ -271,13 +237,7 @@ Không nên rút gọn thành “mỗi tiến trình chỉ có một user”.
 
 Hai khái niệm khác nhau:
 
-```text
-runnable
-  đủ điều kiện chạy nhưng có thể đang đợi CPU
-
-running
-  hiện đang thực sự được CPU thực thi
-```
+`runnable`: đủ điều kiện chạy nhưng có thể đang đợi CPU; `running`: hiện đang thực sự được CPU thực thi.
 
 ### 4.2 Sleeping
 
@@ -398,7 +358,7 @@ Vì vậy chúng có thể chia sẻ:
 ```text
 vị trí đọc/ghi hiện tại (file offset)
 các cờ trạng thái của tệp
-underlying socket/pipe đối tượng
+đối tượng socket/pipe bên dưới
 ```
 
 ### 5.6 `fork()` không chạy chương trình mới
@@ -448,16 +408,7 @@ Không có return bình thường về dòng code cũ sau lời gọi.
 
 ### 6.3 Những gì bị thay mạnh
 
-Điển hình:
-
-```text
-code
-static data
-heap
-stack
-most mappings
-caught signal dispositions theo rules
-```
+Điển hình: code, static data, heap, stack, most mappings và caught signal dispositions theo rules.
 
 ### 6.4 Những gì có thể được giữ
 
@@ -467,16 +418,7 @@ File bộ mô tả không có `FD_CLOEXEC` có thể tồn tại qua `exec`.
 
 ### 6.5 Vì sao `FD_CLOEXEC` quan trọng?
 
-Nếu bộ mô tả nhạy cảm vô tình lọt vào chương trình mới:
-
-```text
-socket
-pipe
-device fd
-file fd
-```
-
-nó có thể giữ tài nguyên sống hoặc tạo rủi ro quyền truy cập.
+Nếu một file descriptor nhạy cảm như socket, pipe hoặc device fd vô tình được giữ lại sau `execve()`, nó có thể giữ tài nguyên tồn tại ngoài ý muốn hoặc tạo rủi ro truy cập.
 
 ### 6.6 Script `#!`
 
@@ -512,14 +454,7 @@ Shell sử dụng mô hình này để chạy command, kết hợp redirection v
 
 ### 7.1 `exit()`
 
-`exit()` là hàm thư viện C thực hiện cleanup ở mức không gian người dùng như:
-
-```text
-flush stdio theo rules
-atexit handlers
-```
-
-rồi kết thúc tiến trình.
+`exit()` là hàm thư viện C thực hiện một số bước dọn dẹp ở user space, như flush các stream `stdio` và chạy các hàm đăng ký bằng `atexit()`, rồi mới kết thúc tiến trình.
 
 ### 7.2 `_exit()` / `_Exit()`
 
@@ -559,23 +494,11 @@ Reaped
 
 ### 8.2 `wait()` / `waitpid()`
 
-Parent có thể:
-
-```text
-chờ child thay đổi trạng thái
-đọc exit status
-thu hồi zombie entry
-```
+Parent có thể: chờ child thay đổi trạng thái, đọc exit status và thu hồi zombie entry.
 
 ### 8.3 Zombie khác orphan
 
-```text
-zombie
-  đã kết thúc
-
-orphan
-  tiến trình cha cũ biến mất; child có thể vẫn đang chạy
-```
+`zombie`: đã kết thúc; `orphan`: tiến trình cha cũ biến mất; child có thể vẫn đang chạy.
 
 Đây là hai khái niệm hoàn toàn khác nhau.
 
@@ -587,13 +510,7 @@ Khi parent biến mất, child có thể được chuyển sang một tiến tr�
 
 PID 1 có vai trò đặc biệt trong tiến trình hierarchy và việc thu hồi các descendant bị reparent.
 
-Trong Embedded Linux, PID 1 có thể là:
-
-```text
-systemd
-BusyBox init
-custom init
-```
+Trong Embedded Linux, PID 1 có thể là: systemd, BusyBox init và custom init.
 
 ---
 
@@ -673,16 +590,7 @@ Một task có thể đổi trạng thái ngay sau khi `ps` đọc dữ liệu.
 
 Bộ lập lịch quyết định task runnable nào được CPU chạy.
 
-Các khái niệm nâng cao như:
-
-```text
-nice
-real-time policy
-CPU affinity
-cgroup scheduling
-```
-
-nằm ngoài trọng tâm Topic 4; chỉ cần nhớ rằng **tiến trình/luồng không tự sở hữu CPU liên tục**.
+Các khái niệm nâng cao như nice value, real-time policy, CPU affinity và cgroup scheduling nằm ngoài trọng tâm Chủ đề 4; ở đây chỉ cần nhớ rằng **tiến trình hoặc luồng không tự sở hữu CPU liên tục**.
 
 ---
 
@@ -692,15 +600,7 @@ nằm ngoài trọng tâm Topic 4; chỉ cần nhớ rằng **tiến trình/lu�
 
 ### 11.1 Process “biến mất”
 
-Hỏi:
-
-```text
-tiến trình đã exit?
-bị signal terminate?
-exec sang program khác?
-PID đã được reuse?
-service manager restart?
-```
+Hãy kiểm tra tiến trình đã thoát hay bị tín hiệu kết thúc, có `exec` sang chương trình khác không, PID có bị tái sử dụng không và service manager có khởi động lại tiến trình hay không.
 
 ### 11.2 PID còn nhưng tên chương trình đổi
 
@@ -710,13 +610,7 @@ PID giữ nguyên qua exec là hành vi bình thường.
 
 ### 11.3 Nhiều zombie
 
-Thường cần xem logic parent reaping:
-
-```text
-parent có wait không?
-SIGCHLD policy?
-child lifecycle?
-```
+Thường cần xem logic thu hồi tiến trình con: tiến trình cha có gọi `wait()`/`waitpid()` không, chính sách xử lý `SIGCHLD` là gì và vòng đời tiến trình con được quản lý ra sao.
 
 ### 11.4 Task ở `D`
 
@@ -724,14 +618,7 @@ Tìm nó đang chờ nhân Linux resource nào thay vì kết luận ngay “ti�
 
 ### 11.5 Bộ nhớ nhìn rất lớn
 
-Tách:
-
-```text
-virtual size
-resident memory
-ánh xạ dùng chung
-ánh xạ dựa trên tệp
-```
+Tách: virtual size, resident memory, ánh xạ dùng chung và ánh xạ dựa trên tệp.
 
 ### 11.6 File offset thay đổi lạ giữa parent/child
 
@@ -755,13 +642,7 @@ quản lý shutdown/restart
 
 ### 12.2 Service architecture
 
-Một ứng dụng lớn có thể được tách thành nhiều tiến trình để tăng:
-
-```text
-fault isolation
-privilege isolation
-restart independence
-```
+Một ứng dụng lớn có thể được tách thành nhiều tiến trình để tăng: fault isolation, privilege isolation và restart independence.
 
 ### 12.3 Inheritance của device fd
 
@@ -771,14 +652,7 @@ Nếu một tiến trình mở UART/device rồi `fork()`/`exec()`, fd có thể
 
 ### 12.4 `/proc` trên hệ headless
 
-Khi không có GUI, `/proc` là công cụ quan trọng để trả lời:
-
-```text
-tiến trình có tồn tại?
-đang chờ gì?
-mở fd nào?
-memory ánh xạ ra sao?
-```
+Khi không có GUI, `/proc` là công cụ quan trọng để trả lời: tiến trình còn tồn tại không, nó đang chờ điều gì, đang mở những `fd` nào và không gian bộ nhớ được ánh xạ ra sao.
 
 ---
 
@@ -818,7 +692,7 @@ Các ý cần nhớ:
 1. Chương trình là tệp/mã; tiến trình là một instance đang thực thi.
 2. PID là định danh có thể tái sử dụng.
 3. PPID mô tả quan hệ cha hiện tại.
-4. Tiến trình có virtual address space, bảng fd, cwd, credentials, signal trạng thái...
+4. Tiến trình có virtual address space, bảng fd, cwd, credentials, trạng thái signal...
 5. Running khác runnable.
 6. Sleeping thường không tiêu thụ CPU bằng busy-loop.
 7. `fork()` tạo child với address space logic riêng và COW.
@@ -842,8 +716,8 @@ Các ý cần nhớ:
 - `exit(3)`: https://man7.org/linux/man-pages/man3/exit.3.html
 - `getpid(2)`: https://man7.org/linux/man-pages/man2/getpid.2.html
 - `credentials(7)`: https://man7.org/linux/man-pages/man7/credentials.7.html
-- Linux procfs documentation: https://docs.nhân Linux.org/filesystems/proc.html
+- Linux procfs documentation: https://docs.kernel.org/filesystems/proc.html
 - POSIX.1-2024: https://pubs.opengroup.org/onlinepubs/9799919799/
-- The Linux Programming Giao diện: https://man7.org/tlpi/
+- The Linux Programming Interface: https://man7.org/tlpi/
 
 > **Điều hướng:** [← Chủ đề 3 — Vào/ra tệp](README-topic-03.md) · [Chủ đề 5 — Tín hiệu →](README-topic-05.md)

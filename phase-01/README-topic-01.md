@@ -8,10 +8,11 @@
 >
 > Chương này chỉ có **lý thuyết**, không chứa bài thực hành.
 
-> **Cách đọc tài liệu này nếu bạn mới bắt đầu:**
-> 1. Đọc câu **Nói đơn giản** ở đầu mỗi mục lớn để biết mục đó đang giải quyết vấn đề gì.
-> 2. Xem sơ đồ và ví dụ trước; chưa cần nhớ ngay mọi cờ, mã lỗi hay trường hợp đặc biệt.
-> 3. Sau khi đã hiểu ý chính, mới đọc các mục `###` theo thứ tự. Nếu gặp thuật ngữ mới, hãy quay lại câu giải thích đầu mục thay vì cố học thuộc định nghĩa.
+Trước khi đi vào từng lệnh, hãy giữ một mô hình duy nhất trong đầu: **bàn phím và terminal chỉ đưa ký tự tới Shell; Shell mới là thành phần phân tích dòng lệnh; sau đó Shell chạy builtin hoặc tạo tiến trình để thực thi chương trình**. Những khái niệm như dấu nháy, `PATH`, chuyển hướng, pipe hay mã kết thúc đều là các mảnh của cùng quá trình đó, chứ không phải các mẹo rời rạc cần học thuộc.
+
+Vì vậy chương này đi từ bên ngoài vào bên trong. Ta bắt đầu bằng terminal/TTY/Shell, sau đó xem Shell xử lý một dòng lệnh ra sao, rồi mới đến cách chương trình nhận đối số, dữ liệu vào/ra và trạng thái kết thúc. Khi đã hiểu luồng này, các lệnh Linux cơ bản sẽ dễ nhớ hơn vì bạn biết **vì sao** chúng hoạt động như vậy.
+
+**Cách đọc nếu bạn mới bắt đầu.** Trước hết hãy đọc phần **Nói đơn giản** ở đầu mỗi mục lớn để nắm câu hỏi mà mục đó đang giải quyết. Sau đó xem sơ đồ và ví dụ để hình thành mô hình trong đầu; chưa cần nhớ mọi cờ, mã lỗi hay trường hợp đặc biệt. Khi ý chính đã rõ, hãy đọc các mục `###` theo thứ tự và quay lại phần giải thích trước đó nếu gặp một thuật ngữ chưa quen.
 
 ---
 
@@ -131,14 +132,7 @@ Chương trình ls gọi các API/lời gọi hệ thống cần thiết
 
 `TTY` là lớp trừu tượng của Linux cho kiểu giao tiếp terminal/serial.
 
-Nó gắn với các khái niệm như:
-
-```text
-thiết bị đầu cuối
-chế độ nhập ký tự
-line discipline
-terminal foreground tiến trình group
-```
+Nó gắn với các khái niệm như: thiết bị đầu cuối, chế độ nhập ký tự, line discipline và terminal foreground tiến trình group.
 
 `TTY` có nguồn gốc lịch sử từ teletype, nhưng trong Linux hiện đại nó là một subsystem quan trọng.
 
@@ -152,26 +146,13 @@ PTY master <------> PTY slave
 
 Một chương trình phía master có thể đóng vai trò “terminal”, còn phía slave trông giống TTY đối với chương trình chạy bên trong.
 
-Các trường hợp thường gặp:
-
-```text
-terminal emulator
-SSH session
-terminal multiplexer
-```
+Các trường hợp thường gặp: terminal emulator, SSH session và terminal multiplexer.
 
 ### 2.4 Shell
 
 `Shell` là trình thông dịch ngôn ngữ lệnh.
 
-Ví dụ phổ biến:
-
-```text
-sh
-Bash
-dash
-zsh
-```
+Ví dụ phổ biến: `sh`, `Bash`, `dash` và `zsh`.
 
 Trong tài liệu này, tư duy chuẩn ưu tiên `POSIX shell`; khi một hành vi chỉ có ở `Bash`, cần xem nó là mở rộng riêng của `Bash`.
 
@@ -190,79 +171,59 @@ Shell
 Chương trình
    |
    v
-Linux nhân Linux
+Linux kernel (nhân Linux)
 ```
 
 ---
 
 ## 3. Shell hiểu một dòng lệnh như thế nào?
 
-> **Nói đơn giản:** Shell không gửi nguyên cả dòng bạn gõ cho chương trình. Nó tách dòng lệnh thành tên chương trình, đối số và các toán tử như pipe hay chuyển hướng.
+> **Nói đơn giản:** Shell không đưa nguyên dòng bạn gõ cho một chương trình duy nhất. Nó phải đọc cú pháp, nhận ra đâu là tên lệnh, đâu là đối số, đâu là pipe/chuyển hướng, thực hiện các phép mở rộng cần thiết rồi mới chạy chương trình.
 
 ### 3.1 Shell là một ngôn ngữ nhỏ
 
-Một dòng lệnh không chỉ là:
+Một lệnh đơn giản có dạng:
 
 ```text
 program arg1 arg2
 ```
 
-Nó còn có thể chứa:
+nhưng dòng lệnh của Shell còn có thể chứa biến, dấu nháy, pipe, chuyển hướng và các toán tử điều khiển như `&&`, `||`, `;`. Vì vậy Shell phải được xem như một **trình thông dịch cho một ngôn ngữ lệnh nhỏ**, chứ không chỉ là nơi chuyển một chuỗi ký tự cho kernel.
 
-```text
-biến
-pipe
-chuyển hướng
-subshell
-command substitution
-&&
-||
-;
+Ví dụ, với dòng:
+
+```bash
+echo "$HOME" | grep home > result.txt
 ```
 
-Do đó `shell` phải phân tích cú pháp trước khi chạy chương trình.
+Shell phải nhận ra ba loại thành phần khác nhau. `echo` và `grep` là hai lệnh; `"$HOME"` và `home` là đối số; còn `|` và `>` là cú pháp do chính Shell xử lý. Chương trình `grep` không nhận ký tự `>` như một đối số trong ví dụ này, vì Shell đã dùng nó để thiết lập chuyển hướng trước khi `grep` bắt đầu chạy.
 
 ### 3.2 Các giai đoạn chính
 
-Mô hình đơn giản:
+Có thể hình dung quá trình xử lý theo chuỗi sau:
 
 ```mermaid
 stateDiagram-v2
     [*] --> ReadLine: đọc dòng lệnh
-    ReadLine --> Parse: phân tích cú pháp
-    Parse --> Expand: thực hiện mở rộng
-    Expand --> Redirect: chuẩn bị chuyển hướng
+    ReadLine --> Parse: nhận dạng cú pháp
+    Parse --> Expand: mở rộng biến / thay thế lệnh / glob
+    Expand --> Redirect: chuẩn bị pipe và chuyển hướng
     Redirect --> Execute: chạy builtin hoặc executable
     Execute --> WaitOrContinue: chờ hoặc tiếp tục
     WaitOrContinue --> [*]
 ```
 
-Đây là mô hình tư duy, không phải mô tả toàn bộ nội bộ của một `shell` cụ thể.
+Điểm quan trọng là **chương trình được chạy sau khi Shell đã xử lý phần cú pháp thuộc về Shell**. Với ví dụ trên, Shell mở rộng `$HOME`, tạo pipe nối `stdout` của `echo` với `stdin` của `grep`, mở `result.txt` và nối `stdout` của `grep` vào tệp đó. Sau các bước chuẩn bị này, hai chương trình mới thực sự chạy và đọc/ghi qua những file descriptor mà Shell đã sắp xếp.
+
+Sơ đồ trên là mô hình học tập, không phải toàn bộ chi tiết triển khai của Bash hay một Shell cụ thể. Tuy nhiên, nó đủ để giải thích phần lớn hiện tượng mà người mới gặp khi dùng dấu nháy, biến, pipe và chuyển hướng.
 
 ### 3.3 Builtin và chương trình ngoài
 
-Một số lệnh là **builtin** của `shell`, ví dụ `cd` thường phải là builtin vì nó cần thay đổi thư mục làm việc của chính tiến trình `shell`.
+Sau khi phân tích dòng lệnh, Shell phải quyết định lệnh cần chạy là **builtin** hay một executable bên ngoài. Builtin là chức năng nằm ngay trong Shell. `cd` là ví dụ quan trọng: nếu `cd` chạy trong một tiến trình con rồi tiến trình đó kết thúc, thư mục làm việc của Shell cha sẽ không thay đổi; vì vậy việc đổi thư mục phải được Shell tự thực hiện.
 
-Một số lệnh khác là executable độc lập:
-
-```text
-/bin/ls
-/usr/bin/grep
-/usr/bin/find
-```
-
-Điểm cần nhớ:
-
-```text
-builtin
-  chạy trong ngữ cảnh shell
-
-external executable
-  thường chạy trong tiến trình riêng
-```
+Ngược lại, các lệnh như `/bin/ls`, `/usr/bin/grep` hay `/usr/bin/find` thường là chương trình riêng. Shell tìm executable, tạo môi trường thực thi thích hợp rồi chạy nó trong một tiến trình. Vì vậy cần nhớ sự khác nhau: **builtin thay đổi hoặc sử dụng trực tiếp trạng thái của Shell; executable ngoài thường chạy như một tiến trình riêng**.
 
 ---
-
 ## 4. Dấu nháy và quá trình mở rộng của Shell
 
 > **Nói đơn giản:** Dấu nháy quyết định phần nào của dòng lệnh được Shell giữ nguyên và phần nào được thay thế trước khi chạy chương trình.
@@ -342,22 +303,11 @@ chèn kết quả vào dòng lệnh cha
 
 ### 4.6 Tách từ và globbing
 
-`Shell` có thể tách kết quả thành nhiều word và thực hiện khớp tên tệp bằng các mẫu như:
-
-```text
-*.c
-file?.txt
-```
+`Shell` có thể tách kết quả thành nhiều word và thực hiện khớp tên tệp bằng các mẫu như: `*.c` và `file?.txt`.
 
 `globbing` không phải `regular expression`.
 
-```text
-Shell glob
-  dùng cho tên tệp/pathname
-
-Regular expression
-  dùng cho mô hình khớp văn bản của công cụ như grep
-```
+`Shell glob`: dùng cho tên tệp/pathname; `Regular expression`: dùng cho mô hình khớp văn bản của công cụ như grep.
 
 ---
 
@@ -372,11 +322,11 @@ Regular expression
 Mô hình:
 
 ```text
-PATH=/usr/cục bộ/bin:/usr/bin:/bin
+PATH=/usr/local/bin:/usr/bin:/bin
 
 command: tool
    |
-   +--> /usr/cục bộ/bin/tool ?
+   +--> /usr/local/bin/tool ?
    +--> /usr/bin/tool ?
    +--> /bin/tool ?
 ```
@@ -602,11 +552,7 @@ Muốn đưa `stderr` vào cùng kênh cần chuyển hướng rõ ràng.
 
 Điểm sâu hơn cần nhớ:
 
-```text
-pipeline
-  không chỉ là ghép chuỗi văn bản
-  mà là ghép các tiến trình thông qua bộ mô tả tệp
-```
+**pipeline**: không chỉ là ghép chuỗi văn bản mà là ghép các tiến trình thông qua bộ mô tả tệp.
 
 Đây là nền tảng trực tiếp cho Topic 3 và Topic 8.
 
@@ -677,16 +623,7 @@ Tuy vậy, nó vẫn là tiến trình bình thường và vẫn dùng CPU, bộ
 
 ### 11.3 Job control
 
-`Shell` tương tác sử dụng:
-
-```text
-tiến trình group
-session
-controlling terminal
-signals
-```
-
-để triển khai job control.
+Shell tương tác sử dụng các khái niệm process group, session, controlling terminal và signal để triển khai job control.
 
 Topic 4 và Topic 5 sẽ làm rõ các lớp này hơn.
 
@@ -710,14 +647,7 @@ rm
 mkdir
 ```
 
-Nhóm này chủ yếu làm việc với:
-
-```text
-pathname
-thư mục
-metadata
-namespace của hệ thống tệp
-```
+Nhóm này chủ yếu làm việc với: pathname, thư mục, metadata và namespace của hệ thống tệp.
 
 ### 12.2 Quan sát nội dung văn bản
 
@@ -758,7 +688,7 @@ stdin -> xử lý -> stdout
 `grep` tìm mẫu trong **nội dung dữ liệu đầu vào**.
 
 ```text
-text stream
+luồng văn bản
    |
    v
 grep pattern
@@ -774,7 +704,7 @@ matching lines
 `find` đi qua **cây thư mục** và đánh giá điều kiện trên từng mục.
 
 ```text
-filesystem tree
+cây filesystem
       |
       v
     find
@@ -861,38 +791,15 @@ interpreter / dynamic loader tồn tại?
 
 ### 15.2 “Permission denied”
 
-Có thể liên quan:
-
-```text
-quyền trên file
-quyền search của thư mục cha
-mount option
-credential của tiến trình
-security policy khác
-```
+Có thể liên quan: quyền trên file, quyền search của thư mục cha, mount option, credential của tiến trình và security policy khác.
 
 ### 15.3 Chương trình nhận sai số lượng đối số
 
-Hãy nghĩ đến:
-
-```text
-quoting
-word splitting
-globbing
-```
-
-vì `shell` có thể đã biến đổi dòng nhập trước khi chương trình nhận `argv`.
+Hãy nghĩ tới quoting, word splitting và globbing, vì Shell có thể đã biến đổi dòng nhập trước khi chương trình nhận `argv`.
 
 ### 15.4 Pipeline cho kết quả lạ
 
-Tách từng lớp:
-
-```text
-A có tạo đúng stdout?
-B có đọc đúng stdin?
-stderr có bị bỏ sót?
-mã kết thúc của tiến trình nào đang được quan sát?
-```
+Hãy tách từng lớp: A có tạo đúng `stdout` không? B có đọc đúng `stdin` không? `stderr` có bị bỏ sót không? Mã kết thúc đang được quan sát thuộc tiến trình nào?
 
 ---
 
@@ -902,13 +809,7 @@ mã kết thúc của tiến trình nào đang được quan sát?
 
 ### 16.1 Board thường không có GUI đầy đủ
 
-Trong giai đoạn bring-up, giao diện thường là:
-
-```text
-UART serial console
-SSH
-cục bộ shell
-```
+Trong giai đoạn bring-up, giao diện thường là: UART serial console, `SSH` và cục bộ shell.
 
 Nắm CLI giúp làm việc khi chưa có desktop.
 
@@ -969,7 +870,7 @@ Shell
 Tiến trình / builtin
         |
         v
-Linux nhân Linux
+Linux kernel (nhân Linux)
 ```
 
 Các ý cần nhớ:
@@ -1003,7 +904,7 @@ Nguồn ưu tiên cho chủ đề này:
 - GNU Findutils Manual: https://www.gnu.org/software/findutils/manual/
 - procps-ng: https://gitlab.com/procps-ng/procps
 - util-linux: https://github.com/util-linux/util-linux
-- Linux TTY documentation: https://docs.nhân Linux.org/driver-api/tty/
+- Linux TTY documentation: https://docs.kernel.org/driver-api/tty/
 - Bootlin Embedded Linux training: https://bootlin.com/training/embedded-linux/
 - BusyBox documentation: https://busybox.net/
 

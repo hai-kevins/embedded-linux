@@ -1,17 +1,18 @@
 # Chủ đề 8 — Giao tiếp liên tiến trình (IPC) trong Linux
 
-> **Mục tiêu:** hiểu vì sao các tiến trình cần IPC, và phân biệt đúng `pipe`, `FIFO`, POSIX Message Hàng đợi và POSIX Shared Memory theo mô hình dữ liệu, cách đặt tên, hành vi chặn, vòng đời và trách nhiệm đồng bộ.
+> **Mục tiêu:** hiểu vì sao các tiến trình cần IPC, và phân biệt đúng `pipe`, `FIFO`, POSIX Message Queue và POSIX Shared Memory theo mô hình dữ liệu, cách đặt tên, hành vi chặn, vòng đời và trách nhiệm đồng bộ.
 >
 > **Quy ước ngôn ngữ:** phần giải thích dùng Tiếng Việt. Giữ nguyên những tên chuẩn cần tra cứu như `IPC`, `FIFO`, `POSIX`, `pipe()`, `mkfifo()`, `mq_open()`, `shm_open()`, `mmap()`, `MAP_SHARED`, `SIGPIPE`, `EPIPE`, `PIPE_BUF`.
 >
-> **Phạm vi:** IPC cơ bản, unnamed pipe, FIFO, POSIX Message Hàng đợi, POSIX Shared Memory, `mmap` dùng chung, semaphore/đồng bộ ở mức cần để hiểu shared memory, hành vi chặn, áp lực ngược và so sánh lựa chọn cơ chế IPC.
+> **Phạm vi:** IPC cơ bản, unnamed pipe, FIFO, POSIX Message Queue, POSIX Shared Memory, `mmap` dùng chung, semaphore/đồng bộ ở mức cần để hiểu shared memory, hành vi chặn, áp lực ngược và so sánh lựa chọn cơ chế IPC.
 >
 > Chương này chỉ có **lý thuyết**, không có bài thực hành. Unix Domain Socket thuộc **Chủ đề 9 — Socket Programming** và chỉ được nhắc khi cần so sánh phạm vi.
 
-> **Cách đọc tài liệu này nếu bạn mới bắt đầu:**
-> 1. Đọc câu **Nói đơn giản** ở đầu mỗi mục lớn để biết mục đó đang giải quyết vấn đề gì.
-> 2. Xem sơ đồ và ví dụ trước; chưa cần nhớ ngay mọi cờ, mã lỗi hay trường hợp đặc biệt.
-> 3. Sau khi đã hiểu ý chính, mới đọc các mục `###` theo thứ tự. Nếu gặp thuật ngữ mới, hãy quay lại câu giải thích đầu mục thay vì cố học thuộc định nghĩa.
+Hai tiến trình bình thường có không gian địa chỉ tách biệt, nên một biến toàn cục của tiến trình A không thể được tiến trình B đọc trực tiếp. IPC tạo ra **một kênh hoặc một đối tượng chung** để hai bên trao đổi dữ liệu và phối hợp hoạt động. Điểm quan trọng là mỗi cơ chế IPC có mô hình dữ liệu khác nhau: Pipe/FIFO là luồng byte, POSIX Message Queue giữ ranh giới từng thông điệp, còn Shared Memory cho nhiều tiến trình cùng ánh xạ một vùng nhớ.
+
+Chương này vì thế bắt đầu bằng cách chọn đúng mô hình dữ liệu, rồi mới đi vào ngữ nghĩa của Pipe, FIFO, Message Queue và Shared Memory. Sau đó ta xem thêm vòng đời đối tượng, blocking/nonblocking, backpressure và trách nhiệm đồng bộ — những phần thường gây lỗi khi đưa IPC vào hệ thống thật.
+
+**Cách đọc nếu bạn mới bắt đầu.** Trước hết hãy đọc phần **Nói đơn giản** ở đầu mỗi mục lớn để nắm câu hỏi mà mục đó đang giải quyết. Sau đó xem sơ đồ và ví dụ để hình thành mô hình trong đầu; chưa cần nhớ mọi cờ, mã lỗi hay trường hợp đặc biệt. Khi ý chính đã rõ, hãy đọc các mục `###` theo thứ tự và quay lại phần giải thích trước đó nếu gặp một thuật ngữ chưa quen.
 
 ---
 
@@ -42,13 +43,7 @@
 
 Giả sử:
 
-```text
-Tiến trình A
-  biến x ở địa chỉ 0x1000
-
-Tiến trình B
-  cũng có địa chỉ 0x1000
-```
+`Tiến trình A`: biến x ở địa chỉ 0x1000; `Tiến trình B`: cũng có địa chỉ 0x1000.
 
 Hai địa chỉ ảo giống nhau không có nghĩa chúng trỏ tới cùng bộ nhớ vật lý.
 
@@ -69,18 +64,7 @@ IPC tạo một đường hoặc một đối tượng mà cả hai phía cùng 
 
 Hai mục đích thường gặp:
 
-```text
-Truyền dữ liệu
-  bytes
-  message
-  buffer lớn
-
-Phối hợp
-  báo có dữ liệu
-  báo hoàn thành
-  yêu cầu dừng
-  đánh thức bên kia
-```
+IPC thường phục vụ hai mục đích. Thứ nhất là **truyền dữ liệu**, chẳng hạn byte, thông điệp hoặc buffer lớn. Thứ hai là **phối hợp**, chẳng hạn báo có dữ liệu mới, báo hoàn thành, yêu cầu dừng hoặc đánh thức phía bên kia.
 
 Không phải cơ chế nào cũng phù hợp như nhau cho cả hai.
 
@@ -106,24 +90,11 @@ IPC
 
 ---
 
-### 1.4 IPC object và handle không phải lúc nào cũng giống nhau
+### 1.4 Đối tượng IPC và handle không phải lúc nào cũng giống nhau
 
 Ví dụ:
 
-```text
-Pipe
-  đối tượng pipe trong nhân Linux
-  + bộ mô tả tệp đầu đọc/ghi
-
-Message Queue
-  đối tượng hàng đợi trong nhân Linux
-  + mqd_t để tham chiếu
-
-Shared Memory
-  đối tượng bộ nhớ dùng chung
-  + fd từ shm_open()
-  + ánh xạ từ mmap()
-```
+`Pipe`: đối tượng pipe trong nhân Linux và bộ mô tả tệp đầu đọc/ghi; `Message Queue`: đối tượng hàng đợi trong nhân Linux và mqd_t để tham chiếu; `Shared Memory`: đối tượng bộ nhớ dùng chung và fd từ shm_open() và ánh xạ từ mmap().
 
 Cần phân biệt:
 
@@ -134,7 +105,7 @@ Cần phân biệt:
 với:
 
 ```text
-handle mà tiến trình dùng để truy cập đối tượng đó
+handle mà tiến trình dùng để tham chiếu và truy cập đối tượng đó
 ```
 
 ---
@@ -153,7 +124,7 @@ A B C D E F G ...
 
 là **luồng byte**.
 
-Message Hàng đợi:
+Message Queue:
 
 ```text
 [Message 1]
@@ -209,53 +180,25 @@ Pipe A: P1 -> P2
 Pipe B: P2 -> P1
 ```
 
-Message Hàng đợi và Shared Memory có thể xây giao thức hai chiều ở mức ứng dụng, nhưng cách tổ chức khác nhau.
+Message Queue và Shared Memory có thể xây giao thức hai chiều ở mức ứng dụng, nhưng cách tổ chức khác nhau.
 
 ---
 
 ### 2.4 Có cần giữ ranh giới message không?
 
-Nếu giao thức tự nhiên là:
+Nếu giao thức tự nhiên là: Command A, Command B và Command C.
 
-```text
-Command A
-Command B
-Command C
-```
+Message Queue có lợi thế vì ranh giới thông điệp là một phần của cơ chế.
 
-Message Hàng đợi có lợi thế vì ranh giới thông điệp là một phần của cơ chế.
-
-Nếu dùng Pipe/FIFO, ứng dụng phải tự tạo framing:
-
-```text
-fixed-size
-length prefix
-delimiter
-```
+Nếu dùng Pipe/FIFO, ứng dụng phải tự tạo framing: `fixed-size`, length prefix và delimiter.
 
 ---
 
 ### 2.5 Dữ liệu lớn hay nhỏ?
 
-Dữ liệu nhỏ và rời rạc:
+Dữ liệu nhỏ và rời rạc như command, event hoặc mô tả một job thường phù hợp với IPC theo mô hình thông điệp.
 
-```text
-command
-event
-job bộ mô tả
-```
-
-thường phù hợp với message-oriented IPC.
-
-Dữ liệu lớn:
-
-```text
-frame ảnh
-block audio
-buffer cảm biến lớn
-```
-
-có thể phù hợp Shared Memory hơn vì không cần đưa toàn bộ payload qua một hàng đợi byte/message cho mỗi lần trao đổi.
+Dữ liệu lớn như frame ảnh, block audio hoặc buffer cảm biến thường phù hợp hơn với Shared Memory, vì hai phía có thể truy cập cùng vùng dữ liệu thay vì chuyển toàn bộ payload qua một kênh byte hoặc hàng đợi thông điệp mỗi lần.
 
 ---
 
@@ -269,27 +212,13 @@ Shared Memory chỉ cung cấp:
 cùng vùng nhớ
 ```
 
-nên ứng dụng phải tự giải quyết:
-
-```text
-ai đang ghi?
-khi nào dữ liệu hợp lệ?
-buffer nào trống?
-buffer nào đã đầy?
-```
+nên ứng dụng phải tự quy định ai được ghi, khi nào dữ liệu được xem là hợp lệ, buffer nào còn trống và buffer nào đã đầy.
 
 ---
 
 ### 2.7 Đối tượng sống bao lâu?
 
-Cần hỏi:
-
-```text
-tiến trình chết thì IPC đối tượng còn không?
-tên còn không?
-dữ liệu còn không?
-bao giờ đối tượng thật sự bị xóa?
-```
+Cần hỏi rõ: nếu một tiến trình kết thúc thì đối tượng IPC có còn tồn tại không, tên của nó có còn không, dữ liệu có được giữ lại không và khi nào đối tượng thật sự bị xóa.
 
 Vòng đời khác nhau giữa pipe, FIFO, MQ và SHM.
 
@@ -347,7 +276,7 @@ fork()
 Parent  Child
 ```
 
-Sau `fork()`, cả parent và child ban đầu đều có bản sao bộ mô tả tệp trỏ tới cùng pipe đối tượng.
+Sau `fork()`, cả tiến trình cha và tiến trình con ban đầu đều có các file descriptor trỏ tới cùng một đối tượng pipe trong kernel.
 
 Ứng dụng sau đó thường đóng các đầu không cần dùng để tạo đúng topology.
 
@@ -377,7 +306,7 @@ Việc đóng các đầu thừa không chỉ “cho sạch code”; nó ảnh h
 
 ---
 
-### 3.4 Pipe không phải regular file tạm
+### 3.4 Pipe không phải tệp thông thường tạm
 
 Pipe không lưu dữ liệu như một file trên storage.
 
@@ -412,21 +341,11 @@ Reader có thể nhận:
 "ABCDEF"
 ```
 
-hoặc:
-
-```text
-"AB"
-"CDEF"
-```
+hoặc: "AB" và "CDEF".
 
 Tùy kích thước `read()` và timing.
 
-Pipe không lưu siêu dữ liệu:
-
-```text
-write #1 kết thúc ở đây
-write #2 bắt đầu ở đây
-```
+Pipe không lưu siêu dữ liệu: write #1 kết thúc ở đây và write #2 bắt đầu ở đây.
 
 ---
 
@@ -542,13 +461,7 @@ Topic 10 sẽ đi sâu vào nonblocking và readiness.
 
 Hai khái niệm khác nhau:
 
-```text
-Pipe capacity
-  tổng lượng dữ liệu buffer có thể giữ
-
-PIPE_BUF
-  giới hạn liên quan tới bảo đảm atomic write giữa nhiều writer
-```
+`Pipe capacity`: tổng lượng dữ liệu buffer có thể giữ; `PIPE_BUF`: giới hạn liên quan tới bảo đảm atomic write giữa nhiều writer.
 
 Không được đồng nhất chúng.
 
@@ -632,18 +545,11 @@ Hai bên biết cùng pathname là có thể tìm tới cùng FIFO theo quyền 
 
 ---
 
-### 5.3 Dữ liệu không nằm “trong file FIFO” như regular file
+### 5.3 Dữ liệu không nằm “trong file FIFO” như tệp thông thường
 
-Filesystem entry giữ:
+Filesystem entry giữ: tên, loại file, quyền và metadata.
 
-```text
-tên
-loại file
-quyền
-metadata
-```
-
-Dữ liệu truyền thực tế chạy qua pipe đối tượng/bộ đệm trong nhân Linux khi FIFO đang được mở.
+Dữ liệu thực tế đi qua đối tượng pipe và bộ đệm trong kernel khi FIFO đang được mở.
 
 Không nên nghĩ:
 
@@ -727,7 +633,7 @@ umask khi tạo
 
 ## 6. POSIX Message Queue: gửi từng thông điệp riêng
 
-> **Nói đơn giản:** POSIX Message Hàng đợi giữ ranh giới từng message. Mỗi lần gửi là một message độc lập thay vì trộn thành luồng byte.
+> **Nói đơn giản:** POSIX Message Queue giữ ranh giới từng message. Mỗi lần gửi là một message độc lập thay vì trộn thành luồng byte.
 
 ### 6.1 Mô hình
 
@@ -767,7 +673,7 @@ Các tiến trình biết tên này có thể dùng `mq_open()` để mở cùng
 
 ### 6.3 `mqd_t`
 
-`mq_open()` trả về một message hàng đợi bộ mô tả:
+`mq_open()` trả về một message queue descriptor:
 
 ```text
 mqd_t
@@ -798,16 +704,7 @@ receiver nhận theo từng message, không phải tự hỏi byte nào thuộc 
 
 Các thuộc tính quan trọng:
 
-```text
-mq_maxmsg
-  số message tối đa
-
-mq_msgsize
-  kích thước message tối đa
-
-mq_curmsgs
-  số message hiện tại
-```
+`mq_maxmsg`: số message tối đa; `mq_msgsize`: kích thước message tối đa; `mq_curmsgs`: số message hiện tại.
 
 Hàng đợi không phải vùng chứa vô hạn.
 
@@ -875,13 +772,7 @@ Do đó POSIX MQ không phải FIFO toàn cục khi các priority khác nhau.
 
 Hai thao tác khác nhau:
 
-```text
-mq_close()
-  đóng handle của tiến trình này
-
-mq_unlink()
-  gỡ tên queue khỏi namespace
-```
+`mq_close()`: đóng handle của tiến trình này; `mq_unlink()`: gỡ tên queue khỏi namespace.
 
 Giống tư duy unlink file:
 
@@ -932,7 +823,7 @@ Một đối tượng có thể được mở/tạo bằng:
 shm_open()
 ```
 
-Nó trả về một bộ mô tả tệp đại diện cho shared-memory đối tượng.
+Nó trả về một file descriptor đại diện cho đối tượng shared memory.
 
 ---
 
@@ -964,7 +855,7 @@ trước khi ánh xạ vùng cần dùng.
 
 ---
 
-### 7.5 File descriptor và mapping có vòng đời tách nhau
+### 7.5 File descriptor và vùng ánh xạ có vòng đời tách nhau
 
 Sau khi `mmap()` thành công:
 
@@ -981,7 +872,7 @@ close(fd)
 
 ---
 
-### 7.6 `shm_unlink()` xóa tên, không lập tức xóa mapping đang dùng
+### 7.6 `shm_unlink()` xóa tên, không lập tức xóa vùng ánh xạ đang dùng
 
 Cách hình dung:
 
@@ -1012,7 +903,7 @@ Trên Linux, POSIX shared memory thường được hỗ trợ bằng `tmpfs`, t
 
 ---
 
-### 7.8 Hai tiến trình có thể map cùng object ở địa chỉ ảo khác nhau
+### 7.8 Hai tiến trình có thể ánh xạ cùng đối tượng ở địa chỉ ảo khác nhau
 
 ```text
 Tiến trình A:
@@ -1022,7 +913,7 @@ Tiến trình B:
   base = 0x50000000
 ```
 
-Cùng underlying shared đối tượng, nhưng virtual address khác.
+Hai tiến trình có thể cùng ánh xạ một đối tượng shared memory nhưng nhận các địa chỉ ảo khác nhau.
 
 Vì vậy lưu raw pointer của A vào vùng dùng chung rồi để B sử dụng là nguy hiểm:
 
@@ -1034,7 +925,7 @@ có thể không có ý nghĩa tương ứng trong B.
 
 ---
 
-### 7.9 Cấu trúc dùng chung nên không phụ thuộc địa chỉ tuyệt đối khi cần chia sẻ qua process
+### 7.9 Cấu trúc dùng chung không nên phụ thuộc địa chỉ ảo tuyệt đối
 
 Thay vì:
 
@@ -1042,12 +933,7 @@ Thay vì:
 node->next = absolute_pointer
 ```
 
-có thể dùng khái niệm:
-
-```text
-offset tính từ base
-index trong vùng dùng chung
-```
+có thể dùng khái niệm: offset tính từ base và index trong vùng dùng chung.
 
 Tùy cấu trúc dữ liệu.
 
@@ -1057,16 +943,7 @@ Tùy cấu trúc dữ liệu.
 
 Vùng nhớ chỉ là bytes/pages.
 
-Ứng dụng tự định nghĩa:
-
-```text
-header
-ring buffer
-slots
-indices
-flags
-payload
-```
+Ứng dụng tự định nghĩa: header, ring buffer, slots, indices, flags và payload.
 
 ---
 
@@ -1091,23 +968,13 @@ Có thể xảy ra race giống luồng.
 
 ### 8.2 Shared Memory giải quyết “dữ liệu ở đâu”, không giải quyết “khi nào được dùng”
 
-```text
-Shared Memory
-  trả lời:
-  dữ liệu chung nằm ở đâu?
-
-Synchronization
-  trả lời:
-  ai được sửa?
-  khi nào dữ liệu sẵn sàng?
-  khi nào có buffer trống?
-```
+**Shared Memory** trả lời câu hỏi “dữ liệu chung nằm ở đâu?”, còn **cơ chế đồng bộ** trả lời các câu hỏi “ai được phép sửa?”, “khi nào dữ liệu đã sẵn sàng?” và “khi nào có buffer trống?”.
 
 ---
 
-### 8.3 Có thể đặt synchronization object trong shared memory
+### 8.3 Có thể đặt đối tượng đồng bộ trong Shared Memory
 
-POSIX cho phép một số synchronization đối tượng cấu hình ở chế độ tiến trình-shared.
+POSIX cho phép một số đối tượng đồng bộ được cấu hình để dùng chung giữa nhiều tiến trình (`process-shared`).
 
 Ví dụ khái niệm:
 
@@ -1122,28 +989,18 @@ Ví dụ khái niệm:
 +----------------------------------+
 ```
 
-Cả hai tiến trình phải map cùng vùng chứa đối tượng đó.
+Cả hai tiến trình phải ánh xạ cùng vùng nhớ chứa đối tượng đồng bộ đó.
 
 ---
 
-### 8.4 Semaphore dùng chung giữa process
+### 8.4 Semaphore dùng chung giữa các tiến trình
 
 Unnamed POSIX semaphore có thể được khởi tạo với `pshared` phù hợp và đặt trong vùng nhớ dùng chung.
 
 Cách hình dung:
 
-```text
-Shared payload
-     +
-Shared semaphore
-```
+Có thể hình dung vùng nhớ dùng chung chứa cả **payload** và một **semaphore dùng chung**. Payload mang dữ liệu; semaphore dùng để biểu diễn trạng thái như số slot đã có dữ liệu hoặc số slot còn trống.
 
-Semaphore có thể biểu diễn:
-
-```text
-số slot có dữ liệu
-số slot còn trống
-```
 
 ---
 
@@ -1177,22 +1034,15 @@ Consumer
 
 ### 8.6 Process chết giữa lúc cập nhật là bài toán khó hơn
 
-Nếu tiến trình chết trong lúc:
+Nếu một tiến trình chết trong lúc đang giữ lock và cập nhật metadata dùng chung, trạng thái shared memory có thể bị bỏ lại ở trạng thái không nhất quán.
 
-```text
-đang sở hữu lock
-đang cập nhật metadata
-```
-
-shared trạng thái có thể không nhất quán.
-
-Topic 7 đã giới thiệu synchronization; recovery sau crash là vấn đề kiến trúc nâng cao hơn và không được Shared Memory tự xử lý.
+Chủ đề 7 đã giới thiệu cơ chế đồng bộ; việc phục hồi sau khi một tiến trình bị lỗi là bài toán kiến trúc nâng cao hơn và Shared Memory không tự giải quyết.
 
 ---
 
 ## 9. Hành vi chặn, Backpressure và giới hạn tài nguyên
 
-> **Nói đơn giản:** Mọi IPC đều có giới hạn tài nguyên. Khi bộ đệm/hàng đợi đầy hoặc trống, lời gọi có thể block hoặc thất bại tùy chế độ.
+> **Nói đơn giản:** Mọi IPC đều có giới hạn tài nguyên. Khi bộ đệm hoặc hàng đợi đầy/rỗng, lời gọi có thể chặn hoặc trả lỗi tùy chế độ hoạt động.
 
 ### 9.1 Vì sao IPC có thể chặn?
 
@@ -1253,13 +1103,7 @@ Bộ đệm trong nhân Linux hữu hạn.
 
 ### 9.4 Message Queue cũng hữu hạn
 
-Các giới hạn:
-
-```text
-số message
-kích thước mỗi message
-resource limit của hệ thống
-```
+Các giới hạn: số message, kích thước mỗi message và resource limit của hệ thống.
 
 Hàng đợi đầy thì sender phải chờ hoặc xử lý `EAGAIN` nếu nonblocking.
 
@@ -1273,15 +1117,7 @@ Nếu có 4 slot nhưng producer cứ ghi tiếp:
 slot cũ có thể bị ghi đè
 ```
 
-trừ khi ứng dụng có protocol:
-
-```text
-free_count
-used_count
-read_index
-write_index
-semaphore
-```
+trừ khi ứng dụng có protocol: `free_count`, `used_count`, `read_index`, `write_index` và semaphore.
 
 ---
 
@@ -1299,14 +1135,7 @@ thành:
 "hiện giờ chưa thể làm, trả về"
 ```
 
-Ứng dụng vẫn phải quyết định:
-
-```text
-retry lúc nào?
-drop dữ liệu không?
-buffer ở đâu?
-chờ readiness bằng cách nào?
-```
+Ứng dụng vẫn phải quyết định khi nào thử lại, có được phép bỏ dữ liệu hay không, dữ liệu tạm sẽ nằm ở đâu và sẽ chờ trạng thái sẵn sàng bằng cơ chế nào.
 
 Chi tiết cuối cùng thuộc Topic 10.
 
@@ -1314,7 +1143,7 @@ Chi tiết cuối cùng thuộc Topic 10.
 
 ## 10. So sánh và lựa chọn cơ chế IPC
 
-> **Nói đơn giản:** Không có IPC tốt nhất cho mọi trường hợp. Pipe/FIFO đơn giản cho stream, MQ hợp message, SHM hợp dữ liệu lớn và tốc độ cao nhưng khó đồng bộ hơn.
+> **Nói đơn giản:** Không có cơ chế IPC tốt nhất cho mọi trường hợp. Pipe/FIFO phù hợp với luồng byte, Message Queue phù hợp với thông điệp rời rạc, còn Shared Memory phù hợp dữ liệu lớn nhưng đòi hỏi ứng dụng tự quản lý đồng bộ chặt chẽ hơn.
 
 ### 10.1 Bảng tổng quan
 
@@ -1322,21 +1151,14 @@ Chi tiết cuối cùng thuộc Topic 10.
 |---|---|---:|---:|---|
 | Pipe | luồng byte | Không | Không | đơn giản, hợp parent–child |
 | FIFO | luồng byte | Pathname | Không | tiến trình độc lập có thể tìm nhau |
-| POSIX MQ | message | Có | Có | message riêng, priority, nhân Linux hàng đợi |
+| POSIX MQ | Thông điệp | Có | Có | Giữ ranh giới thông điệp, hỗ trợ priority, hàng đợi do kernel quản lý |
 | POSIX SHM | vùng nhớ | Có | Ứng dụng tự định nghĩa | dữ liệu lớn, truy cập trực tiếp |
 
 ---
 
 ### 10.2 Chọn Pipe khi nào?
 
-Phù hợp khi:
-
-```text
-tiến trình có quan hệ
-luồng dữ liệu một chiều
-ordered luồng byte là đủ
-EOF theo fd lifetime hữu ích
-```
+Phù hợp khi: tiến trình có quan hệ, luồng dữ liệu một chiều, ordered luồng byte là đủ và EOF theo fd lifetime hữu ích.
 
 Ví dụ khái niệm:
 
@@ -1348,57 +1170,23 @@ parent -> child luồng xử lý
 
 ### 10.3 Chọn FIFO khi nào?
 
-Phù hợp khi muốn:
+Phù hợp khi muốn giữ ngữ nghĩa luồng byte của pipe nhưng cần thêm một pathname để các tiến trình độc lập có thể tìm thấy cùng điểm giao tiếp.
 
-```text
-pipe ngữ nghĩa
-+
-pathname để các tiến trình độc lập rendezvous
-```
-
-Nhưng vẫn phải tự framing nếu cần message.
+Nếu ứng dụng cần các thông điệp riêng biệt, nó vẫn phải tự định nghĩa cách đóng khung (`framing`).
 
 ---
 
 ### 10.4 Chọn Message Queue khi nào?
 
-Phù hợp khi dữ liệu tự nhiên là:
-
-```text
-command
-event
-job
-control message
-```
-
-và cần:
-
-```text
-message boundary
-priority
-nhân Linux-managed queue
-```
+Message Queue phù hợp khi dữ liệu tự nhiên là command, event, job hoặc control message và ứng dụng cần giữ ranh giới thông điệp, priority cùng một hàng đợi do kernel quản lý.
 
 ---
 
 ### 10.5 Chọn Shared Memory khi nào?
 
-Phù hợp khi:
+Phù hợp khi: payload lớn, truy cập lặp lại nhiều và muốn giảm copy qua channel cho mỗi message.
 
-```text
-payload lớn
-truy cập lặp lại nhiều
-muốn giảm copy qua channel cho mỗi message
-```
-
-Đổi lại phải chịu trách nhiệm cao hơn về:
-
-```text
-synchronization
-layout
-lifetime
-crash recovery
-```
+Đổi lại, ứng dụng phải chịu trách nhiệm nhiều hơn về đồng bộ, bố trí dữ liệu, vòng đời đối tượng và phục hồi sau lỗi.
 
 ---
 
@@ -1418,7 +1206,7 @@ portability
 khả năng gỡ lỗi
 ```
 
-Shared Memory có thể nhanh về copy nhưng khó đúng hơn Message Hàng đợi rất nhiều.
+Shared Memory có thể nhanh về copy nhưng khó đúng hơn Message Queue rất nhiều.
 
 ---
 
@@ -1487,14 +1275,7 @@ Path tồn tại chỉ chứng minh:
 FIFO entry tồn tại
 ```
 
-không chứng minh:
-
-```text
-reader đang mở
-writer đang mở
-permission đúng
-tiến trình peer còn sống
-```
+không chứng minh: reader đang mở, writer đang mở, permission đúng và tiến trình peer còn sống.
 
 ---
 
@@ -1502,14 +1283,7 @@ tiến trình peer còn sống
 
 Có thể hàng đợi đã đầy.
 
-Cần phân biệt với:
-
-```text
-message quá lớn
-permission sai
-mqd không hợp lệ
-resource limit
-```
+Cần phân biệt với: message quá lớn, permission sai, mqd không hợp lệ và resource limit.
 
 ---
 
@@ -1546,7 +1320,7 @@ Các hướng nghi ngờ:
 ```text
 thiếu synchronization
 MAP_PRIVATE thay vì MAP_SHARED
-hai tiến trình mở khác đối tượng name
+hai tiến trình vô tình mở các tên khác nhau nên không cùng truy cập một đối tượng
 layout không thống nhất
 raw pointer không hợp lệ giữa tiến trình
 đối tượng bị resize/truncate
@@ -1556,7 +1330,7 @@ raw pointer không hợp lệ giữa tiến trình
 
 ### 11.9 `SIGBUS` khi truy cập mapping
 
-Một nguyên nhân quan trọng là truy cập vùng ánh xạ vượt phần backing hợp lệ của đối tượng, ví dụ đối tượng bị truncate hoặc chưa được đặt kích thước đúng.
+Một nguyên nhân quan trọng là truy cập vùng ánh xạ vượt quá phần lưu trữ hợp lệ của đối tượng, ví dụ đối tượng bị truncate hoặc chưa được đặt kích thước đúng.
 
 Kích thước SHM cũng là một phần của giao thức vòng đời.
 
@@ -1566,7 +1340,7 @@ Kích thước SHM cũng là một phần của giao thức vòng đời.
 
 > **Nói đơn giản:** Embedded Linux dùng IPC để tách service, logger, sensor collector, UI và daemon thành các tiến trình độc lập nhưng vẫn trao đổi dữ liệu.
 
-### 12.1 Một sản phẩm thường có nhiều process
+### 12.1 Một sản phẩm thường có nhiều tiến trình
 
 ```text
 sensor-service
@@ -1605,14 +1379,7 @@ stdout/stderr capture
 
 ### 12.3 FIFO cho endpoint đơn giản có tên
 
-Một hệ thống nhỏ có thể dùng FIFO nếu chỉ cần:
-
-```text
-luồng byte
-pathname cố định
-ít peer
-protocol đơn giản
-```
+Một hệ thống nhỏ có thể dùng FIFO nếu chỉ cần: luồng byte, pathname cố định, ít peer và protocol đơn giản.
 
 Khi service cần nhiều máy khách hoặc giao thức hai chiều rõ ràng, Unix Domain Socket ở Topic 9 thường linh hoạt hơn.
 
@@ -1658,22 +1425,15 @@ Payload lớn nằm trong SHM; control có thể dùng semaphore hoặc cơ ch�
 
 ### 12.6 Bounded resource quan trọng trên board nhúng
 
-RAM và nhân Linux memory hữu hạn.
+RAM và bộ nhớ kernel hữu hạn.
 
-Cần đặt câu hỏi:
-
-```text
-Pipe buffer đầy thì sao?
-MQ đầy thì sao?
-SHM có bao nhiêu slot?
-Producer nhanh hơn consumer thì sao?
-```
+Cần trả lời trước các tình huống tài nguyên cạn: pipe buffer đầy thì xử lý thế nào, Message Queue đầy thì làm gì, Shared Memory có bao nhiêu slot và chuyện gì xảy ra khi producer nhanh hơn consumer.
 
 Áp lực ngược là một phần của độ ổn định hệ thống.
 
 ---
 
-### 12.7 Restart và cleanup
+### 12.7 Khởi động lại và dọn dẹp tài nguyên
 
 Service crash có thể để lại:
 
@@ -1685,13 +1445,13 @@ POSIX SHM name/đối tượng
 
 khác với unnamed pipe vốn gắn mạnh với bộ mô tả tham chiếu.
 
-Supervisor/startup design cần biết cơ chế nào cần cleanup.
+Thiết kế supervisor và quá trình khởi động cần biết cơ chế IPC nào phải được dọn dẹp khi tiến trình khởi động lại.
 
 ---
 
 ## 13. Tổng kết
 
-> **Nói đơn giản:** Topic 08 cần để lại bản đồ lựa chọn: pipe/FIFO cho luồng byte, MQ cho message, SHM cho vùng nhớ dùng chung kèm synchronization.
+> **Nói đơn giản:** Sau chủ đề này, cần nhớ bản đồ lựa chọn: Pipe/FIFO cho luồng byte, Message Queue cho thông điệp rời rạc, Shared Memory cho vùng nhớ dùng chung và luôn cần một cơ chế đồng bộ phù hợp.
 
 ### 13.1 Bản đồ IPC
 
@@ -1741,7 +1501,7 @@ Tiến trình B ánh xạ ----+
 ### 13.4 Những điểm phải nhớ
 
 1. IPC dùng để giao tiếp/phối hợp giữa các tiến trình tách biệt.
-2. Pipe là luồng byte, không phải message hàng đợi.
+2. Pipe là luồng byte, không phải hàng đợi thông điệp.
 3. Portable pipe là kênh một chiều với đầu đọc và đầu ghi.
 4. EOF của pipe chỉ xuất hiện khi mọi writer tham chiếu đã biến mất và dữ liệu cũ đã đọc hết.
 5. Ghi khi không còn reader có thể tạo `SIGPIPE`/`EPIPE`.
@@ -1752,14 +1512,14 @@ Tiến trình B ánh xạ ----+
 10. POSIX MQ giữ ranh giới thông điệp.
 11. POSIX MQ hỗ trợ priority và có giới hạn số/kích thước message.
 12. `mq_close()` và `mq_unlink()` có ý nghĩa vòng đời khác nhau.
-13. POSIX Shared Memory cho nhiều tiến trình map cùng backing đối tượng.
+13. POSIX Shared Memory cho nhiều tiến trình ánh xạ cùng một đối tượng lưu trữ bên dưới.
 14. SHM mới có kích thước 0 và thường cần `ftruncate()` trước khi dùng.
 15. `MAP_SHARED` là cơ sở cho ánh xạ dùng chung.
 16. Đóng fd sau `mmap()` không tự hủy ánh xạ.
 17. `shm_unlink()` xóa tên nhưng ánh xạ đang tồn tại có vòng đời riêng.
 18. Raw pointer không nên được coi là địa chỉ dùng chung giữa các tiến trình nếu ánh xạ base khác nhau.
 19. Shared Memory không tự cung cấp mutual exclusion hoặc notification.
-20. Shared Memory cần synchronization/ownership protocol riêng.
+20. Shared Memory cần cơ chế đồng bộ và quy tắc sở hữu dữ liệu riêng.
 21. Nonblocking không loại bỏ bài toán áp lực ngược.
 22. Chọn IPC theo mô hình dữ liệu, vòng đời và độ phức tạp, không chỉ theo tốc độ.
 
@@ -1800,7 +1560,7 @@ Nguồn chuẩn cho ngữ nghĩa di động của IPC và memory ánh xạ.
 
 ### Tài liệu bổ sung
 
-- The Linux Programming Giao diện: https://man7.org/tlpi/
+- The Linux Programming Interface: https://man7.org/tlpi/
 - Bootlin Embedded Linux: https://bootlin.com/doc/training/embedded-linux/
 - Unix & Linux Stack Exchange: https://unix.stackexchange.com/
 - Stack Overflow: https://stackoverflow.com/

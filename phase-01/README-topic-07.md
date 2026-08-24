@@ -8,10 +8,11 @@
 >
 > Chương này chỉ có **lý thuyết**, không có bài thực hành. Các chủ đề nâng cao như raw `futex`, lock-free, RCU, spinlock nhân Linux và mô hình atomic C/C++ chi tiết không thuộc phạm vi chương này.
 
-> **Cách đọc tài liệu này nếu bạn mới bắt đầu:**
-> 1. Đọc câu **Nói đơn giản** ở đầu mỗi mục lớn để biết mục đó đang giải quyết vấn đề gì.
-> 2. Xem sơ đồ và ví dụ trước; chưa cần nhớ ngay mọi cờ, mã lỗi hay trường hợp đặc biệt.
-> 3. Sau khi đã hiểu ý chính, mới đọc các mục `###` theo thứ tự. Nếu gặp thuật ngữ mới, hãy quay lại câu giải thích đầu mục thay vì cố học thuộc định nghĩa.
+Đồng bộ chỉ trở nên dễ hiểu khi bắt đầu từ **trạng thái dùng chung cần luôn đúng**. Mutex không “khóa một biến” theo nghĩa tự động; ứng dụng dùng mutex để bảo vệ một vùng trạng thái và các bất biến của nó. Condition Variable không chứa điều kiện; nó giúp luồng ngủ trong khi chờ một predicate trên dữ liệu dùng chung thay đổi. Semaphore lại phù hợp với mô hình đếm tài nguyên hoặc token.
+
+Vì vậy chương này không học từng API riêng lẻ. Nó đi từ race condition và critical section đến mutex, condition variable, semaphore, producer–consumer, rồi mới phân tích deadlock, starvation, livelock và priority inversion.
+
+**Cách đọc nếu bạn mới bắt đầu.** Trước hết hãy đọc phần **Nói đơn giản** ở đầu mỗi mục lớn để nắm câu hỏi mà mục đó đang giải quyết. Sau đó xem sơ đồ và ví dụ để hình thành mô hình trong đầu; chưa cần nhớ mọi cờ, mã lỗi hay trường hợp đặc biệt. Khi ý chính đã rõ, hãy đọc các mục `###` theo thứ tự và quay lại phần giải thích trước đó nếu gặp một thuật ngữ chưa quen.
 
 ---
 
@@ -59,15 +60,7 @@ Luồng B --------+
 
 Nếu dữ liệu chỉ đọc và không thay đổi, vấn đề đơn giản hơn nhiều.
 
-Nếu có ghi:
-
-```text
-đọc
-sửa
-ghi
-```
-
-thì thứ tự xen kẽ giữa các luồng trở thành một phần của tính đúng đắn.
+Nếu dữ liệu có thể bị ghi, các bước đọc, sửa và ghi của nhiều luồng có thể xen kẽ nhau. Khi đó thứ tự thực thi trở thành một phần của tính đúng đắn của chương trình.
 
 ---
 
@@ -102,14 +95,7 @@ chứ không phải chỉ một biến đơn lẻ.
 3. Luồng phải chờ điều kiện nào mới được tiếp tục?
 ```
 
-Sau đó mới lựa chọn:
-
-```text
-mutex
-condition variable
-semaphore
-barrier
-```
+Sau đó mới lựa chọn: mutex, condition variable, semaphore và barrier.
 
 ---
 
@@ -156,19 +142,7 @@ Topic này không đi sâu vào memory order của C11/C++.
 
 ### 2.3 Race logic vẫn có thể xảy ra dù từng lần truy cập đã được khóa
 
-Ví dụ:
-
-```text
-khóa
-kiểm tra: resource còn trống
-mở khóa
-
-... luồng khác thay đổi resource ...
-
-khóa
-sử dụng dựa trên kết quả kiểm tra cũ
-mở khóa
-```
+Ví dụ: khóa, kiểm tra: resource còn trống, mở khóa, ... luồng khác thay đổi resource ..., khóa, sử dụng dựa trên kết quả kiểm tra cũ và mở khóa.
 
 Từng lần đọc/ghi có thể được bảo vệ, nhưng toàn bộ logic:
 
@@ -210,15 +184,7 @@ Nên hỏi:
 
 > “Thao tác nào phải được xem như một bước nhất quán so với các luồng khác?”
 
-Ví dụ với hàng đợi:
-
-```text
-ghi phần tử
-cập nhật tail
-cập nhật size
-```
-
-có thể là một chuyển trạng thái cần bảo vệ chung.
+Ví dụ với một hàng đợi, thao tác ghi phần tử, cập nhật `tail` và cập nhật `size` thường phải được xem như một lần chuyển trạng thái thống nhất và được bảo vệ cùng nhau.
 
 ---
 
@@ -332,14 +298,7 @@ A là chủ sở hữu M
 A unlock M
 ```
 
-Không nên thiết kế kiểu:
-
-```text
-A lock
-B unlock thay A
-```
-
-vì hành vi phụ thuộc loại mutex và thường là lỗi giao thức.
+Không nên thiết kế theo kiểu luồng A khóa mutex rồi luồng B mở khóa thay. Mutex có ownership; vi phạm quy tắc sở hữu thường là lỗi giao thức và có thể dẫn tới hành vi không xác định tùy loại mutex.
 
 ---
 
@@ -353,14 +312,7 @@ mutex M bảo vệ biến X
 
 Đó là quy ước của chương trình.
 
-Nếu:
-
-```text
-Luồng A đọc X dưới mutex M
-Luồng B ghi X không dùng M
-```
-
-thì mutex không thể bảo vệ truy cập của B.
+Nếu luồng A đọc `X` dưới mutex `M` nhưng luồng B lại ghi `X` mà không dùng cùng mutex, thì `M` không thể bảo vệ truy cập của B. Tất cả phía truy cập trạng thái được bảo vệ phải tuân theo cùng giao thức.
 
 Mọi bên phải tuân thủ cùng một giao thức.
 
@@ -445,15 +397,9 @@ Không nên giả định thứ tự chờ luôn FIFO nếu tài liệu không b
 
 ### 5.5 Hủy mutex
 
-Chỉ được hủy khi vòng đời của nó đã an toàn:
+Chỉ được hủy khi vòng đời của nó đã an toàn: không còn luồng sử dụng, không còn luồng chờ và không còn bị khóa.
 
-```text
-không còn luồng sử dụng
-không còn luồng chờ
-không còn bị khóa
-```
-
-Một synchronization đối tượng cũng có vòng đời. Hủy quá sớm là một loại race về vòng đời tài nguyên.
+Một đối tượng đồng bộ cũng có vòng đời. Hủy quá sớm là một loại race về vòng đời tài nguyên.
 
 ---
 
@@ -461,15 +407,7 @@ Một synchronization đối tượng cũng có vòng đời. Hủy quá sớm l
 
 Nhiều hàm mutex trả:
 
-```text
-0
-  thành công
-
-mã lỗi khác 0
-  lỗi/trạng thái đặc biệt
-```
-
-không nhất thiết là:
+Các hàm Pthreads thường trả `0` khi thành công và trả trực tiếp mã lỗi khác `0` khi có lỗi hoặc trạng thái đặc biệt; chúng không nhất thiết dùng mẫu `-1`/`errno`:
 
 ```text
 -1 + errno
@@ -495,27 +433,13 @@ POSIX có các loại mutex để định nghĩa hành vi khác nhau.
 
 ### 6.2 `PTHREAD_MUTEX_NORMAL`
 
-Nếu cùng luồng khóa lại mutex mà chính nó đang giữ:
-
-```text
-A lock M
-A lock M lần nữa
-```
-
-có thể tự deadlock theo ngữ nghĩa `NORMAL`.
+Nếu một luồng gọi `pthread_mutex_lock()` lần nữa trên chính mutex `NORMAL` mà nó đang giữ, luồng đó có thể tự deadlock.
 
 ---
 
 ### 6.3 `PTHREAD_MUTEX_ERRORCHECK`
 
-Loại này giúp phát hiện một số lỗi sử dụng, ví dụ:
-
-```text
-khóa lại mutex mình đang giữ
-mở khóa khi không phải chủ sở hữu
-```
-
-thay vì để lỗi biểu hiện khó hiểu hơn.
+Loại `ERRORCHECK` giúp phát hiện một số lỗi sử dụng như khóa lại mutex mình đang giữ hoặc mở khóa khi không phải chủ sở hữu, thay vì để lỗi biểu hiện theo cách khó chẩn đoán hơn.
 
 Nó hỗ trợ chẩn đoán, không thay thế thiết kế đúng.
 
@@ -581,22 +505,11 @@ producer thêm dữ liệu
 
 ### 7.2 Condition variable không chứa điều kiện nghiệp vụ
 
-Nó không tự biết:
-
-```text
-queue có dữ liệu?
-buffer còn chỗ?
-shutdown được yêu cầu?
-```
+Nó không tự biết hàng đợi đã có dữ liệu, bộ đệm còn chỗ hay hệ thống đã nhận yêu cầu dừng. Những điều đó phải được biểu diễn bằng dữ liệu dùng chung và kiểm tra bằng predicate.
 
 Điều kiện thật nằm trong dữ liệu dùng chung.
 
-Ví dụ:
-
-```text
-predicate:
-queue_size > 0
-```
+Ví dụ, với một hàng đợi, predicate có thể là `queue_size > 0`: điều kiện này đúng khi hàng đợi đang có dữ liệu để consumer lấy ra.
 
 `condition variable` chỉ là cơ chế chờ/đánh thức gắn với việc kiểm tra predicate đó.
 
@@ -624,14 +537,7 @@ Condition Variable
 
 Luồng đang giữ mutex gọi `pthread_cond_wait()`.
 
-Về khái niệm:
-
-```text
-1. nhả mutex
-2. bắt đầu chờ
-```
-
-hai bước được phối hợp nguyên tử theo ngữ nghĩa condition variable để không tạo khoảng hở lost wakeup.
+Về mặt khái niệm, `pthread_cond_wait()` phải nhả mutex và chuyển luồng sang trạng thái chờ như một thao tác được phối hợp nguyên tử. Nhờ đó không xuất hiện khoảng hở mà một tín hiệu đánh thức có thể bị bỏ lỡ giữa lúc kiểm tra điều kiện và lúc bắt đầu ngủ.
 
 Khi thức dậy:
 
@@ -736,15 +642,7 @@ mở mutex
 
 ### 8.4 Lost wakeup là gì?
 
-Nếu làm sai kiểu:
-
-```text
-Luồng A kiểm tra: chưa có dữ liệu
-
-Luồng B thêm dữ liệu và báo hiệu
-
-Luồng A mới bắt đầu ngủ
-```
+Nếu làm sai kiểu: Luồng A kiểm tra: chưa có dữ liệu, Luồng B thêm dữ liệu và báo hiệu và Luồng A mới bắt đầu ngủ.
 
 A có thể ngủ dù sự kiện đã xảy ra.
 
@@ -847,13 +745,7 @@ Dù trả về vì timeout, ứng dụng vẫn nên kiểm tra trạng thái the
 semaphore = 3
 ```
 
-có thể đại diện cho:
-
-```text
-3 buffer còn trống
-3 tài nguyên còn dùng được
-3 token cho phép
-```
+có thể đại diện cho: 3 buffer còn trống, 3 tài nguyên còn dùng được và 3 token cho phép.
 
 ---
 
@@ -885,14 +777,7 @@ Nếu semaphore chỉ dùng giá trị 0/1, hình thức có vẻ giống mutex.
 
 Nhưng:
 
-```text
-Mutex
-  có ownership
-
-Semaphore
-  có count/token
-  không có ownership kiểu mutex
-```
+`Mutex`: có ownership; `Semaphore`: có count/token không có ownership kiểu mutex.
 
 Sự khác biệt này quan trọng với thiết kế và real-time priority inheritance.
 
@@ -910,12 +795,7 @@ Câu hỏi:
 Ai được vào vùng cập nhật trạng thái ngay lúc này?
 ```
 
-Dùng khi cần:
-
-```text
-loại trừ lẫn nhau
-bảo vệ bất biến dữ liệu
-```
+Dùng khi cần: loại trừ lẫn nhau và bảo vệ bất biến dữ liệu.
 
 ---
 
@@ -1034,13 +914,7 @@ count == capacity
 
 producer cũng cần chờ khi hết chỗ.
 
-```text
-not_empty
-  cho consumer
-
-not_full
-  cho producer
-```
+`not_empty`: cho consumer; `not_full`: cho producer.
 
 ---
 
@@ -1048,13 +922,7 @@ not_full
 
 Producer–consumer cho thấy các primitive không tồn tại tách rời:
 
-```text
-mutex
-  bảo vệ trạng thái
-
-condition variable
-  cho phép chờ trạng thái
-```
+`mutex`: bảo vệ trạng thái; `condition variable`: cho phép chờ trạng thái.
 
 Khi đã hiểu mô hình này, nhiều kiến trúc luồng xử lý hàng đợi, audio pipeline, sensor pipeline sẽ dễ hiểu hơn.
 
@@ -1095,11 +963,7 @@ stateDiagram-v2
 
 Khi barrier đủ người, một luồng được chọn nhận giá trị đặc biệt:
 
-```text
-PTHREAD_BARRIER_SERIAL_THREAD
-```
-
-các luồng còn lại nhận giá trị thành công thông thường.
+Một luồng nhận giá trị `PTHREAD_BARRIER_SERIAL_THREAD`, còn các luồng còn lại nhận giá trị thành công thông thường.
 
 Điều này cho phép một luồng thực hiện phần việc “một lần” giữa hai giai đoạn nếu thiết kế cần.
 
@@ -1149,14 +1013,7 @@ A --chờ--> B
 
 ### 14.2 Bốn điều kiện Coffman
 
-Mô hình kinh điển chỉ ra bốn điều kiện cần đồng thời cho deadlock loại tài nguyên:
-
-```text
-1. Loại trừ lẫn nhau
-2. Giữ tài nguyên trong khi chờ tài nguyên khác
-3. Không cưỡng bức lấy lại tài nguyên
-4. Có vòng chờ khép kín
-```
+Mô hình kinh điển chỉ ra bốn điều kiện cần đồng thời cho deadlock loại tài nguyên: 1. Loại trừ lẫn nhau, 2. Giữ tài nguyên trong khi chờ tài nguyên khác, 3. Không cưỡng bức lấy lại tài nguyên và 4. Có vòng chờ khép kín.
 
 Phá được ít nhất một điều kiện có thể loại bỏ lớp deadlock đó.
 
@@ -1164,12 +1021,7 @@ Phá được ít nhất một điều kiện có thể loại bỏ lớp deadlo
 
 ### 14.3 Tự deadlock
 
-Một luồng cũng có thể tự khóa mình:
-
-```text
-A giữ mutex NORMAL M
-A lại lock M
-```
+Một luồng cũng có thể tự khóa mình: A giữ mutex NORMAL M và A lại lock M.
 
 A đang chờ mutex mà chỉ chính A có thể mở.
 
@@ -1242,12 +1094,7 @@ CPU có thể bận dù công việc không hoàn thành.
 
 ### 15.4 Tính công bằng không phải lúc nào cũng được bảo đảm
 
-Không nên tự giả định:
-
-```text
-mutex luôn cấp theo FIFO
-waiter lâu nhất luôn được chạy trước
-```
+Không nên tự giả định: mutex luôn cấp theo FIFO và waiter lâu nhất luôn được chạy trước.
 
 Trừ khi chuẩn hoặc chính sách lập lịch nêu rõ.
 
@@ -1259,12 +1106,7 @@ Trừ khi chuẩn hoặc chính sách lập lịch nêu rõ.
 
 ### 16.1 Quy tắc thứ tự khóa
 
-Một kỹ thuật quan trọng để tránh vòng chờ:
-
-```text
-luôn khóa M1 trước M2
-luôn khóa M2 trước M3
-```
+Một kỹ thuật quan trọng để tránh vòng chờ: luôn khóa M1 trước M2 và luôn khóa M2 trước M3.
 
 Không cho phép đường ngược:
 
@@ -1286,20 +1128,9 @@ là một thứ tự toàn cục không có vòng.
 
 Một mutex bảo vệ một vùng trạng thái lớn.
 
-Ưu điểm:
+Ưu điểm: dễ hiểu, dễ giữ bất biến và ít quan hệ lock-order.
 
-```text
-dễ hiểu
-dễ giữ bất biến
-ít quan hệ lock-order
-```
-
-Nhược điểm:
-
-```text
-nhiều luồng phải chờ cùng một khóa
-ít song song hơn
-```
+Nhược điểm: nhiều luồng phải chờ cùng một khóa và ít song song hơn.
 
 ---
 
@@ -1313,13 +1144,7 @@ Nhiều mutex bảo vệ các phần nhỏ.
 có thể tăng mức đồng thời
 ```
 
-Nhược điểm:
-
-```text
-khó reasoning hơn
-dễ deadlock hơn
-nhiều quan hệ sở hữu hơn
-```
+Nhược điểm: khó reasoning hơn, dễ deadlock hơn và nhiều quan hệ sở hữu hơn.
 
 ---
 
@@ -1331,13 +1156,7 @@ Nếu nhiều luồng thường xuyên muốn cùng mutex:
 mutex trở thành điểm nóng
 ```
 
-Hệ quả có thể là:
-
-```text
-thời gian chờ cao
-ít chạy song song
-nhiều chuyển lịch
-```
+Hệ quả có thể là: thời gian chờ cao, ít chạy song song và nhiều chuyển lịch.
 
 ---
 
@@ -1431,13 +1250,7 @@ H có thể tiếp tục
 
 Priority inheritance dùng để giảm/bó buộc một dạng priority inversion trong hệ thống ưu tiên thời gian thực.
 
-Nó không giải quyết:
-
-```text
-deadlock
-race condition do quên lock
-thiết kế lock-order sai
-```
+Nó không giải quyết: deadlock, race condition do quên lock và thiết kế lock-order sai.
 
 ---
 
@@ -1506,14 +1319,7 @@ Không được coi đó là bằng chứng logic đã đúng.
 
 ### 18.4 Condition variable thức nhưng predicate sai
 
-Đây có thể hoàn toàn hợp lệ do:
-
-```text
-spurious wakeup
-broadcast
-luồng khác lấy tài nguyên trước
-trạng thái thay đổi lại trước khi lấy mutex
-```
+Đây có thể hoàn toàn hợp lệ do: spurious wakeup, broadcast, luồng khác lấy tài nguyên trước và trạng thái thay đổi lại trước khi lấy mutex.
 
 Giải pháp về logic là:
 
@@ -1555,24 +1361,13 @@ Luồng xử lý
 
 Có thể cần:
 
-```text
-mutex
-  bảo vệ hàng đợi
-
-condition variable
-  báo có mẫu mới
-```
+`mutex`: bảo vệ hàng đợi; `condition variable`: báo có mẫu mới.
 
 ---
 
 ### 19.2 Một thiết bị có nhiều người dùng
 
-Ví dụ SPI/UART:
-
-```text
-Luồng A muốn gửi frame
-Luồng B cũng muốn gửi frame
-```
+Ví dụ SPI/UART: Luồng A muốn gửi frame và Luồng B cũng muốn gửi frame.
 
 Nếu transaction gồm nhiều bước, vùng tới hạn nên bảo vệ **toàn bộ transaction logic** chứ không chỉ một lần `write()` ngẫu nhiên.
 
@@ -1739,7 +1534,7 @@ Nguồn cho ngữ nghĩa chuẩn của mutex, condition variable, barrier, proto
 
 - Bootlin PREEMPT_RT: https://bootlin.com/doc/training/preempt-rt/
 - Bootlin Embedded Linux: https://bootlin.com/doc/training/embedded-linux/
-- The Linux Programming Giao diện: https://man7.org/tlpi/
+- The Linux Programming Interface: https://man7.org/tlpi/
 
 ### Nguồn cộng đồng
 
