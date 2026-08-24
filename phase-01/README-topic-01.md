@@ -2,13 +2,13 @@
 
 > **Mục tiêu:** hiểu dòng lệnh Linux hoạt động như thế nào, thay vì chỉ ghi nhớ tên lệnh.
 >
-> **Quy ước ngôn ngữ:** phần giải thích dùng Tiếng Việt. Chỉ giữ nguyên những tên chuẩn cần tra cứu trực tiếp như `Linux`, `Bash`, `POSIX`, `TTY`, `PTY`, tên lệnh, tên biến, toán tử và API.
+> **Quy ước ngôn ngữ:** phần giải thích dùng Tiếng Việt. Các thuật ngữ cần tra cứu đúng theo tài liệu Linux/POSIX như `shell`, `builtin`, `quoting`, `expansion`, `environment variable`, `file descriptor`, `redirection`, `pipeline`, `exit status`, `job control`, cùng tên lệnh, biến, toán tử và API được giữ bằng tiếng Anh.
 >
-> **Phạm vi:** giao diện dòng lệnh, `terminal`, `TTY`, `PTY`, `shell`, cấu trúc một dòng lệnh, dấu nháy, mở rộng của `shell`, `PATH`, biến môi trường, `stdin/stdout/stderr`, chuyển hướng, `pipe`, mã kết thúc, tiến trình tiền cảnh/nền và các công cụ quan sát cơ bản.
+> **Phạm vi:** giao diện dòng lệnh, `terminal`, `TTY`, `PTY`, `shell`, cấu trúc một dòng lệnh, dấu nháy, mở rộng của `shell`, `PATH`, biến môi trường, `stdin/stdout/stderr`, chuyển hướng, `pipe`, `exit status`, tiến trình tiền cảnh/nền và các công cụ quan sát cơ bản.
 >
 > Chương này chỉ có **lý thuyết**, không chứa bài thực hành.
 
-Trước khi đi vào từng lệnh, hãy giữ một mô hình duy nhất trong đầu: **bàn phím và terminal chỉ đưa ký tự tới Shell; Shell mới là thành phần phân tích dòng lệnh; sau đó Shell chạy builtin hoặc tạo tiến trình để thực thi chương trình**. Những khái niệm như dấu nháy, `PATH`, chuyển hướng, pipe hay mã kết thúc đều là các mảnh của cùng quá trình đó, chứ không phải các mẹo rời rạc cần học thuộc.
+Trước khi đi vào từng lệnh, hãy giữ một mô hình duy nhất trong đầu: **bàn phím và terminal chỉ đưa ký tự tới Shell; Shell mới là thành phần phân tích dòng lệnh; sau đó Shell chạy builtin hoặc tạo tiến trình để thực thi chương trình**. Những khái niệm như dấu nháy, `PATH`, chuyển hướng, pipe hay `exit status` đều là các mảnh của cùng quá trình đó, chứ không phải các mẹo rời rạc cần học thuộc.
 
 Vì vậy chương này đi từ bên ngoài vào bên trong. Ta bắt đầu bằng terminal/TTY/Shell, sau đó xem Shell xử lý một dòng lệnh ra sao, rồi mới đến cách chương trình nhận đối số, dữ liệu vào/ra và trạng thái kết thúc. Khi đã hiểu luồng này, các lệnh Linux cơ bản sẽ dễ nhớ hơn vì bạn biết **vì sao** chúng hoạt động như vậy.
 
@@ -21,14 +21,14 @@ Vì vậy chương này đi từ bên ngoài vào bên trong. Ta bắt đầu b�
 - [1. Dòng lệnh Linux thực chất là gì?](#1-dòng-lệnh-linux-thực-chất-là-gì)
 - [2. Terminal, TTY, PTY và Shell](#2-terminal-tty-pty-và-shell)
 - [3. Shell hiểu một dòng lệnh như thế nào?](#3-shell-hiểu-một-dòng-lệnh-như-thế-nào)
-- [4. Dấu nháy và quá trình mở rộng của Shell](#4-dấu-nháy-và-quá-trình-mở-rộng-của-shell)
+- [4. Quoting và Shell expansion](#4-quoting-và-shell-expansion)
 - [5. Shell tìm chương trình bằng `PATH` như thế nào?](#5-shell-tìm-chương-trình-bằng-path-như-thế-nào)
 - [6. Thư mục làm việc và đường dẫn](#6-thư-mục-làm-việc-và-đường-dẫn)
-- [7. Biến Shell, biến môi trường và `argv`](#7-biến-shell-biến-môi-trường-và-argv)
-- [8. `stdin`, `stdout`, `stderr` và chuyển hướng](#8-stdin-stdout-stderr-và-chuyển-hướng)
+- [7. Shell variable, environment variable và `argv`](#7-shell-variable-environment-variable-và-argv)
+- [8. `stdin`, `stdout`, `stderr` và redirection](#8-stdin-stdout-stderr-và-redirection)
 - [9. Pipe và Pipeline](#9-pipe-và-pipeline)
-- [10. Mã kết thúc và toán tử điều khiển Shell](#10-mã-kết-thúc-và-toán-tử-điều-khiển-shell)
-- [11. Tiền cảnh, nền và điều khiển tác vụ](#11-tiền-cảnh-nền-và-điều-khiển-tác-vụ)
+- [10. `exit status` và toán tử điều khiển Shell](#10-exit-status-và-toán-tử-điều-khiển-shell)
+- [11. `foreground`, `background` và `job control`](#11-foreground-background-và-job-control)
 - [12. Các nhóm lệnh Linux cơ bản](#12-các-nhóm-lệnh-linux-cơ-bản)
 - [13. `grep` và `find`: tìm kiếm theo hai mô hình khác nhau](#13-grep-và-find-tìm-kiếm-theo-hai-mô-hình-khác-nhau)
 - [14. `ps`, `top`, `mount`, `df`, `du` đang quan sát điều gì?](#14-ps-top-mount-df-du-đang-quan-sát-điều-gì)
@@ -67,7 +67,7 @@ Dòng lệnh
 Shell
    |
    v
-Chương trình / lời gọi hệ thống
+Chương trình / system call
 ```
 
 Điểm mạnh của `CLI` không nằm ở việc “gõ nhanh hơn”, mà ở khả năng **ghép nhiều công cụ nhỏ thành một luồng xử lý**.
@@ -89,7 +89,7 @@ kết quả
 
 Đây là tư duy rất quan trọng trong Linux và Embedded Linux vì nhiều hệ thống nhúng không có giao diện đồ họa đầy đủ.
 
-### 1.2 Dòng lệnh không phải lời gọi hệ thống
+### 1.2 Dòng lệnh không phải `system call`
 
 Khi người dùng nhập:
 
@@ -97,7 +97,7 @@ Khi người dùng nhập:
 ls -l /etc
 ```
 
-nhân Linux không nhận nguyên chuỗi này rồi “hiểu lệnh”. `shell` mới là thành phần phân tích chuỗi.
+Linux kernel không nhận nguyên chuỗi này rồi “hiểu lệnh”. `shell` mới là thành phần phân tích chuỗi.
 
 Mô hình đúng hơn:
 
@@ -115,7 +115,7 @@ Shell phân tích
 Shell tìm executable và tạo tiến trình
       |
       v
-Chương trình ls gọi các API/lời gọi hệ thống cần thiết
+Chương trình ls gọi các API/system call cần thiết
 ```
 
 ---
@@ -132,7 +132,7 @@ Chương trình ls gọi các API/lời gọi hệ thống cần thiết
 
 `TTY` là lớp trừu tượng của Linux cho kiểu giao tiếp terminal/serial.
 
-Nó gắn với các khái niệm như: thiết bị đầu cuối, chế độ nhập ký tự, line discipline và terminal foreground tiến trình group.
+Nó gắn với các khái niệm như: thiết bị đầu cuối, chế độ nhập ký tự, `line discipline` và `foreground process group` của terminal.
 
 `TTY` có nguồn gốc lịch sử từ teletype, nhưng trong Linux hiện đại nó là một subsystem quan trọng.
 
@@ -171,7 +171,7 @@ Shell
 Chương trình
    |
    v
-Linux kernel (nhân Linux)
+Linux kernel (Linux kernel)
 ```
 
 ---
@@ -224,7 +224,7 @@ Sau khi phân tích dòng lệnh, Shell phải quyết định lệnh cần ch�
 Ngược lại, các lệnh như `/bin/ls`, `/usr/bin/grep` hay `/usr/bin/find` thường là chương trình riêng. Shell tìm executable, tạo môi trường thực thi thích hợp rồi chạy nó trong một tiến trình. Vì vậy cần nhớ sự khác nhau: **builtin thay đổi hoặc sử dụng trực tiếp trạng thái của Shell; executable ngoài thường chạy như một tiến trình riêng**.
 
 ---
-## 4. Dấu nháy và quá trình mở rộng của Shell
+## 4. Quoting và Shell expansion
 
 > **Nói đơn giản:** Dấu nháy quyết định phần nào của dòng lệnh được Shell giữ nguyên và phần nào được thay thế trước khi chạy chương trình.
 
@@ -272,7 +272,7 @@ Dấu nháy kép vẫn cho phép một số mở rộng, đặc biệt là mở 
 giá trị HOME nhưng vẫn giữ thành một word
 ```
 
-### 4.4 Mở rộng tham số
+### 4.4 `parameter expansion`
 
 Ví dụ khái niệm:
 
@@ -283,7 +283,7 @@ ${HOME}
 
 `Shell` thay tham chiếu bằng giá trị trước khi chương trình được thực thi.
 
-### 4.5 Thay thế lệnh
+### 4.5 `command substitution`
 
 Kết quả chuẩn của một lệnh có thể được đưa trở lại dòng lệnh:
 
@@ -301,7 +301,7 @@ thu stdout
 chèn kết quả vào dòng lệnh cha
 ```
 
-### 4.6 Tách từ và globbing
+### 4.6 `word splitting` và `globbing`
 
 `Shell` có thể tách kết quả thành nhiều word và thực hiện khớp tên tệp bằng các mẫu như: `*.c` và `file?.txt`.
 
@@ -359,7 +359,7 @@ Nếu thư mục hiện tại luôn được ưu tiên tìm kiếm, một execut
 
 > **Nói đơn giản:** Mỗi tiến trình có một thư mục làm việc hiện tại. Đường dẫn tương đối được hiểu từ thư mục đó, còn đường dẫn tuyệt đối bắt đầu từ `/`.
 
-### 6.1 Thư mục làm việc hiện tại
+### 6.1 `current working directory`
 
 Mỗi tiến trình có một **thư mục làm việc hiện tại**.
 
@@ -388,19 +388,19 @@ Khi có symbolic link, đường dẫn người dùng nhìn thấy có thể kh�
 
 ---
 
-## 7. Biến Shell, biến môi trường và `argv`
+## 7. Shell variable, environment variable và `argv`
 
-> **Nói đơn giản:** Biến Shell giúp lưu giá trị trong Shell; biến môi trường có thể được truyền sang chương trình con; `argv` là danh sách đối số chương trình nhận được.
+> **Nói đơn giản:** Shell variable giúp lưu giá trị trong Shell; biến môi trường có thể được truyền sang chương trình con; `argv` là danh sách đối số chương trình nhận được.
 
-### 7.1 Biến Shell
+### 7.1 Shell variable
 
 Biến của `shell` là trạng thái nội bộ của `shell`.
 
 Nó chưa chắc được truyền sang chương trình con.
 
-### 7.2 Biến môi trường
+### 7.2 Environment variable
 
-Biến môi trường được truyền vào tiến trình con khi tạo ảnh chương trình mới.
+Environment variable được truyền vào tiến trình con khi tạo `program image` mới.
 
 ```text
 Shell
@@ -443,7 +443,7 @@ Khoảng trắng sau xử lý của `shell` không còn là một chuỗi đơn;
 
 ---
 
-## 8. `stdin`, `stdout`, `stderr` và chuyển hướng
+## 8. `stdin`, `stdout`, `stderr` và redirection
 
 > **Nói đơn giản:** Một chương trình thường có ba luồng chuẩn: nhập vào, xuất bình thường và xuất lỗi. Chuyển hướng chỉ là đổi nơi các luồng này đọc hoặc ghi dữ liệu.
 
@@ -457,7 +457,7 @@ fd 1 -> stdout
 fd 2 -> stderr
 ```
 
-Chúng chỉ là các bộ mô tả tệp được thiết lập sẵn khi chương trình bắt đầu.
+Chúng chỉ là các `file descriptor` được thiết lập sẵn khi chương trình bắt đầu.
 
 ### 8.2 Vì sao `stdout` và `stderr` tách riêng?
 
@@ -470,7 +470,7 @@ thông báo lỗi       -> stderr
 
 Nhờ đó `shell` có thể xử lý hai dòng dữ liệu khác nhau.
 
-### 8.3 Chuyển hướng thực chất là nối lại bộ mô tả tệp
+### 8.3 Redirection thực chất là nối lại `file descriptor`
 
 Ví dụ về mặt khái niệm:
 
@@ -492,9 +492,9 @@ file
 
 Chương trình không nhất thiết biết rằng đầu ra đã bị chuyển hướng. Nó vẫn ghi vào `fd 1`.
 
-### 8.4 Thứ tự chuyển hướng có ý nghĩa
+### 8.4 Thứ tự redirection có ý nghĩa
 
-Chuyển hướng được xử lý theo thứ tự, vì việc sao chép một bộ mô tả tệp sử dụng trạng thái tại thời điểm đó.
+Chuyển hướng được xử lý theo thứ tự, vì việc sao chép một `file descriptor` sử dụng trạng thái tại thời điểm đó.
 
 Đây là lý do hai biểu thức có cùng các toán tử nhưng khác thứ tự có thể cho kết quả khác.
 
@@ -506,7 +506,7 @@ Chuyển hướng được xử lý theo thứ tự, vì việc sao chép một 
 
 ### 9.1 Pipe
 
-`pipe` là một kênh byte do nhân Linux quản lý.
+`pipe` là một kênh byte do Linux kernel quản lý.
 
 ```text
 Bên ghi
@@ -552,17 +552,17 @@ Muốn đưa `stderr` vào cùng kênh cần chuyển hướng rõ ràng.
 
 Điểm sâu hơn cần nhớ:
 
-**pipeline**: không chỉ là ghép chuỗi văn bản mà là ghép các tiến trình thông qua bộ mô tả tệp.
+**pipeline**: không chỉ là ghép chuỗi văn bản mà là ghép các tiến trình thông qua `file descriptor`.
 
 Đây là nền tảng trực tiếp cho Topic 3 và Topic 8.
 
 ---
 
-## 10. Mã kết thúc và toán tử điều khiển Shell
+## 10. `exit status` và toán tử điều khiển Shell
 
 > **Nói đơn giản:** Mỗi lệnh kết thúc với một mã trạng thái. Shell dùng mã này để biết lệnh thành công hay thất bại và quyết định có chạy lệnh tiếp theo hay không.
 
-### 10.1 Mã kết thúc
+### 10.1 `exit status`
 
 Khi một chương trình kết thúc, nó trả về trạng thái để tiến trình cha có thể biết kết quả.
 
@@ -597,33 +597,33 @@ B chạy khi A không thành công.
 A ; B
 ```
 
-B được xét chạy sau A mà không phụ thuộc trực tiếp vào mã kết thúc của A.
+B được xét chạy sau A mà không phụ thuộc trực tiếp vào `exit status` của A.
 
-### 10.5 Vì sao mã kết thúc quan trọng?
+### 10.5 Vì sao `exit status` quan trọng?
 
 Đây là kênh điều khiển dành cho máy, khác với `stdout` vốn thường chứa dữ liệu dành cho người hoặc chương trình khác.
 
 ---
 
-## 11. Tiền cảnh, nền và điều khiển tác vụ
+## 11. `foreground`, `background` và `job control`
 
 > **Nói đơn giản:** Tiến trình chạy ở tiền cảnh thường nhận bàn phím trực tiếp; tiến trình nền tiếp tục chạy mà không chiếm phiên nhập lệnh hiện tại.
 
-### 11.1 Tiến trình tiền cảnh
+### 11.1 `foreground process`
 
 Trong terminal tương tác, một nhóm tiến trình được xem là nhóm tiền cảnh của terminal.
 
-Các tín hiệu tạo bởi terminal, như `SIGINT` khi nhấn `Ctrl+C`, thường nhắm vào nhóm tiền cảnh.
+Các `signal` phát sinh từ terminal, như `SIGINT` khi nhấn `Ctrl+C`, thường nhắm vào nhóm tiền cảnh.
 
-### 11.2 Tiến trình nền
+### 11.2 `background process`
 
 Một công việc chạy nền không chiếm quyền điều khiển tương tác của `shell` theo cách của công việc tiền cảnh.
 
-Tuy vậy, nó vẫn là tiến trình bình thường và vẫn dùng CPU, bộ nhớ, bộ mô tả tệp, tín hiệu...
+Tuy vậy, nó vẫn là tiến trình bình thường và vẫn dùng CPU, bộ nhớ, `file descriptor`, signal...
 
-### 11.3 Job control
+### 11.3 `job control`
 
-Shell tương tác sử dụng các khái niệm process group, session, controlling terminal và signal để triển khai job control.
+Shell tương tác sử dụng các khái niệm `process group`, `session`, `controlling terminal` và `signal` để triển khai job control.
 
 Topic 4 và Topic 5 sẽ làm rõ các lớp này hơn.
 
@@ -658,7 +658,7 @@ tail
 wc
 ```
 
-Nhóm này chủ yếu đọc byte từ bộ mô tả tệp và biểu diễn/đếm dữ liệu.
+Nhóm này chủ yếu đọc byte từ `file descriptor` và biểu diễn/đếm dữ liệu.
 
 ### 12.3 Lọc và biến đổi
 
@@ -799,7 +799,7 @@ Hãy nghĩ tới quoting, word splitting và globbing, vì Shell có thể đã 
 
 ### 15.4 Pipeline cho kết quả lạ
 
-Hãy tách từng lớp: A có tạo đúng `stdout` không? B có đọc đúng `stdin` không? `stderr` có bị bỏ sót không? Mã kết thúc đang được quan sát thuộc tiến trình nào?
+Hãy tách từng lớp: A có tạo đúng `stdout` không? B có đọc đúng `stdin` không? `stderr` có bị bỏ sót không? `exit status` đang được quan sát thuộc tiến trình nào?
 
 ---
 
@@ -821,7 +821,7 @@ Cú pháp chi tiết có thể khác GNU utilities, nhưng mô hình:
 
 ```text
 stdin/stdout/stderr
-bộ mô tả tệp
+file descriptor
 pipe
 exit status
 ```
@@ -849,7 +849,7 @@ Do đó Topic 1 là nền cho hầu hết các chủ đề tiếp theo.
 
 ## 17. Tổng kết
 
-> **Nói đơn giản:** Topic 01 cần để lại một mô hình đơn giản: Shell nhận lệnh, thiết lập đầu vào/đầu ra, chạy chương trình và nhận mã kết thúc.
+> **Nói đơn giản:** Topic 01 cần để lại một mô hình đơn giản: Shell nhận lệnh, thiết lập đầu vào/đầu ra, chạy chương trình và nhận `exit status`.
 
 ```text
 Người dùng nhập dòng lệnh
@@ -870,7 +870,7 @@ Shell
 Tiến trình / builtin
         |
         v
-Linux kernel (nhân Linux)
+Linux kernel (Linux kernel)
 ```
 
 Các ý cần nhớ:
@@ -880,11 +880,11 @@ Các ý cần nhớ:
 3. Dấu nháy quyết định ký tự nào được `shell` diễn giải.
 4. `PATH` chỉ tham gia khi tên lệnh cần được tìm kiếm.
 5. Mỗi tiến trình có thư mục làm việc hiện tại.
-6. Biến môi trường được truyền từ cha sang con; tiến trình con không trực tiếp sửa môi trường của cha.
-7. `stdin`, `stdout`, `stderr` tương ứng với các bộ mô tả tệp chuẩn.
-8. Chuyển hướng là thay đổi nơi các bộ mô tả tệp trỏ tới.
+6. Environment variable được truyền từ cha sang con; tiến trình con không trực tiếp sửa môi trường của cha.
+7. `stdin`, `stdout`, `stderr` tương ứng với các `file descriptor` chuẩn.
+8. Chuyển hướng là thay đổi nơi các `file descriptor` trỏ tới.
 9. Pipeline là ghép các tiến trình bằng `pipe`.
-10. Mã kết thúc là kênh điều khiển, không phải nội dung `stdout`.
+10. `exit status` là kênh điều khiển, không phải nội dung `stdout`.
 11. `grep` tìm trong dữ liệu; `find` duyệt cây filesystem.
 12. `df` và `du` quan sát dung lượng từ hai góc khác nhau.
 

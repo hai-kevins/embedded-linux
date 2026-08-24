@@ -1,16 +1,16 @@
-# Chủ đề 3 — Vào/ra tệp trong Linux
+# Chủ đề 3 — File I/O trong Linux
 
-> **Mục tiêu:** hiểu một chương trình Linux thực sự đọc/ghi dữ liệu như thế nào thông qua bộ mô tả tệp (`file descriptor`, viết tắt `fd`) và các lời gọi hệ thống `open()`, `read()`, `write()`, `lseek()`, `close()`.
+> **Mục tiêu:** hiểu một chương trình Linux thực sự đọc/ghi dữ liệu như thế nào thông qua `file descriptor` (viết tắt `fd`) và các `system call` `open()`, `read()`, `write()`, `lseek()`, `close()`.
 >
-> **Quy ước ngôn ngữ:** phần giải thích dùng Tiếng Việt. Giữ nguyên tên API, cờ, mã lỗi và các thuật ngữ chuẩn khó dịch như `fd`, `EOF`, `O_NONBLOCK`, `errno`.
+> **Quy ước ngôn ngữ:** phần giải thích dùng Tiếng Việt. Các thuật ngữ Linux/POSIX cần phân biệt chính xác như `file descriptor`, `open file description`, `file offset`, `partial I/O`, `short read`, `blocking`, `nonblocking`, `EOF`, `errno`, cùng tên API, cờ và mã lỗi được giữ bằng tiếng Anh.
 >
-> **Phạm vi:** bộ mô tả tệp, mô tả tệp đang mở, `open`, quyền truy cập, cờ mở tệp, `read`, `write`, I/O từng phần, EOF, vị trí đọc/ghi, `lseek`, `close`, I/O chặn/không chặn ở mức cơ bản, `errno`, `EINTR`, `EAGAIN`.
+> **Phạm vi:** `file descriptor`, `open file description`, `open`, quyền truy cập, cờ mở tệp, `read`, `write`, `partial I/O`, EOF, `file offset`, `lseek`, `close`, `blocking`/`nonblocking` I/O ở mức cơ bản, `errno`, `EINTR`, `EAGAIN`.
 >
 > Chương này chỉ có **lý thuyết**, không có bài thực hành.
 
 Ý tưởng trung tâm của File I/O trên Linux rất đơn giản: **pathname chủ yếu dùng để tìm và mở một đối tượng; sau khi mở thành công, chương trình làm việc với đối tượng đó thông qua file descriptor (`fd`)**. Vì thế cần phân biệt rõ tên tệp, `inode`, open file description và con số `fd` mà tiến trình đang giữ.
 
-Từ mô hình đó, các API `open()`, `read()`, `write()`, `lseek()` và `close()` trở thành một chuỗi logic thay vì năm hàm rời rạc. Phần còn lại của chương tập trung vào giá trị trả về, I/O từng phần, EOF, blocking/nonblocking và cách suy luận khi một lời gọi thất bại.
+Từ mô hình đó, các API `open()`, `read()`, `write()`, `lseek()` và `close()` trở thành một chuỗi logic thay vì năm hàm rời rạc. Phần còn lại của chương tập trung vào giá trị trả về, `partial I/O`, EOF, `blocking`/`nonblocking` và cách suy luận khi một lời gọi thất bại.
 
 **Cách đọc nếu bạn mới bắt đầu.** Trước hết hãy đọc phần **Nói đơn giản** ở đầu mỗi mục lớn để nắm câu hỏi mà mục đó đang giải quyết. Sau đó xem sơ đồ và ví dụ để hình thành mô hình trong đầu; chưa cần nhớ mọi cờ, mã lỗi hay trường hợp đặc biệt. Khi ý chính đã rõ, hãy đọc các mục `###` theo thứ tự và quay lại phần giải thích trước đó nếu gặp một thuật ngữ chưa quen.
 
@@ -18,14 +18,14 @@ Từ mô hình đó, các API `open()`, `read()`, `write()`, `lseek()` và `clos
 
 ## Mục lục
 
-- [1. Bộ mô tả tệp là gì?](#1-bộ-mô-tả-tệp-là-gì)
+- [1. `file descriptor` là gì?](#1-file-descriptor-là-gì)
 - [2. Từ đường dẫn đến tệp đang mở](#2-từ-đường-dẫn-đến-tệp-đang-mở)
 - [3. `open()`: mở một đối tượng I/O](#3-open-mở-một-đối-tượng-io)
 - [4. `read()`: đọc dữ liệu](#4-read-đọc-dữ-liệu)
 - [5. `write()`: ghi dữ liệu](#5-write-ghi-dữ-liệu)
 - [6. Vị trí đọc/ghi và `lseek()`](#6-vị-trí-đọcghi-và-lseek)
-- [7. `close()` và vòng đời bộ mô tả tệp](#7-close-và-vòng-đời-bộ-mô-tả-tệp)
-- [8. I/O chặn và không chặn](#8-io-chặn-và-không-chặn)
+- [7. `close()` và vòng đời `file descriptor`](#7-close-và-vòng-đời-file-descriptor)
+- [8. `blocking` và `nonblocking` I/O](#8-blocking-và-nonblocking-io)
 - [9. Giá trị trả về, `errno` và các lỗi quan trọng](#9-giá-trị-trả-về-errno-và-các-lỗi-quan-trọng)
 - [10. Tư duy gỡ lỗi File I/O](#10-tư-duy-gỡ-lỗi-file-io)
 - [11. Liên hệ với Embedded Linux](#11-liên-hệ-với-embedded-linux)
@@ -34,7 +34,7 @@ Từ mô hình đó, các API `open()`, `read()`, `write()`, `lseek()` và `clos
 
 ---
 
-## 1. Bộ mô tả tệp là gì?
+## 1. `file descriptor` là gì?
 
 > **Nói đơn giản:** Sau khi mở một đối tượng I/O, Linux trả về một số nguyên nhỏ gọi là `file descriptor` (`fd`). Chương trình dùng số này cho các thao tác đọc, ghi và đóng.
 
@@ -48,19 +48,19 @@ pipe
 FIFO
 terminal
 socket
-nút thiết bị (device node)
+device node
 mục trong procfs/sysfs trong một số trường hợp
 ```
 
 Vì vậy “File I/O” trong Linux thường nên hiểu là:
 
 ```text
-I/O thông qua bộ mô tả tệp
+I/O thông qua file descriptor
 ```
 
 chứ không chỉ là đọc/ghi tệp trên đĩa.
 
-### 1.2 File descriptor
+### 1.2 `file descriptor`
 
 Một `fd` là một số nguyên không âm dùng làm chỉ mục trong bảng file descriptor của tiến trình.
 
@@ -94,7 +94,7 @@ nhưng hai số `3` này có thể trỏ tới hai đối tượng hoàn toàn k
 
 Ứng dụng không thể dùng `fd` như một con trỏ hay địa chỉ bộ nhớ.
 
-Nó truyền số đó vào lời gọi hệ thống:
+Nó truyền số đó vào `system call`:
 
 ```text
 read(fd, ...)
@@ -102,7 +102,7 @@ write(fd, ...)
 close(fd)
 ```
 
-Nhân Linux dùng số này để tra bảng file descriptor của tiến trình.
+Linux kernel dùng số này để tra bảng file descriptor của tiến trình.
 
 ---
 
@@ -136,12 +136,12 @@ fd
 
 > pathname chủ yếu được dùng để **tìm và mở đối tượng**; I/O sau đó dùng `fd`.
 
-### 2.2 Mô tả tệp đang mở
+### 2.2 `open file description`
 
 Linux/POSIX phân biệt:
 
 ```text
-bộ mô tả tệp
+file descriptor
 ```
 
 và trạng thái tệp đang mở ở cấp hệ thống, thường gọi là:
@@ -150,12 +150,12 @@ và trạng thái tệp đang mở ở cấp hệ thống, thường gọi là:
 open file description
 ```
 
-Trong tài liệu này ta gọi là **mô tả tệp đang mở**.
+Trong tài liệu này giữ nguyên tên **`open file description`** vì đây là thuật ngữ chuẩn của POSIX/Linux; không nên dịch thành một cụm Việt khác dễ bị nhầm với `file descriptor`.
 
 Nó chứa các trạng thái như:
 
 ```text
-vị trí đọc/ghi hiện tại (file offset)
+file offset hiện tại
 các cờ trạng thái của tệp
 tham chiếu tới đối tượng bên dưới
 ```
@@ -172,7 +172,7 @@ VFS tìm pathname
 inode / đối tượng trong filesystem
    |
    v
-mô tả tệp đang mở
+open file description
    |
    v
 fd trong tiến trình
@@ -184,7 +184,7 @@ Không phải mọi đối tượng đều có inode theo cùng cách, nhưng m�
 
 ## 3. `open()`: mở một đối tượng I/O
 
-> **Nói đơn giản:** `open()` yêu cầu nhân Linux tìm pathname, kiểm tra quyền/cờ mở và tạo trạng thái cần thiết. Thành công thì nhận `fd`; thất bại thì nhận lỗi.
+> **Nói đơn giản:** `open()` yêu cầu Linux kernel tìm pathname, kiểm tra quyền/cờ mở và tạo trạng thái cần thiết. Thành công thì nhận `fd`; thất bại thì nhận lỗi.
 
 ### 3.1 `open()` làm gì?
 
@@ -310,7 +310,7 @@ Không có nghĩa:
   lỗi, xem errno
 ```
 
-### 4.3 Đọc ngắn không phải lỗi
+### 4.3 `short read` không phải lỗi
 
 Ví dụ yêu cầu:
 
@@ -358,7 +358,7 @@ Hai trạng thái này phải được xử lý khác nhau.
 Regular file:
 
 ```text
-vị trí đọc/ghi hiện tại (file offset) đã tới cuối
+file offset hiện tại đã tới cuối
 ```
 
 Pipe:
@@ -370,7 +370,7 @@ không còn writer và dữ liệu đệm đã hết
 TCP stream:
 
 ```text
-peer đóng chiều gửi có trật tự và dữ liệu đã đọc hết
+peer đã đóng chiều gửi theo `orderly shutdown` và dữ liệu đã đọc hết
 ```
 
 Vì vậy “`read() == 0`” phải được hiểu trong ngữ cảnh đối tượng.
@@ -408,9 +408,9 @@ Do đó code đúng phải xem **giá trị trả về**, không chỉ xem có `
 
 ### 5.3 Ghi thành công không đồng nghĩa dữ liệu đã bền vững trên thiết bị lưu trữ
 
-Một `write()` thành công thường chỉ chứng minh nhân Linux/filesystem đã chấp nhận dữ liệu theo giao diện.
+Một `write()` thành công thường chỉ chứng minh Linux kernel/filesystem đã chấp nhận dữ liệu theo giao diện.
 
-Dữ liệu có thể còn ở: page cache, filesystem cache, controller cache và storage cache.
+Dữ liệu có thể còn ở: `page cache`, cache của filesystem, cache của controller và cache của thiết bị lưu trữ.
 
 Độ bền khi mất điện là vấn đề khác, liên quan `fsync()`, filesystem, thiết bị và policy.
 
@@ -424,7 +424,7 @@ Ví dụ:
 send/write thành công
      |
      v
-nhân Linux buffer
+Linux kernel buffer
      |
      v
 network/peer
@@ -439,24 +439,24 @@ Mỗi lớp có trạng thái riêng.
 
 ## 6. Vị trí đọc/ghi và `lseek()`
 
-> **Nói đơn giản:** Regular file thường có vị trí đọc/ghi hiện tại. `lseek()` thay đổi vị trí này, nhưng không phải mọi loại `fd` đều hỗ trợ seek.
+> **Nói đơn giản:** Regular file thường có `file offset` hiện tại. `lseek()` thay đổi vị trí này, nhưng không phải mọi loại `fd` đều hỗ trợ seek.
 
-### 6.1 File offset
+### 6.1 `file offset`
 
-Với tệp thông thường có thể seek, mô tả tệp đang mở giữ một vị trí byte hiện tại:
+Với tệp thông thường có thể seek, `open file description` giữ một vị trí byte hiện tại:
 
 ```text
 0 1 2 3 4 5 6 7 ...
         ^
         |
-     vị trí đọc/ghi hiện tại (file offset)
+     file offset hiện tại
 ```
 
 `read()`/`write()` thông thường có thể làm vị trí này thay đổi.
 
 ### 6.2 `lseek()`
 
-`lseek()` thay đổi vị trí đọc/ghi hiện tại (file offset).
+`lseek()` thay đổi `file offset` hiện tại.
 
 Nó không tự đọc hay ghi dữ liệu.
 
@@ -464,7 +464,7 @@ Nó không tự đọc hay ghi dữ liệu.
 
 `SEEK_SET`: tính từ đầu tệp; `SEEK_CUR`: tính từ vị trí hiện tại; `SEEK_END`: tính từ cuối tệp.
 
-### 6.4 Seek vượt qua EOF
+### 6.4 `seek` vượt qua EOF
 
 Với tệp thông thường, có thể đặt offset vượt quá cuối tệp.
 
@@ -472,7 +472,7 @@ Chỉ riêng việc seek không nhất thiết làm tệp lớn lên.
 
 Nếu sau đó ghi dữ liệu tại vị trí xa hơn, filesystem có thể tạo vùng hole/sparse tùy ngữ nghĩa.
 
-### 6.5 Không phải object nào cũng seek được
+### 6.5 Không phải đối tượng nào cũng `seek` được
 
 Ví dụ thường không seek: pipe, `FIFO`, socket, terminal và nhiều character device.
 
@@ -480,13 +480,13 @@ Ví dụ thường không seek: pipe, `FIFO`, socket, terminal và nhiều chara
 
 ---
 
-## 7. `close()` và vòng đời bộ mô tả tệp
+## 7. `close()` và vòng đời `file descriptor`
 
 > **Nói đơn giản:** `close()` bỏ tham chiếu `fd` của tiến trình. Nếu còn tham chiếu khác tới cùng đối tượng thì tài nguyên bên dưới chưa chắc được giải phóng ngay.
 
 ### 7.1 `close(fd)` đóng cái gì?
 
-Nó giải phóng **mục bộ mô tả tệp của tiến trình**.
+Nó giải phóng **mục `file descriptor` của tiến trình**.
 
 ```text
 bảng fd
@@ -506,7 +506,7 @@ Do đó:
 
 > một số fd không phải định danh toàn cục hoặc định danh vĩnh viễn của tài nguyên.
 
-### 7.3 Object có thể còn tồn tại
+### 7.3 Đối tượng có thể còn tồn tại
 
 Nếu vẫn còn tham chiếu khác:
 
@@ -514,7 +514,7 @@ Nếu vẫn còn tham chiếu khác:
 fd khác
 tham chiếu do dup tạo
 tiến trình khác sau fork
-tham chiếu của nhân Linux
+tham chiếu của Linux kernel
 ánh xạ/tham chiếu khác
 ```
 
@@ -530,13 +530,13 @@ Việc retry mù quáng có thể nguy hiểm vì số fd có thể đã đượ
 
 ---
 
-## 8. I/O chặn và không chặn
+## 8. `blocking` và `nonblocking` I/O
 
 > **Nói đơn giản:** I/O chặn có thể làm luồng phải chờ dữ liệu hoặc chờ tài nguyên; I/O không chặn trả về ngay nếu chưa thể tiếp tục. Topic này chỉ cần hiểu khác biệt cơ bản đó.
 
-### 8.1 Chặn nghĩa là gì?
+### 8.1 `blocking` nghĩa là gì?
 
-Nếu thao tác chưa thể hoàn thành ngay, luồng thực thi có thể ngủ trong nhân Linux để chờ sự kiện.
+Nếu thao tác chưa thể hoàn thành ngay, luồng thực thi có thể ngủ trong Linux kernel để chờ sự kiện.
 
 ```text
 read()
@@ -552,7 +552,7 @@ wakeup
 read tiếp tục
 ```
 
-### 8.2 Chặn không phải busy-loop
+### 8.2 `blocking` không phải `busy loop`
 
 Chặn đúng nghĩa cho phép CPU chạy công việc khác.
 
@@ -564,7 +564,7 @@ while(no_data) {
 }
 ```
 
-### 8.3 Hành vi phụ thuộc loại object
+### 8.3 Hành vi phụ thuộc loại đối tượng
 
 Regular file:
 
@@ -575,7 +575,7 @@ thường không có readiness ngữ nghĩa giống pipe/socket
 Pipe/FIFO/socket:
 
 ```text
-rất phụ thuộc dữ liệu/buffer/peer trạng thái
+phụ thuộc mạnh vào dữ liệu, trạng thái buffer và peer
 ```
 
 Terminal/device:
@@ -589,11 +589,11 @@ phụ thuộc driver, mode, line discipline
 Khi trạng thái không chặn được bật, một thao tác vốn phải chờ có thể trả về ngay với `EAGAIN` hoặc `EWOULDBLOCK`, tùy giao diện.
 
 
-### 8.5 Không chặn không có nghĩa “không bao giờ chậm”
+### 8.5 `nonblocking` không có nghĩa “không bao giờ chậm”
 
 `O_NONBLOCK` chủ yếu thay đổi hành vi khi đối tượng **chưa sẵn sàng theo giao diện**.
 
-Nó không hứa mọi đường đi trong filesystem/nhân Linux/hardware đều có thời gian bằng 0.
+Nó không hứa mọi đường đi trong filesystem/Linux kernel/hardware đều có thời gian bằng 0.
 
 ---
 
@@ -609,7 +609,7 @@ Với I/O, giá trị trả về là một phần của giao thức.
 
 ### 9.2 `size_t`, `ssize_t`, `off_t`
 
-`size_t`: kiểu không dấu dùng cho kích thước/count; `ssize_t`: kiểu có dấu để vừa biểu diễn byte count vừa biểu diễn -1; `off_t`: kiểu biểu diễn vị trí đọc/ghi hiện tại (file offset).
+`size_t`: kiểu không dấu dùng cho kích thước/count; `ssize_t`: kiểu có dấu để vừa biểu diễn byte count vừa biểu diễn -1; `off_t`: kiểu biểu diễn `file offset` hiện tại.
 
 ### 9.3 `errno`
 
@@ -676,7 +676,7 @@ Hỏi đối tượng là gì:
 ```text
 tệp thông thường -> EOF?
 pipe -> hết writer?
-socket -> peer half-close/EOF?
+socket -> peer `half-close`/EOF?
 device -> driver ngữ nghĩa?
 ```
 
@@ -712,9 +712,9 @@ driver/hardware/lớp giao thức đúng
 
 ## 11. Liên hệ với Embedded Linux
 
-> **Nói đơn giản:** Trên Embedded Linux, cùng mô hình `fd` được dùng để làm việc với tệp cấu hình, UART, GPIO qua sysfs cũ, pipe, socket và nhiều nút thiết bị (device node).
+> **Nói đơn giản:** Trên Embedded Linux, cùng mô hình `fd` được dùng để làm việc với tệp cấu hình, UART, GPIO qua sysfs cũ, pipe, socket và nhiều `device node`.
 
-### 11.1 Device node
+### 11.1 `device node`
 
 Ứng dụng nhúng thường tương tác với:
 
@@ -747,9 +747,9 @@ read/write fd
 
 ### 11.3 GPIO character-device API
 
-Linux GPIO hiện đại dùng bộ mô tả tệp cho chip/line request/event.
+Linux GPIO hiện đại dùng `file descriptor` cho chip/line request/event.
 
-Điều này cho thấy bộ mô tả tệp là abstraction chung của nhiều subsystem.
+Điều này cho thấy `file descriptor` là abstraction chung của nhiều subsystem.
 
 ### 11.4 `/proc` và `/sys`
 
@@ -796,7 +796,7 @@ Các ý cần nhớ:
 1. `fd` là số nguyên cục bộ trong một tiến trình.
 2. `fd` không phải inode và không phải con trỏ không gian người dùng.
 3. Pathname được dùng để tìm/mở đối tượng; I/O sau đó dùng `fd`.
-4. Mô tả tệp đang mở chứa trạng thái như vị trí đọc/ghi hiện tại (file offset) và status flags.
+4. `Open file description` chứa trạng thái như `file offset` hiện tại và `file status flags`.
 5. `read()` và `write()` có thể hoàn thành một phần.
 6. `read() == 0` không phải lỗi; thường là EOF theo ngữ nghĩa đối tượng.
 7. `O_APPEND` mạnh hơn tự ghép `lseek(end)` + `write()`.
@@ -804,14 +804,14 @@ Các ý cần nhớ:
 9. `lseek()` chỉ phù hợp với đối tượng có seek ngữ nghĩa.
 10. `close()` giải phóng bộ mô tả; số fd có thể được tái sử dụng.
 11. Blocking I/O cho phép luồng ngủ chờ thay vì busy-loop.
-12. `EAGAIN` trong nonblocking I/O thường nghĩa “chưa sẵn sàng ngay lúc này”.
+12. `EAGAIN` trong `nonblocking` I/O thường nghĩa “chưa sẵn sàng ngay lúc này”.
 13. `errno` chỉ có ý nghĩa khi API báo thất bại theo quy ước tương ứng.
 
 ---
 
 ## 13. Tài liệu tham khảo
 
-> **Nói đơn giản:** Phần này liệt kê tài liệu chuẩn cho các lời gọi hệ thống và khái niệm I/O đã dùng trong Topic 03.
+> **Nói đơn giản:** Phần này liệt kê tài liệu chuẩn cho các `system call` và khái niệm I/O đã dùng trong Topic 03.
 
 - `open(2)`: https://man7.org/linux/man-pages/man2/open.2.html
 - `read(2)`: https://man7.org/linux/man-pages/man2/read.2.html
