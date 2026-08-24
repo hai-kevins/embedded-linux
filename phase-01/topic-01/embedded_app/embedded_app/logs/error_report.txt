@@ -1,0 +1,6 @@
+ERROR SENSOR timeout
+ERROR NETWORK disconnected
+ERROR SENSOR timeout
+ERROR UART framing
+ERROR SENSOR invalid_data
+ERROR NETWORK timeout

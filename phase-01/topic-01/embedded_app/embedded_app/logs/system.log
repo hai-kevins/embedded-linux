@@ -1,0 +1,10 @@
+INFO system started
+INFO UART initialized
+WARN temperature high
+ERROR sensor timeout
+INFO reconnecting
+ERROR network disconnected
+WARN voltage low
+INFO system running
+ERROR UART framing error
+INFO retry UART

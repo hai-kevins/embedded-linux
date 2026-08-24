@@ -1,0 +1,10 @@
+INFO UART initialized
+ERROR SENSOR timeout
+WARN CPU temperature
+ERROR NETWORK disconnected
+ERROR SENSOR timeout
+INFO NETWORK connected
+WARN BATTERY low
+ERROR UART framing
+ERROR SENSOR invalid_data
+ERROR NETWORK timeout
