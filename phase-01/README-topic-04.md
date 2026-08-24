@@ -6,6 +6,11 @@
 >
 > Chương này chỉ có **lý thuyết**, không có bài thực hành.
 
+> **Cách đọc tài liệu này nếu bạn mới bắt đầu:**
+> 1. Đọc câu **Nói đơn giản** ở đầu mỗi mục lớn để biết mục đó đang giải quyết vấn đề gì.
+> 2. Xem sơ đồ và ví dụ trước; chưa cần nhớ ngay mọi cờ, mã lỗi hay trường hợp đặc biệt.
+> 3. Sau khi đã hiểu ý chính, mới đọc các mục `###` theo thứ tự. Nếu gặp thuật ngữ mới, hãy quay lại câu giải thích đầu mục thay vì cố học thuộc định nghĩa.
+
 ---
 
 ## Mục lục
@@ -29,7 +34,7 @@
 
 ## 1. Chương trình và tiến trình khác nhau thế nào?
 
-> **Nói đơn giản:** chương trình là mã và dữ liệu nằm trên tệp thực thi; tiến trình là một lần chương trình đang được chạy với bộ nhớ, file descriptor, PID và trạng thái riêng.
+> **Nói đơn giản:** Program là mã nằm trên đĩa; tiến trình là một lần chương trình đang được chạy với PID, bộ nhớ và tài nguyên riêng.
 
 ### 1.1 Chương trình là dữ liệu tĩnh
 
@@ -56,38 +61,40 @@ Tiến trình
     |
     +--> PID
     +--> virtual address space
-    +--> register state
+    +--> register trạng thái
     +--> file descriptors
     +--> credentials
-    +--> current working directory
-    +--> signal state
+    +--> thư mục làm việc hiện tại
+    +--> signal trạng thái
 ```
 
 Một executable có thể tạo ra nhiều tiến trình độc lập.
 
 ### 1.3 Nhân Linux nhìn tiến trình như thế nào?
 
-Trong nhân Linux, đơn vị được lập lịch được biểu diễn bởi các cấu trúc task. Ở mức người mới, có thể dùng mental model:
+Trong nhân Linux, đơn vị được lập lịch được biểu diễn bởi các cấu trúc task. Ở mức người mới, có thể dùng cách hình dung:
 
 ```text
-process
+tiến trình
   =
-execution state
+execution trạng thái
 +
 resources/references
 +
 identity
 ```
 
-Khi sang đa luồng, ta sẽ thấy một process có thể có nhiều task/thread.
+Khi sang đa luồng, ta sẽ thấy một tiến trình có thể có nhiều task/luồng.
 
 ---
 
 ## 2. PID, PPID và cây tiến trình
 
+> **Nói đơn giản:** Mỗi tiến trình có PID; PPID cho biết tiến trình cha. Nhìn các PID/PPID giúp bạn thấy quan hệ tạo tiến trình trong hệ thống.
+
 ### 2.1 PID
 
-`PID` là số định danh tiến trình trong một PID namespace.
+`PID` là số định danh tiến trình trong một PID không gian tên.
 
 Nó giúp các API và công cụ tham chiếu tiến trình:
 
@@ -137,6 +144,8 @@ Quan hệ này có thể thay đổi khi tiến trình cha kết thúc và tiế
 ---
 
 ## 3. Một tiến trình đang nắm giữ những gì?
+
+> **Nói đơn giản:** Một tiến trình không chỉ có code. Nó còn có không gian địa chỉ, `fd`, thư mục làm việc, biến môi trường, signal trạng thái và nhiều tài nguyên khác.
 
 ### 3.1 Không gian địa chỉ ảo
 
@@ -206,12 +215,12 @@ virtual address space
 resident pages
 shared pages
 file-backed pages
-swap/reclaim state
+swap/reclaim trạng thái
 ```
 
 ### 3.5 Bảng file descriptor
 
-Mỗi tiến trình có bảng descriptor:
+Mỗi tiến trình có bảng bộ mô tả:
 
 ```text
 fd 0 -> stdin
@@ -220,14 +229,14 @@ fd 2 -> stderr
 fd 3 -> file/socket/device/pipe...
 ```
 
-Sau `fork()`, tiến trình con nhận các descriptor theo quy tắc kế thừa.
+Sau `fork()`, tiến trình con nhận các bộ mô tả theo quy tắc kế thừa.
 
 ### 3.6 Ngữ cảnh filesystem
 
 Tiến trình có:
 
 ```text
-current working directory
+thư mục làm việc hiện tại
 root directory view
 umask
 mount namespace context
@@ -248,13 +257,15 @@ environment
 
 ### 3.8 Credentials
 
-Tiến trình có nhiều giá trị UID/GID và capability/security context liên quan quyền truy cập.
+Tiến trình có nhiều giá trị UID/GID và capability/security ngữ cảnh liên quan quyền truy cập.
 
 Không nên rút gọn thành “mỗi tiến trình chỉ có một user”.
 
 ---
 
 ## 4. Trạng thái tiến trình và bộ lập lịch
+
+> **Nói đơn giản:** Tiến trình có thể chạy, chờ hoặc ngủ. Scheduler của nhân Linux quyết định tiến trình/luồng nào được dùng CPU tại từng thời điểm.
 
 ### 4.1 Running và runnable
 
@@ -290,7 +301,7 @@ Thường biểu diễn interruptible sleep: task đang chờ và có thể bị
 
 `D` thường là uninterruptible sleep.
 
-Nó thường xuất hiện khi task đang chờ ở kernel path không thể bị signal thông thường đánh thức ngay.
+Nó thường xuất hiện khi task đang chờ ở nhân Linux path không thể bị signal thông thường đánh thức ngay.
 
 `D` không tự động chứng minh disk/hardware hỏng; phải xem task đang chờ gì.
 
@@ -324,10 +335,12 @@ Task B running
 
 ## 5. `fork()`: tạo tiến trình con
 
+> **Nói đơn giản:** `fork()` tạo tiến trình con từ tiến trình hiện tại. Sau lời gọi, cả cha và con tiếp tục chạy từ gần cùng một vị trí nhưng là hai tiến trình riêng.
+
 ### 5.1 Mô hình
 
 ```text
-Parent process
+Parent tiến trình
      |
    fork()
     /   \
@@ -378,14 +391,14 @@ Parent và Child có bản riêng
 
 ### 5.5 File descriptor sau `fork()`
 
-Parent và child có descriptor table riêng nhưng các entry kế thừa có thể cùng tham chiếu **mô tả tệp đang mở**.
+Parent và child có bảng bộ mô tả tệp riêng nhưng các entry kế thừa có thể cùng tham chiếu **mô tả tệp đang mở**.
 
 Vì vậy chúng có thể chia sẻ:
 
 ```text
-file offset
-file status flags
-underlying socket/pipe object
+vị trí đọc/ghi hiện tại (file offset)
+các cờ trạng thái của tệp
+underlying socket/pipe đối tượng
 ```
 
 ### 5.6 `fork()` không chạy chương trình mới
@@ -398,6 +411,8 @@ Muốn chạy executable khác, thường dùng `exec` sau đó.
 
 ## 6. `execve()`: thay ảnh chương trình
 
+> **Nói đơn giản:** `execve()` không tạo thêm tiến trình. Nó thay chương trình đang chạy bên trong tiến trình hiện tại bằng chương trình mới.
+
 ### 6.1 Ý nghĩa cốt lõi
 
 `execve()` không tạo tiến trình mới.
@@ -405,17 +420,17 @@ Muốn chạy executable khác, thường dùng `exec` sau đó.
 Nó thay **ảnh chương trình của tiến trình hiện tại**.
 
 ```text
-Process PID = 1200
+Tiến trình PID = 1200
   program A
      |
   execve(B)
      |
      v
-Process PID = 1200
+Tiến trình PID = 1200
   program B
 ```
 
-PID vẫn là process identity; program image đã đổi.
+PID vẫn là tiến trình identity; program image đã đổi.
 
 ### 6.2 Thành công thì không quay về code cũ
 
@@ -446,13 +461,13 @@ caught signal dispositions theo rules
 
 ### 6.4 Những gì có thể được giữ
 
-Nhiều thuộc tính process-level vẫn tồn tại theo quy tắc POSIX/Linux, ví dụ PID và nhiều credential/context.
+Nhiều thuộc tính tiến trình-level vẫn tồn tại theo quy tắc POSIX/Linux, ví dụ PID và nhiều credential/ngữ cảnh.
 
-File descriptor không có `FD_CLOEXEC` có thể tồn tại qua `exec`.
+File bộ mô tả không có `FD_CLOEXEC` có thể tồn tại qua `exec`.
 
 ### 6.5 Vì sao `FD_CLOEXEC` quan trọng?
 
-Nếu descriptor nhạy cảm vô tình lọt vào chương trình mới:
+Nếu bộ mô tả nhạy cảm vô tình lọt vào chương trình mới:
 
 ```text
 socket
@@ -471,7 +486,7 @@ Một script bắt đầu bằng shebang:
 #!/path/to/interpreter
 ```
 
-được kernel/exec mechanism xử lý để chạy thông qua interpreter tương ứng.
+được nhân Linux/exec mechanism xử lý để chạy thông qua interpreter tương ứng.
 
 ### 6.7 Mô hình Unix điển hình
 
@@ -493,9 +508,11 @@ Shell sử dụng mô hình này để chạy command, kết hợp redirection v
 
 ## 7. Kết thúc tiến trình và mã kết thúc
 
+> **Nói đơn giản:** Khi tiến trình kết thúc, nó để lại exit status để tiến trình cha có thể biết kết quả chạy thành công hay thất bại.
+
 ### 7.1 `exit()`
 
-`exit()` là hàm thư viện C thực hiện cleanup ở mức userspace như:
+`exit()` là hàm thư viện C thực hiện cleanup ở mức không gian người dùng như:
 
 ```text
 flush stdio theo rules
@@ -512,13 +529,15 @@ Sự khác biệt đặc biệt quan trọng sau `fork()` trong một số thi�
 
 ### 7.3 Mã kết thúc
 
-Kernel giữ thông tin termination để parent có thể thu thập bằng `wait()`/`waitpid()`.
+Nhân Linux giữ thông tin termination để parent có thể thu thập bằng `wait()`/`waitpid()`.
 
 Mã kết thúc là một phần của giao thức parent-child.
 
 ---
 
 ## 8. Zombie, `wait()`, tiến trình mồ côi và chuyển tiến trình cha
+
+> **Nói đơn giản:** Zombie là tiến trình đã kết thúc nhưng cha chưa thu exit status. Orphan là tiến trình mất cha ban đầu và được hệ thống nhận quản lý lại.
 
 ### 8.1 Vì sao zombie tồn tại?
 
@@ -566,7 +585,7 @@ Khi parent biến mất, child có thể được chuyển sang một tiến tr�
 
 ### 8.5 PID 1
 
-PID 1 có vai trò đặc biệt trong process hierarchy và việc thu hồi các descendant bị reparent.
+PID 1 có vai trò đặc biệt trong tiến trình hierarchy và việc thu hồi các descendant bị reparent.
 
 Trong Embedded Linux, PID 1 có thể là:
 
@@ -580,9 +599,11 @@ custom init
 
 ## 9. Quan sát tiến trình qua `/proc`
 
+> **Nói đơn giản:** `/proc/<pid>` là cửa sổ quan sát trạng thái tiến trình từ không gian người dùng: command line, `fd`, memory map, status và nhiều thông tin khác.
+
 ### 9.1 `/proc/<pid>`
 
-Đây là giao diện `procfs` cho trạng thái process trong kernel.
+Đây là giao diện `procfs` cho trạng thái tiến trình trong nhân Linux.
 
 ### 9.2 `status`
 
@@ -592,7 +613,7 @@ Có thể chứa:
 
 ```text
 Name
-State
+Trạng thái
 Pid
 PPid
 Uid/Gid
@@ -624,11 +645,11 @@ Hiển thị environment theo giao diện procfs với các caveat về permissi
 /proc/<pid>/fd/
 ```
 
-cho phép quan sát các reference quan trọng của tiến trình.
+cho phép quan sát các tham chiếu quan trọng của tiến trình.
 
 ### 9.7 `maps`
 
-`/proc/<pid>/maps` mô tả các virtual memory mappings.
+`/proc/<pid>/maps` mô tả các các ánh xạ bộ nhớ ảo.
 
 Nó không phải bản đồ RAM vật lý.
 
@@ -636,9 +657,11 @@ Nó không phải bản đồ RAM vật lý.
 
 ## 10. `ps`, `top` và góc nhìn của bộ lập lịch
 
+> **Nói đơn giản:** `ps` cho ảnh chụp tại một thời điểm; `top` cập nhật liên tục. Cả hai giúp nhìn CPU, memory và trạng thái tiến trình ở mức người dùng.
+
 ### 10.1 `ps`
 
-`ps` cho snapshot của process/task information.
+`ps` cho snapshot của tiến trình/task information.
 
 Một task có thể đổi trạng thái ngay sau khi `ps` đọc dữ liệu.
 
@@ -659,18 +682,20 @@ CPU affinity
 cgroup scheduling
 ```
 
-nằm ngoài trọng tâm Topic 4; chỉ cần nhớ rằng **process/thread không tự sở hữu CPU liên tục**.
+nằm ngoài trọng tâm Topic 4; chỉ cần nhớ rằng **tiến trình/luồng không tự sở hữu CPU liên tục**.
 
 ---
 
 ## 11. Tư duy gỡ lỗi tiến trình
+
+> **Nói đơn giản:** Debug tiến trình nên bắt đầu từ: tiến trình có tồn tại không, PID nào, đang ở trạng thái gì, exit status là gì và đang giữ tài nguyên nào.
 
 ### 11.1 Process “biến mất”
 
 Hỏi:
 
 ```text
-process đã exit?
+tiến trình đã exit?
 bị signal terminate?
 exec sang program khác?
 PID đã được reuse?
@@ -695,7 +720,7 @@ child lifecycle?
 
 ### 11.4 Task ở `D`
 
-Tìm nó đang chờ kernel resource nào thay vì kết luận ngay “process treo”.
+Tìm nó đang chờ nhân Linux resource nào thay vì kết luận ngay “tiến trình treo”.
 
 ### 11.5 Bộ nhớ nhìn rất lớn
 
@@ -704,17 +729,19 @@ Tách:
 ```text
 virtual size
 resident memory
-shared mapping
-file-backed mapping
+ánh xạ dùng chung
+ánh xạ dựa trên tệp
 ```
 
 ### 11.6 File offset thay đổi lạ giữa parent/child
 
-Sau `fork()`, descriptor kế thừa có thể chia sẻ cùng open file description và file offset.
+Sau `fork()`, bộ mô tả kế thừa có thể chia sẻ cùng mô tả tệp đang mở và vị trí đọc/ghi hiện tại (file offset).
 
 ---
 
 ## 12. Liên hệ với Embedded Linux
+
+> **Nói đơn giản:** Embedded Linux thường chạy nhiều daemon/service nhỏ. Hiểu tiến trình giúp bạn đọc init script, systemd, watchdog và chẩn đoán chương trình treo hoặc thoát bất thường.
 
 ### 12.1 PID 1 và init
 
@@ -728,7 +755,7 @@ quản lý shutdown/restart
 
 ### 12.2 Service architecture
 
-Một ứng dụng lớn có thể được tách thành nhiều process để tăng:
+Một ứng dụng lớn có thể được tách thành nhiều tiến trình để tăng:
 
 ```text
 fault isolation
@@ -738,7 +765,7 @@ restart independence
 
 ### 12.3 Inheritance của device fd
 
-Nếu một process mở UART/device rồi `fork()`/`exec()`, fd có thể bị truyền sang child nếu không kiểm soát.
+Nếu một tiến trình mở UART/device rồi `fork()`/`exec()`, fd có thể bị truyền sang child nếu không kiểm soát.
 
 Điều này có thể giữ thiết bị hoặc socket sống ngoài ý muốn.
 
@@ -747,15 +774,17 @@ Nếu một process mở UART/device rồi `fork()`/`exec()`, fd có thể bị 
 Khi không có GUI, `/proc` là công cụ quan trọng để trả lời:
 
 ```text
-process có tồn tại?
+tiến trình có tồn tại?
 đang chờ gì?
 mở fd nào?
-memory mapping ra sao?
+memory ánh xạ ra sao?
 ```
 
 ---
 
 ## 13. Tổng kết
+
+> **Nói đơn giản:** Topic 04 cần để lại mô hình: tiến trình được tạo, có thể `exec` chương trình khác, chạy, kết thúc và được cha `wait` thu trạng thái.
 
 ```mermaid
 stateDiagram-v2
@@ -772,7 +801,7 @@ stateDiagram-v2
 Mô hình `fork` + `exec`:
 
 ```text
-Parent process
+Parent tiến trình
      |
    fork()
     /   \
@@ -789,20 +818,22 @@ Các ý cần nhớ:
 1. Chương trình là tệp/mã; tiến trình là một instance đang thực thi.
 2. PID là định danh có thể tái sử dụng.
 3. PPID mô tả quan hệ cha hiện tại.
-4. Tiến trình có virtual address space, fd table, cwd, credentials, signal state...
+4. Tiến trình có virtual address space, bảng fd, cwd, credentials, signal trạng thái...
 5. Running khác runnable.
 6. Sleeping thường không tiêu thụ CPU bằng busy-loop.
 7. `fork()` tạo child với address space logic riêng và COW.
-8. Descriptor kế thừa qua `fork()` có thể cùng tham chiếu open file description.
+8. Bộ mô tả kế thừa qua `fork()` có thể cùng tham chiếu mô tả tệp đang mở.
 9. `execve()` thay program image, không tạo PID mới.
-10. `exit()` và `_exit()` khác nhau ở userspace cleanup.
+10. `exit()` và `_exit()` khác nhau ở không gian người dùng cleanup.
 11. Zombie là child đã kết thúc chờ parent reap.
 12. Orphan có thể vẫn chạy và được reparent.
-13. `/proc/<pid>` là cửa sổ quan trọng vào process state.
+13. `/proc/<pid>` là cửa sổ quan trọng vào tiến trình trạng thái.
 
 ---
 
 ## 14. Tài liệu tham khảo
+
+> **Nói đơn giản:** Phần này liệt kê nguồn chuẩn về tiến trình, `fork`, `exec`, `wait` và `/proc`.
 
 - `fork(2)`: https://man7.org/linux/man-pages/man2/fork.2.html
 - `execve(2)`: https://man7.org/linux/man-pages/man2/execve.2.html
@@ -811,8 +842,8 @@ Các ý cần nhớ:
 - `exit(3)`: https://man7.org/linux/man-pages/man3/exit.3.html
 - `getpid(2)`: https://man7.org/linux/man-pages/man2/getpid.2.html
 - `credentials(7)`: https://man7.org/linux/man-pages/man7/credentials.7.html
-- Linux procfs documentation: https://docs.kernel.org/filesystems/proc.html
+- Linux procfs documentation: https://docs.nhân Linux.org/filesystems/proc.html
 - POSIX.1-2024: https://pubs.opengroup.org/onlinepubs/9799919799/
-- The Linux Programming Interface: https://man7.org/tlpi/
+- The Linux Programming Giao diện: https://man7.org/tlpi/
 
 > **Điều hướng:** [← Chủ đề 3 — Vào/ra tệp](README-topic-03.md) · [Chủ đề 5 — Tín hiệu →](README-topic-05.md)

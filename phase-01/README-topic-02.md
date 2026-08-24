@@ -4,9 +4,14 @@
 >
 > **Quy ước ngôn ngữ:** phần giải thích dùng Tiếng Việt. Giữ nguyên những tên chuẩn cần tra cứu như `Linux`, `VFS`, `inode`, `dentry`, `procfs`, `sysfs`, `devtmpfs`, tên API và lệnh.
 >
-> **Phạm vi:** cây namespace, FHS, pathname, phân giải đường dẫn, `VFS`, `dentry`, `inode`, block, các loại tệp, metadata, quyền `r/w/x`, `chmod`, `chown`, `umask`, mount, `/dev`, `/proc`, `/sys`, `df`, `du`.
+> **Phạm vi:** cây không gian tên, FHS, pathname, phân giải đường dẫn, `VFS`, `dentry`, `inode`, block, các loại tệp, siêu dữ liệu, quyền `r/w/x`, `chmod`, `chown`, `umask`, mount, `/dev`, `/proc`, `/sys`, `df`, `du`.
 >
 > Chương này chỉ có **lý thuyết**, không có bài thực hành.
+
+> **Cách đọc tài liệu này nếu bạn mới bắt đầu:**
+> 1. Đọc câu **Nói đơn giản** ở đầu mỗi mục lớn để biết mục đó đang giải quyết vấn đề gì.
+> 2. Xem sơ đồ và ví dụ trước; chưa cần nhớ ngay mọi cờ, mã lỗi hay trường hợp đặc biệt.
+> 3. Sau khi đã hiểu ý chính, mới đọc các mục `###` theo thứ tự. Nếu gặp thuật ngữ mới, hãy quay lại câu giải thích đầu mục thay vì cố học thuộc định nghĩa.
 
 ---
 
@@ -34,7 +39,7 @@
 
 ## 1. Hệ thống tệp trong Linux thực chất là gì?
 
-> **Nói đơn giản:** hệ thống tệp không chỉ là “nơi lưu file”. Nó là cách Linux tổ chức tên, thư mục, metadata và dữ liệu thành một namespace mà chương trình có thể truy cập.
+> **Nói đơn giản:** Hệ thống tệp là cách Linux tổ chức tên, thư mục, dữ liệu và siêu dữ liệu thành một cây mà chương trình có thể truy cập bằng pathname.
 
 ### 1.1 Hai lớp dễ bị trộn lẫn
 
@@ -51,7 +56,7 @@ Ví dụ:
 /home/user/a.txt
 ```
 
-là một **đường dẫn trong namespace**.
+là một **đường dẫn trong không gian tên**.
 
 Còn việc tệp nằm trên:
 
@@ -84,12 +89,12 @@ Người dùng vẫn nhìn thấy **một cây duy nhất bắt đầu từ `/`*
 Linux cung cấp nhiều tài nguyên qua giao diện giống tệp:
 
 ```text
-regular file
+tệp thông thường
 directory
-device node
+nút thiết bị (device node)
 FIFO
 socket pathname
-procfs/sysfs entry
+mục trong procfs/sysfs
 ```
 
 Nhưng chúng không có cùng ngữ nghĩa.
@@ -97,7 +102,7 @@ Nhưng chúng không có cùng ngữ nghĩa.
 Ví dụ:
 
 ```text
-read() trên regular file
+read() trên tệp thông thường
 read() trên UART device
 read() trên /proc entry
 ```
@@ -107,6 +112,8 @@ có thể rất khác nhau.
 ---
 
 ## 2. Cây thư mục bắt đầu từ `/`
+
+> **Nói đơn giản:** Linux ghép mọi thứ vào một cây duy nhất bắt đầu từ `/`. Bạn không nhìn từng ổ đĩa như các cây tách biệt; chúng được gắn vào các vị trí trong cây này.
 
 ### 2.1 `/` là gốc của namespace
 
@@ -128,9 +135,9 @@ có thể rất khác nhau.
 
 Điểm quan trọng:
 
-> `/` là gốc của namespace mà tiến trình nhìn thấy; nó không đồng nghĩa cố định với “partition root vật lý”.
+> `/` là gốc của không gian tên mà tiến trình nhìn thấy; nó không đồng nghĩa cố định với “partition root vật lý”.
 
-Mount namespace, `chroot`, container và boot configuration có thể thay đổi cách tiến trình nhìn cây này.
+Mount không gian tên, `chroot`, container và boot configuration có thể thay đổi cách tiến trình nhìn cây này.
 
 ### 2.2 Ý nghĩa khái quát của một số thư mục
 
@@ -157,7 +164,7 @@ Chứa dữ liệu có tính thay đổi trong quá trình vận hành:
 ```text
 log
 cache
-state
+trạng thái
 spool
 ```
 
@@ -183,7 +190,7 @@ Trạng thái runtime từ lúc boot hiện tại, thường nằm trên `tmpfs`
 
 ## 3. Đường dẫn và cách nhân Linux tìm một tệp
 
-> **Nói đơn giản:** đường dẫn là một chuỗi tên. Nhân Linux đi qua từng thành phần từ trái sang phải để tìm đối tượng cuối cùng.
+> **Nói đơn giản:** Khi nhận một pathname, nhân Linux đi qua từng thành phần thư mục để tìm đối tượng cuối cùng. Vì vậy quyền truy cập ở các thư mục trung gian cũng rất quan trọng.
 
 ### 3.1 Tên tệp, thành phần đường dẫn và đường dẫn
 
@@ -212,7 +219,7 @@ Bắt đầu bằng `/`:
 /etc/passwd
 ```
 
-Tra cứu bắt đầu từ root của namespace.
+Tra cứu bắt đầu từ root của không gian tên.
 
 ### 3.3 Đường dẫn tương đối
 
@@ -271,7 +278,7 @@ a không tồn tại
 b không phải directory
 thiếu quyền search trên a hoặc b
 symlink loop
-mount state thay đổi
+mount trạng thái thay đổi
 c không tồn tại
 ```
 
@@ -288,6 +295,8 @@ Khi theo liên kết, nhân Linux tiếp tục phân giải pathname mục tiêu
 ---
 
 ## 4. VFS, Dentry và Inode
+
+> **Nói đơn giản:** VFS là lớp chung để Linux làm việc với nhiều loại filesystem. Dentry giúp ánh xạ tên, còn inode giữ siêu dữ liệu của đối tượng trong filesystem.
 
 ### 4.1 VFS là gì?
 
@@ -340,7 +349,7 @@ Dentry là đối tượng trong RAM; không nên đồng nhất nó với đị
 
 `inode` đại diện cho đối tượng tệp ở lớp filesystem/VFS.
 
-Nó gắn với metadata như:
+Nó gắn với siêu dữ liệu như:
 
 ```text
 file type
@@ -349,7 +358,7 @@ UID/GID
 size
 timestamps
 link count
-mapping tới dữ liệu
+ánh xạ tới dữ liệu
 ```
 
 ### 4.4 Inode không chứa pathname đầy đủ
@@ -361,7 +370,7 @@ Tên/pathname
   thuộc namespace/directory entry
 
 Inode
-  thuộc object/metadata
+  thuộc đối tượng/metadata
 ```
 
 Một inode có thể có nhiều tên thông qua hard link.
@@ -387,16 +396,18 @@ dentry
 inode
    |
    +--> metadata
-   +--> data mapping
+   +--> data ánh xạ
 ```
 
 ---
 
 ## 5. Block, kích thước tệp và dung lượng thật
 
+> **Nói đơn giản:** Kích thước logic của tệp và dung lượng thật trên thiết bị lưu trữ có thể khác nhau. Dữ liệu được quản lý theo các khối nên không phải lúc nào số byte của tệp cũng bằng số byte đã cấp phát.
+
 ### 5.1 Logical size
 
-Kích thước logic là số byte mà tệp biểu diễn trong namespace/API.
+Kích thước logic là số byte mà tệp biểu diễn trong không gian tên/API.
 
 Ví dụ một tệp có:
 
@@ -440,6 +451,8 @@ Không nên đồng nhất ba khái niệm này.
 
 ## 6. Các loại tệp trong Linux
 
+> **Nói đơn giản:** Trong Linux, 'file' không chỉ là tệp văn bản. Directory, symbolic link, nút thiết bị (device node), socket và nhiều đối tượng khác cũng xuất hiện trong cùng không gian tên.
+
 ### 6.1 Regular file
 
 Tệp dữ liệu thông thường:
@@ -456,7 +469,7 @@ Extension không quyết định loại tệp ở mức inode.
 
 ### 6.2 Directory
 
-Directory là đối tượng tổ chức namespace: nó ánh xạ tên sang đối tượng filesystem.
+Directory là đối tượng tổ chức không gian tên: nó ánh xạ tên sang đối tượng filesystem.
 
 Directory không nên được xem như “một file text chứa danh sách tên”.
 
@@ -496,13 +509,13 @@ minor
 
 nhằm giúp nhân Linux liên hệ node với lớp driver/device tương ứng.
 
-Có device node **không chứng minh** phần cứng chắc chắn đang hoạt động.
+Có nút thiết bị (device node) **không chứng minh** phần cứng chắc chắn đang hoạt động.
 
 ### 6.7 FIFO
 
 FIFO là pipe có tên trong filesystem.
 
-Dữ liệu không được lưu như regular file; pathname chủ yếu là điểm gặp nhau giữa các tiến trình.
+Dữ liệu không được lưu như tệp thông thường; pathname chủ yếu là điểm gặp nhau giữa các tiến trình.
 
 ### 6.8 Socket pathname
 
@@ -514,9 +527,11 @@ Pathname là điểm rendezvous, không phải file chứa payload socket.
 
 ## 7. Metadata và `stat`
 
+> **Nói đơn giản:** Siêu dữ liệu là thông tin mô tả tệp như loại, quyền, owner, size, inode và thời gian. `stat` cho phép xem các thông tin này rõ ràng hơn.
+
 ### 7.1 Metadata là gì?
 
-Metadata là thông tin mô tả đối tượng, ví dụ:
+Siêu dữ liệu là thông tin mô tả đối tượng, ví dụ:
 
 ```text
 type
@@ -540,7 +555,7 @@ lstat(path)
   lấy metadata của chính symlink ở phần cuối
 
 fstat(fd)
-  lấy metadata qua file descriptor đã mở
+  lấy metadata qua bộ mô tả tệp đã mở
 ```
 
 ### 7.3 `mtime`, `ctime`, `atime`
@@ -562,11 +577,13 @@ atime
 
 Giữa lúc một chương trình đọc nhiều trường, tiến trình khác có thể thay đổi đối tượng.
 
-Do đó metadata là ảnh chụp của trạng thái tại những thời điểm cụ thể, không phải giao dịch bất biến mặc định.
+Do đó siêu dữ liệu là ảnh chụp của trạng thái tại những thời điểm cụ thể, không phải giao dịch bất biến mặc định.
 
 ---
 
 ## 8. Chủ sở hữu, nhóm và quyền `r/w/x`
+
+> **Nói đơn giản:** Quyền truy cập được chia cho owner, group và other. Ba bit `r/w/x` có ý nghĩa khác nhau một chút giữa tệp thông thường và directory.
 
 ### 8.1 UID và GID
 
@@ -631,6 +648,8 @@ tiến trình cần quyền traverse/search phù hợp trên các thư mục cha
 
 ## 9. `chmod`, `chown` và `umask`
 
+> **Nói đơn giản:** `chmod` đổi quyền, `chown` đổi owner/group, còn `umask` loại bớt quyền khi tạo đối tượng mới. Ba công cụ này giải quyết ba việc khác nhau.
+
 ### 9.1 `chmod`
 
 `chmod` thay đổi mode/permission bits.
@@ -650,7 +669,7 @@ octal
 
 `chown` thay đổi chủ sở hữu/nhóm theo quyền được phép.
 
-Đây là thao tác lên metadata, không phải nội dung tệp.
+Đây là thao tác lên siêu dữ liệu, không phải nội dung tệp.
 
 ### 9.3 `umask`
 
@@ -679,7 +698,7 @@ Nếu chương trình không yêu cầu bit execute thì `umask` không tự th�
 
 ## 10. Mount: ghép nhiều hệ thống tệp vào một cây
 
-> **Nói đơn giản:** mount không copy dữ liệu. Nó nối root của một filesystem vào một điểm trong namespace.
+> **Nói đơn giản:** `mount` không sao chép dữ liệu. Nó làm cho một filesystem xuất hiện tại một directory trong cây `/`.
 
 ### 10.1 Trước mount
 
@@ -727,9 +746,11 @@ Nó có thể thất bại khi tài nguyên vẫn đang được sử dụng, t�
 
 ## 11. `/dev`, `/proc`, `/sys`: những hệ thống tệp đặc biệt
 
+> **Nói đơn giản:** `/dev`, `/proc`, `/sys` trông như thư mục bình thường nhưng nhiều nội dung trong đó được nhân Linux tạo động để biểu diễn thiết bị, tiến trình và trạng thái hệ thống.
+
 ### 11.1 `/dev`
 
-`/dev` thường chứa device node và các đối tượng thiết bị dành cho không gian người dùng.
+`/dev` thường chứa nút thiết bị (device node) và các đối tượng thiết bị dành cho không gian người dùng.
 
 Trên Linux hiện đại, `devtmpfs` có thể được nhân Linux dùng để cung cấp nền tảng node thiết bị; `udev` hoặc `mdev` có thể bổ sung policy/tên/quyền.
 
@@ -739,7 +760,7 @@ Trên Linux hiện đại, `devtmpfs` có thể được nhân Linux dùng để
 
 ```text
 processes
-kernel state
+nhân Linux trạng thái
 mounts
 memory
 system settings/interfaces nhất định
@@ -749,7 +770,7 @@ Nội dung thường được tạo động khi đọc.
 
 ### 11.3 `/sys`
 
-`sysfs` biểu diễn mô hình thiết bị và nhiều đối tượng kernel theo dạng cây.
+`sysfs` biểu diễn mô hình thiết bị và nhiều đối tượng nhân Linux theo dạng cây.
 
 Nó rất quan trọng với Embedded Linux vì giúp quan sát:
 
@@ -767,20 +788,22 @@ firmware-related objects
 read /proc/... hoặc /sys/...
         |
         v
-nhân Linux tạo/trả dữ liệu theo interface
+nhân Linux tạo/trả dữ liệu theo giao diện
 ```
 
 ---
 
 ## 12. `ls`, `stat`, `file`, `df`, `du` quan sát lớp nào?
 
+> **Nói đơn giản:** Mỗi lệnh quan sát một lớp khác nhau: `ls` nhìn directory entry, `stat` nhìn siêu dữ liệu, `file` đoán loại nội dung, `df` nhìn filesystem, `du` nhìn dung lượng theo cây thư mục.
+
 ### 12.1 `ls`
 
-Tập trung vào directory entry và metadata hiển thị.
+Tập trung vào directory entry và siêu dữ liệu hiển thị.
 
 ### 12.2 `stat`
 
-Cho cái nhìn chi tiết hơn về metadata của object/path.
+Cho cái nhìn chi tiết hơn về siêu dữ liệu của đối tượng/path.
 
 ### 12.3 `file`
 
@@ -800,7 +823,7 @@ còn sẵn
 
 ### 12.5 `du`
 
-Duyệt cây pathname và cộng usage của các object được nhìn thấy.
+Duyệt cây pathname và cộng usage của các đối tượng được nhìn thấy.
 
 ### 12.6 Vì sao `df` và `du` có thể khác?
 
@@ -808,7 +831,7 @@ Ví dụ:
 
 ```text
 một file bị unlink
-nhưng vẫn đang mở bởi process
+nhưng vẫn đang mở bởi tiến trình
 ```
 
 Filesystem vẫn giữ block cho file đó, nên `df` vẫn tính dung lượng; `du` không còn thấy pathname để duyệt.
@@ -817,13 +840,15 @@ Filesystem vẫn giữ block cho file đó, nên `df` vẫn tính dung lượng;
 
 ## 13. Vòng đời tên tệp, liên kết và tệp đang mở
 
+> **Nói đơn giản:** Tên tệp và dữ liệu không phải cùng một thứ. Xóa một tên không nhất thiết làm dữ liệu biến mất ngay nếu vẫn còn hard link hoặc tiến trình đang giữ tệp mở.
+
 ### 13.1 Tên và object là hai thứ khác nhau
 
 ```text
-pathname -> directory entry -> inode/object
+pathname -> directory entry -> inode/đối tượng
 ```
 
-Xóa pathname không nhất thiết xóa object ngay.
+Xóa pathname không nhất thiết xóa đối tượng ngay.
 
 ### 13.2 Hard link
 
@@ -835,18 +860,18 @@ name A ----+
 name B ----+
 ```
 
-Link count phản ánh số hard link theo semantics của filesystem.
+Link count phản ánh số hard link theo ngữ nghĩa của filesystem.
 
 ### 13.3 Unlink
 
-`unlink()` loại bỏ một tên khỏi namespace.
+`unlink()` loại bỏ một tên khỏi không gian tên.
 
-Object thực sự được thu hồi khi không còn các điều kiện giữ nó tồn tại, ví dụ không còn hard link và không còn open reference phù hợp.
+Đối tượng thực sự được thu hồi khi không còn các điều kiện giữ nó tồn tại, ví dụ không còn hard link và không còn tham chiếu đang mở phù hợp.
 
 ### 13.4 Tệp đang mở vẫn có thể tồn tại sau khi mất tên
 
 ```text
-process fd ---> open file/object
+tiến trình fd ---> open file/đối tượng
                   ^
                   |
 pathname đã unlink
@@ -857,6 +882,8 @@ pathname đã unlink
 ---
 
 ## 14. Tư duy gỡ lỗi hệ thống tệp
+
+> **Nói đơn giản:** Khi lỗi filesystem, hãy tách câu hỏi: pathname có đúng không, mount có đúng không, quyền có đủ không, filesystem có đầy không và đối tượng thực sự là loại gì.
 
 ### 14.1 “No such file”
 
@@ -888,7 +915,7 @@ ownership
 quyền x trên directory prefix
 read-only mount
 ACL/security policy
-credential của process
+credential của tiến trình
 ```
 
 ### 14.3 Device node tồn tại nhưng thiết bị không chạy
@@ -916,6 +943,8 @@ Unmount có thể làm chúng xuất hiện lại.
 ---
 
 ## 15. Liên hệ với Embedded Linux
+
+> **Nói đơn giản:** Embedded Linux dùng filesystem để chứa rootfs, cấu hình, nút thiết bị (device node) và các giao diện `/proc`/`/sys`; vì vậy hiểu cây tệp là nền tảng cho gần như mọi bước debug.
 
 ### 15.1 Rootfs tối giản
 
@@ -957,9 +986,9 @@ persistent partition riêng
 Chúng giúp trả lời:
 
 ```text
-kernel thấy thiết bị chưa?
+nhân Linux thấy thiết bị chưa?
 driver bind chưa?
-process đang có trạng thái gì?
+tiến trình đang có trạng thái gì?
 mount đang ra sao?
 ```
 
@@ -972,7 +1001,7 @@ wear
 power loss
 read-only partitions
 log volume
-persistent state
+persistent trạng thái
 ```
 
 Đây là lý do hiểu filesystem quan trọng hơn việc chỉ biết `ls` và `cd`.
@@ -980,6 +1009,8 @@ persistent state
 ---
 
 ## 16. Tổng kết
+
+> **Nói đơn giản:** Topic 02 cần để lại một chuỗi tư duy: pathname → directory entry → inode/siêu dữ liệu → filesystem → mount point.
 
 ```text
 pathname
@@ -994,32 +1025,34 @@ dentry
 inode
    |
    +--> metadata
-   +--> data blocks / backing object
+   +--> data blocks / backing đối tượng
 ```
 
 Các ý cần nhớ:
 
-1. Linux trình bày nhiều filesystem trong một namespace bắt đầu từ `/`.
-2. `/` là root của namespace, không phải khái niệm đồng nghĩa bắt buộc với một partition vật lý.
+1. Linux trình bày nhiều filesystem trong một không gian tên bắt đầu từ `/`.
+2. `/` là root của không gian tên, không phải khái niệm đồng nghĩa bắt buộc với một partition vật lý.
 3. Pathname được phân giải từng component.
-4. `dentry` gắn tên với object trong VFS; `inode` đại diện metadata/object.
+4. `dentry` gắn tên với đối tượng trong VFS; `inode` đại diện siêu dữ liệu/đối tượng.
 5. Pathname không nằm trong inode.
 6. Một inode có thể có nhiều hard link.
 7. Symbolic link chứa pathname mục tiêu.
 8. Kích thước logic và dung lượng đã cấp phát có thể khác nhau.
 9. Directory permission `x` có nghĩa search/traverse.
-10. Mount ghép filesystem vào namespace; nó không copy dữ liệu.
+10. Mount ghép filesystem vào không gian tên; nó không copy dữ liệu.
 11. `/proc`, `/sys`, `/dev` là các giao diện đặc biệt của Linux.
 12. `df` và `du` quan sát dung lượng theo hai mô hình khác nhau.
-13. Unlink tên không nhất thiết làm object đang mở biến mất ngay.
+13. Unlink tên không nhất thiết làm đối tượng đang mở biến mất ngay.
 
 ---
 
 ## 17. Tài liệu tham khảo
 
+> **Nói đơn giản:** Phần này liệt kê nguồn chuẩn để tra cứu chi tiết về filesystem, quyền truy cập và mount.
+
 - Filesystem Hierarchy Standard: https://refspecs.linuxfoundation.org/FHS_3.0/fhs/index.html
-- Linux VFS documentation: https://docs.kernel.org/filesystems/vfs.html
-- Linux pathname lookup documentation: https://docs.kernel.org/filesystems/path-lookup.html
+- Linux VFS documentation: https://docs.nhân Linux.org/filesystems/vfs.html
+- Linux pathname lookup documentation: https://docs.nhân Linux.org/filesystems/path-lookup.html
 - `path_resolution(7)`: https://man7.org/linux/man-pages/man7/path_resolution.7.html
 - `inode(7)`: https://man7.org/linux/man-pages/man7/inode.7.html
 - `stat(2)`: https://man7.org/linux/man-pages/man2/stat.2.html
@@ -1027,8 +1060,8 @@ Các ý cần nhớ:
 - `chown(2)`: https://man7.org/linux/man-pages/man2/chown.2.html
 - `umask(2)`: https://man7.org/linux/man-pages/man2/umask.2.html
 - `mount(8)`: https://man7.org/linux/man-pages/man8/mount.8.html
-- Linux procfs documentation: https://docs.kernel.org/filesystems/proc.html
-- Linux sysfs documentation: https://docs.kernel.org/filesystems/sysfs.html
+- Linux procfs documentation: https://docs.nhân Linux.org/filesystems/proc.html
+- Linux sysfs documentation: https://docs.nhân Linux.org/filesystems/sysfs.html
 - Bootlin Embedded Linux training: https://bootlin.com/training/embedded-linux/
 
 > **Điều hướng:** [← Chủ đề 1 — Dòng lệnh Linux cơ bản](README-topic-01.md) · [Chủ đề 3 — Vào/ra tệp →](README-topic-03.md)

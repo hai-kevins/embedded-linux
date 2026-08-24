@@ -8,6 +8,11 @@
 >
 > Chương này chỉ có **lý thuyết**, không có bài thực hành. Mutex, condition variable, semaphore và các cơ chế đồng bộ chi tiết thuộc **Chủ đề 7**.
 
+> **Cách đọc tài liệu này nếu bạn mới bắt đầu:**
+> 1. Đọc câu **Nói đơn giản** ở đầu mỗi mục lớn để biết mục đó đang giải quyết vấn đề gì.
+> 2. Xem sơ đồ và ví dụ trước; chưa cần nhớ ngay mọi cờ, mã lỗi hay trường hợp đặc biệt.
+> 3. Sau khi đã hiểu ý chính, mới đọc các mục `###` theo thứ tự. Nếu gặp thuật ngữ mới, hãy quay lại câu giải thích đầu mục thay vì cố học thuộc định nghĩa.
+
 ---
 
 ## Mục lục
@@ -33,7 +38,7 @@
 
 ## 1. Đa luồng là gì?
 
-> **Nói đơn giản:** một tiến trình có thể được xem như “không gian làm việc chung”; mỗi luồng là một dòng thực thi riêng bên trong không gian đó. Nhiều luồng có thể cùng tồn tại và cùng tiến triển trong một tiến trình.
+> **Nói đơn giản:** Đa luồng nghĩa là một tiến trình có nhiều luồng thực thi. Các luồng chia sẻ phần lớn tài nguyên của tiến trình nhưng mỗi luồng vẫn có stack và trạng thái chạy riêng.
 
 ### 1.1 Từ một dòng thực thi tới nhiều dòng thực thi
 
@@ -113,7 +118,7 @@ Hàm bắt đầu chỉ là nơi luồng đi vào mã chương trình.
 
 ## 2. Tiến trình và luồng khác nhau thế nào?
 
-> **Nói đơn giản:** tiến trình là “hộp tài nguyên”; luồng là “người thực thi” bên trong hộp đó.
+> **Nói đơn giản:** Tiến trình là vùng tài nguyên lớn; luồng là một luồng thực thi bên trong vùng đó. Tạo luồng thường nhẹ hơn tạo tiến trình nhưng việc chia sẻ dữ liệu làm tăng rủi ro tranh chấp.
 
 ### 2.1 Tiến trình là vùng chứa tài nguyên
 
@@ -124,7 +129,7 @@ không gian địa chỉ ảo
 mã chương trình
 dữ liệu toàn cục
 heap
-bảng file descriptor
+bảng bộ mô tả tệp
 thư mục làm việc
 cách xử lý signal
 ```
@@ -146,7 +151,7 @@ Nhiều luồng cùng tiến trình nhìn thấy cùng phần lớn bộ nhớ:
 |    dữ liệu toàn cục                            |
 |    heap                                        |
 |    vùng mmap                                   |
-|    bảng file descriptor                        |
+|    bảng bộ mô tả tệp                        |
 |                                                |
 |  +----------------+   +----------------+       |
 |  | Luồng A        |   | Luồng B        |       |
@@ -196,13 +201,15 @@ Các luồng cùng chung miền lỗi của tiến trình.
 | Không gian địa chỉ | Thường tách biệt | Dùng chung |
 | Dữ liệu heap/toàn cục | Không dùng chung trực tiếp mặc định | Dùng chung |
 | Ngăn xếp | Riêng | Riêng cho từng luồng |
-| File descriptor | Tùy quan hệ/kế thừa | Cùng bảng của tiến trình |
+| File bộ mô tả | Tùy quan hệ/kế thừa | Cùng bảng của tiến trình |
 | Cách trao đổi dữ liệu | Thường cần IPC | Có thể truy cập bộ nhớ chung |
 | Cách ly lỗi bộ nhớ | Tốt hơn | Thấp hơn |
 
 ---
 
 ## 3. POSIX Threads và NPTL
+
+> **Nói đơn giản:** POSIX Threads (`pthread`) là API chuẩn; trên Linux, NPTL là phần triển khai phổ biến trong glibc/nhân Linux.
 
 ### 3.1 `Pthreads` là gì?
 
@@ -241,7 +248,7 @@ glibc / NPTL
 cơ chế luồng của nhân Linux
 ```
 
-`NPTL` là **Native POSIX Thread Library**.
+`NPTL` là **Native POSIX Luồng Library**.
 
 ---
 
@@ -284,7 +291,7 @@ Hiểu lớp thấp hơn có ích khi gỡ lỗi, nhưng không nên lấy nó l
 
 ## 4. Định danh luồng: `pthread_t`, TID và PID
 
-> **Nói đơn giản:** một luồng có thể có nhiều loại “tên/ID” ở các lớp khác nhau. `pthread_t` thuộc POSIX; TID thuộc nhân Linux; PID thường đại diện cho tiến trình/nhóm luồng.
+> **Nói đơn giản:** `pthread_t`, TID và PID không phải lúc nào cũng là cùng một giá trị. Chúng phục vụ các lớp API và mục đích quan sát khác nhau.
 
 ### 4.1 `pthread_t`
 
@@ -355,7 +362,7 @@ Luồng phụ 2:
 
 Trong Linux, các luồng thuộc cùng một nhóm luồng. ID của nhóm này tương ứng với PID mà ứng dụng thường thấy qua `getpid()`.
 
-Mental model:
+Cách hình dung:
 
 ```text
              PID / TGID = 4200
@@ -385,6 +392,8 @@ Chúng có liên hệ tới cùng một luồng nhưng không phải cùng một
 
 ## 5. Các luồng dùng chung gì và có gì riêng?
 
+> **Nói đơn giản:** Các luồng cùng tiến trình chia sẻ address space và nhiều `fd`, nhưng mỗi luồng có stack, register trạng thái và luồng thực thi riêng.
+
 ### 5.1 Phần dùng chung
 
 Các luồng cùng tiến trình dùng chung nhiều tài nguyên:
@@ -395,7 +404,7 @@ mã chương trình
 dữ liệu toàn cục/static
 heap
 các vùng mmap
-bảng file descriptor
+bảng bộ mô tả tệp
 thư mục làm việc hiện tại
 umask
 cách xử lý signal của tiến trình
@@ -490,6 +499,8 @@ Chi tiết kiến trúc signal với nhiều luồng không thuộc phạm vi ch
 
 ## 6. `pthread_create()`: tạo một luồng mới
 
+> **Nói đơn giản:** `pthread_create()` tạo luồng mới và chỉ định hàm bắt đầu. Sau đó luồng mới và luồng gọi có thể chạy xen kẽ hoặc song song.
+
 ### 6.1 Mô hình của `pthread_create()`
 
 Giao diện khái niệm:
@@ -522,7 +533,7 @@ Không có tiến trình mới và không có không gian địa chỉ mới.
 
 Luồng mới bắt đầu chạy tại một hàm có dạng POSIX quy định.
 
-Mental model:
+Cách hình dung:
 
 ```text
 pthread_create()
@@ -628,11 +639,13 @@ chứ không nhất thiết dùng:
 
 như nhiều lời gọi hệ thống Linux.
 
-Đây là điểm dễ nhầm khi học song song system call và Pthreads.
+Đây là điểm dễ nhầm khi học song song lời gọi hệ thống và Pthreads.
 
 ---
 
 ## 7. Vòng đời và cách một luồng kết thúc
+
+> **Nói đơn giản:** Luồng có thể kết thúc bằng return từ hàm start hoặc gọi API kết thúc tương ứng; tài nguyên liên quan còn phụ thuộc trạng thái joinable/detached.
 
 ### 7.1 Vòng đời ở mức khái niệm
 
@@ -725,7 +738,7 @@ Vòng đời tiến trình và vòng đời luồng liên hệ nhưng không đ�
 
 ## 8. Luồng joinable và detached
 
-> **Nói đơn giản:** sau khi một luồng chạy xong, hệ thống cần biết có ai còn muốn “thu kết quả” của nó hay không. `joinable` giữ lại trạng thái cần thiết để `pthread_join()` thu nhận; `detached` cho phép tự thu hồi khi kết thúc.
+> **Nói đơn giản:** Luồng joinable cần luồng khác `pthread_join()` để thu kết quả và giải phóng phần tài nguyên; detached tự giải phóng phần đó khi kết thúc.
 
 ### 8.1 Luồng joinable
 
@@ -780,10 +793,10 @@ Luồng A tạo Luồng B không có nghĩa A là “cha” cố định theo ki
 
 Các luồng trong cùng tiến trình về mô hình POSIX là các luồng ngang hàng.
 
-Do đó không nên đem nguyên mental model:
+Do đó không nên đem nguyên cách hình dung:
 
 ```text
-process parent/child
+tiến trình parent/child
 ```
 
 áp vào:
@@ -850,6 +863,8 @@ Nếu một luồng joinable kết thúc nhưng không bao giờ được join, 
 ---
 
 ## 9. Thuộc tính, ngăn xếp và chi phí của một luồng
+
+> **Nói đơn giản:** Mỗi luồng cần stack và siêu dữ liệu quản lý. Vì vậy tạo hàng nghìn luồng không phải miễn phí dù luồng nhẹ hơn tiến trình.
 
 ### 9.1 `pthread_attr_t`
 
@@ -949,6 +964,8 @@ là một kết luận sai.
 
 ## 10. Đồng thời và song song
 
+> **Nói đơn giản:** Concurrency là nhiều công việc tiến triển xen kẽ; parallelism là nhiều công việc thực sự chạy cùng lúc trên nhiều CPU/core.
+
 ### 10.1 Đồng thời (`concurrency`)
 
 Nhiều công việc cùng tiến triển trong một khoảng thời gian.
@@ -1022,7 +1039,7 @@ chuyển ngữ cảnh
 
 ## 11. Vì sao dùng chung bộ nhớ dẫn tới điều kiện tranh chấp?
 
-> **Nói đơn giản:** khi hai luồng cùng đọc/ghi một trạng thái dùng chung, kết quả có thể phụ thuộc vào việc bộ lập lịch xen kẽ các bước theo thứ tự nào.
+> **Nói đơn giản:** Khi hai luồng cùng truy cập dữ liệu có thể thay đổi mà không đồng bộ đúng, kết quả có thể phụ thuộc thời điểm chạy và sinh race condition.
 
 ### 11.1 Ví dụ tăng biến đếm
 
@@ -1097,6 +1114,8 @@ Không nên học cơ chế đồng bộ trước khi hiểu rõ vì sao cần n
 
 ## 12. Quan sát luồng trên Linux
 
+> **Nói đơn giản:** Linux cho phép quan sát từng luồng qua `/proc`, `ps` và `top` với các tùy chọn phù hợp.
+
 ### 12.1 `/proc/<pid>/task/`
 
 Linux thể hiện các luồng của một tiến trình dưới:
@@ -1131,7 +1150,7 @@ PID 4200
 Linux cung cấp đường dẫn đại diện cho luồng đang truy cập:
 
 ```text
-/proc/thread-self
+/proc/luồng-self
 ```
 
 Nó cho phép biểu diễn “luồng hiện tại” trong `procfs`.
@@ -1181,6 +1200,8 @@ trong các API yêu cầu định danh thật.
 
 ## 13. Tư duy gỡ lỗi đa luồng
 
+> **Nói đơn giản:** Debug đa luồng cần tách lỗi vòng đời luồng, lỗi chia sẻ dữ liệu và lỗi đồng bộ thay vì coi mọi hiện tượng là 'luồng bị treo'.
+
 ### 13.1 Hãy tách vấn đề thành lớp
 
 ```text
@@ -1224,7 +1245,7 @@ Không nên kết luận chỉ từ việc “không thấy log”.
 Nếu `main()` trả về:
 
 ```text
-process exit
+tiến trình exit
 ```
 
 nên các luồng phụ không giữ tiến trình tồn tại theo cách người mới thường tưởng.
@@ -1260,6 +1281,8 @@ Thay đổi timing do thêm log có thể làm lỗi biến mất tạm thời n
 ---
 
 ## 14. Liên hệ với Embedded Linux
+
+> **Nói đơn giản:** Embedded Linux thường dùng luồng để tách nhận dữ liệu, xử lý, logging hoặc giao tiếp. Thiết kế tốt cần cân bằng độ đơn giản và chi phí đồng bộ.
 
 ### 14.1 Mô hình ứng dụng nhúng thường gặp
 
@@ -1315,7 +1338,7 @@ Mỗi luồng thêm một ngăn xếp và trạng thái quản lý.
 Vì vậy kiến trúc:
 
 ```text
-1 chức năng = 1 thread
+1 chức năng = 1 luồng
 ```
 
 không nên được dùng máy móc.
@@ -1340,14 +1363,14 @@ scheduler
 
 ### 14.5 Ranh giới giữa thread và process là quyết định kiến trúc
 
-Dùng thread khi cần:
+Dùng luồng khi cần:
 
 ```text
 chia sẻ dữ liệu nhanh
 cùng một miền tài nguyên
 ```
 
-Dùng process riêng khi cần mạnh hơn về:
+Dùng tiến trình riêng khi cần mạnh hơn về:
 
 ```text
 cách ly lỗi
@@ -1360,6 +1383,8 @@ Một sản phẩm Embedded Linux thường kết hợp cả hai.
 ---
 
 ## 15. Tổng kết
+
+> **Nói đơn giản:** Topic 06 cần để lại mô hình: một tiến trình → nhiều luồng → chia sẻ tài nguyên → cần quản lý vòng đời và chuẩn bị cho synchronization.
 
 ### 15.1 Mô hình chính
 
@@ -1431,6 +1456,8 @@ pthread_join  tự thu hồi
 
 ## 16. Tài liệu tham khảo
 
+> **Nói đơn giản:** Phần này liệt kê nguồn chuẩn về pthread và luồng trên Linux.
+
 ### POSIX.1-2024 / The Open Group
 
 - https://pubs.opengroup.org/onlinepubs/9799919799/
@@ -1456,7 +1483,7 @@ Nguồn chuẩn cho ngữ nghĩa Pthreads có tính di động.
 
 - GNU C Library Manual: https://www.gnu.org/software/libc/manual/
 - Bootlin Embedded Linux: https://bootlin.com/doc/training/embedded-linux/
-- The Linux Programming Interface: https://man7.org/tlpi/
+- The Linux Programming Giao diện: https://man7.org/tlpi/
 
 ### Cách ưu tiên nguồn
 

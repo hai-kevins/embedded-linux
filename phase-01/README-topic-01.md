@@ -8,6 +8,11 @@
 >
 > Chương này chỉ có **lý thuyết**, không chứa bài thực hành.
 
+> **Cách đọc tài liệu này nếu bạn mới bắt đầu:**
+> 1. Đọc câu **Nói đơn giản** ở đầu mỗi mục lớn để biết mục đó đang giải quyết vấn đề gì.
+> 2. Xem sơ đồ và ví dụ trước; chưa cần nhớ ngay mọi cờ, mã lỗi hay trường hợp đặc biệt.
+> 3. Sau khi đã hiểu ý chính, mới đọc các mục `###` theo thứ tự. Nếu gặp thuật ngữ mới, hãy quay lại câu giải thích đầu mục thay vì cố học thuộc định nghĩa.
+
 ---
 
 ## Mục lục
@@ -35,7 +40,7 @@
 
 ## 1. Dòng lệnh Linux thực chất là gì?
 
-> **Nói đơn giản:** dòng lệnh là cách người dùng mô tả yêu cầu bằng văn bản; `shell` đọc yêu cầu đó, phân tích nó và tạo ra các thao tác cần thiết.
+> **Nói đơn giản:** Dòng lệnh là cách bạn yêu cầu Linux làm việc bằng chữ. Bạn gõ lệnh, Shell phân tích lệnh đó rồi chạy chương trình tương ứng.
 
 ### 1.1 CLI và GUI khác nhau ở đâu?
 
@@ -116,7 +121,7 @@ Chương trình ls gọi các API/lời gọi hệ thống cần thiết
 
 ## 2. Terminal, TTY, PTY và Shell
 
-> **Nói đơn giản:** `terminal` là nơi nhập/xuất ký tự; `shell` là chương trình đọc và hiểu lệnh. Hai thứ này không phải một.
+> **Nói đơn giản:** Terminal là cửa sổ nhập/xuất, còn Shell là chương trình đọc và hiểu lệnh. TTY/PTY là lớp trung gian giúp terminal và chương trình trao đổi dữ liệu.
 
 ### 2.1 Terminal
 
@@ -132,7 +137,7 @@ Nó gắn với các khái niệm như:
 thiết bị đầu cuối
 chế độ nhập ký tự
 line discipline
-terminal foreground process group
+terminal foreground tiến trình group
 ```
 
 `TTY` có nguồn gốc lịch sử từ teletype, nhưng trong Linux hiện đại nó là một subsystem quan trọng.
@@ -185,12 +190,14 @@ Shell
 Chương trình
    |
    v
-Linux kernel
+Linux nhân Linux
 ```
 
 ---
 
 ## 3. Shell hiểu một dòng lệnh như thế nào?
+
+> **Nói đơn giản:** Shell không gửi nguyên cả dòng bạn gõ cho chương trình. Nó tách dòng lệnh thành tên chương trình, đối số và các toán tử như pipe hay chuyển hướng.
 
 ### 3.1 Shell là một ngôn ngữ nhỏ
 
@@ -258,7 +265,7 @@ external executable
 
 ## 4. Dấu nháy và quá trình mở rộng của Shell
 
-> **Nói đơn giản:** trước khi chương trình nhận `argv`, `shell` có thể biến đổi nội dung người dùng đã gõ.
+> **Nói đơn giản:** Dấu nháy quyết định phần nào của dòng lệnh được Shell giữ nguyên và phần nào được thay thế trước khi chạy chương trình.
 
 ### 4.1 Vì sao phải dùng dấu nháy?
 
@@ -356,6 +363,8 @@ Regular expression
 
 ## 5. Shell tìm chương trình bằng `PATH` như thế nào?
 
+> **Nói đơn giản:** Khi bạn chỉ gõ tên như `ls`, Shell phải tìm xem chương trình `ls` nằm ở đâu. Biến `PATH` cho Shell biết những thư mục cần tìm theo thứ tự.
+
 ### 5.1 `PATH`
 
 `PATH` là danh sách thư mục mà `shell` dùng để tìm executable khi tên lệnh không chứa `/`.
@@ -363,11 +372,11 @@ Regular expression
 Mô hình:
 
 ```text
-PATH=/usr/local/bin:/usr/bin:/bin
+PATH=/usr/cục bộ/bin:/usr/bin:/bin
 
 command: tool
    |
-   +--> /usr/local/bin/tool ?
+   +--> /usr/cục bộ/bin/tool ?
    +--> /usr/bin/tool ?
    +--> /bin/tool ?
 ```
@@ -397,6 +406,8 @@ Nếu thư mục hiện tại luôn được ưu tiên tìm kiếm, một execut
 ---
 
 ## 6. Thư mục làm việc và đường dẫn
+
+> **Nói đơn giản:** Mỗi tiến trình có một thư mục làm việc hiện tại. Đường dẫn tương đối được hiểu từ thư mục đó, còn đường dẫn tuyệt đối bắt đầu từ `/`.
 
 ### 6.1 Thư mục làm việc hiện tại
 
@@ -429,6 +440,8 @@ Khi có symbolic link, đường dẫn người dùng nhìn thấy có thể kh�
 
 ## 7. Biến Shell, biến môi trường và `argv`
 
+> **Nói đơn giản:** Biến Shell giúp lưu giá trị trong Shell; biến môi trường có thể được truyền sang chương trình con; `argv` là danh sách đối số chương trình nhận được.
+
 ### 7.1 Biến Shell
 
 Biến của `shell` là trạng thái nội bộ của `shell`.
@@ -444,7 +457,7 @@ Shell
   |
   | environment
   v
-Child process
+Child tiến trình
 ```
 
 ### 7.3 `export`
@@ -481,6 +494,8 @@ Khoảng trắng sau xử lý của `shell` không còn là một chuỗi đơn;
 ---
 
 ## 8. `stdin`, `stdout`, `stderr` và chuyển hướng
+
+> **Nói đơn giản:** Một chương trình thường có ba luồng chuẩn: nhập vào, xuất bình thường và xuất lỗi. Chuyển hướng chỉ là đổi nơi các luồng này đọc hoặc ghi dữ liệu.
 
 ### 8.1 Ba luồng chuẩn
 
@@ -537,6 +552,8 @@ Chuyển hướng được xử lý theo thứ tự, vì việc sao chép một 
 
 ## 9. Pipe và Pipeline
 
+> **Nói đơn giản:** Pipe nối đầu ra của lệnh trước với đầu vào của lệnh sau. Nhờ vậy bạn có thể ghép nhiều lệnh nhỏ thành một chuỗi xử lý dữ liệu.
+
 ### 9.1 Pipe
 
 `pipe` là một kênh byte do nhân Linux quản lý.
@@ -588,7 +605,7 @@ Muốn đưa `stderr` vào cùng kênh cần chuyển hướng rõ ràng.
 ```text
 pipeline
   không chỉ là ghép chuỗi văn bản
-  mà là ghép các tiến trình thông qua file descriptor
+  mà là ghép các tiến trình thông qua bộ mô tả tệp
 ```
 
 Đây là nền tảng trực tiếp cho Topic 3 và Topic 8.
@@ -596,6 +613,8 @@ pipeline
 ---
 
 ## 10. Mã kết thúc và toán tử điều khiển Shell
+
+> **Nói đơn giản:** Mỗi lệnh kết thúc với một mã trạng thái. Shell dùng mã này để biết lệnh thành công hay thất bại và quyết định có chạy lệnh tiếp theo hay không.
 
 ### 10.1 Mã kết thúc
 
@@ -642,6 +661,8 @@ B được xét chạy sau A mà không phụ thuộc trực tiếp vào mã k�
 
 ## 11. Tiền cảnh, nền và điều khiển tác vụ
 
+> **Nói đơn giản:** Tiến trình chạy ở tiền cảnh thường nhận bàn phím trực tiếp; tiến trình nền tiếp tục chạy mà không chiếm phiên nhập lệnh hiện tại.
+
 ### 11.1 Tiến trình tiền cảnh
 
 Trong terminal tương tác, một nhóm tiến trình được xem là nhóm tiền cảnh của terminal.
@@ -652,14 +673,14 @@ Các tín hiệu tạo bởi terminal, như `SIGINT` khi nhấn `Ctrl+C`, thư�
 
 Một công việc chạy nền không chiếm quyền điều khiển tương tác của `shell` theo cách của công việc tiền cảnh.
 
-Tuy vậy, nó vẫn là tiến trình bình thường và vẫn dùng CPU, bộ nhớ, file descriptor, tín hiệu...
+Tuy vậy, nó vẫn là tiến trình bình thường và vẫn dùng CPU, bộ nhớ, bộ mô tả tệp, tín hiệu...
 
 ### 11.3 Job control
 
 `Shell` tương tác sử dụng:
 
 ```text
-process group
+tiến trình group
 session
 controlling terminal
 signals
@@ -672,6 +693,8 @@ Topic 4 và Topic 5 sẽ làm rõ các lớp này hơn.
 ---
 
 ## 12. Các nhóm lệnh Linux cơ bản
+
+> **Nói đơn giản:** Bạn không cần thuộc hàng trăm lệnh. Điều quan trọng là biết mỗi nhóm lệnh giải quyết việc gì: di chuyển, xem tệp, tìm kiếm, xử lý văn bản hay quan sát hệ thống.
 
 Mục đích của phần này không phải học thuộc cú pháp, mà hiểu **mỗi lệnh quan sát hoặc thay đổi lớp nào**.
 
@@ -705,7 +728,7 @@ tail
 wc
 ```
 
-Nhóm này chủ yếu đọc byte từ file descriptor và biểu diễn/đếm dữ liệu.
+Nhóm này chủ yếu đọc byte từ bộ mô tả tệp và biểu diễn/đếm dữ liệu.
 
 ### 12.3 Lọc và biến đổi
 
@@ -727,6 +750,8 @@ stdin -> xử lý -> stdout
 ---
 
 ## 13. `grep` và `find`: tìm kiếm theo hai mô hình khác nhau
+
+> **Nói đơn giản:** `grep` tìm nội dung bên trong dữ liệu văn bản, còn `find` tìm đối tượng trong cây thư mục dựa trên tên và thuộc tính.
 
 ### 13.1 `grep`
 
@@ -768,6 +793,8 @@ find -> tìm trong cây namespace/metadata
 
 ## 14. `ps`, `top`, `mount`, `df`, `du` đang quan sát điều gì?
 
+> **Nói đơn giản:** `ps` và `top` quan sát tiến trình; `mount` quan sát/gắn hệ thống tệp; `df` nhìn dung lượng theo hệ thống tệp; `du` nhìn dung lượng theo tệp và thư mục.
+
 ### 14.1 `ps`
 
 `ps` cung cấp một ảnh chụp trạng thái tiến trình tại thời điểm thu thập dữ liệu.
@@ -782,10 +809,10 @@ Các giá trị CPU/bộ nhớ phải được hiểu theo khoảng lấy mẫu 
 
 ### 14.3 `mount`
 
-`mount` liên quan đến việc gắn một hệ thống tệp vào cây namespace.
+`mount` liên quan đến việc gắn một hệ thống tệp vào cây không gian tên.
 
 ```text
-filesystem object
+đối tượng trong filesystem
       |
    mount
       |
@@ -813,6 +840,8 @@ Hai số có thể khác nhau mà không có lỗi.
 ---
 
 ## 15. Tư duy gỡ lỗi khi một lệnh không hoạt động
+
+> **Nói đơn giản:** Khi lệnh lỗi, đừng thử ngẫu nhiên. Hãy kiểm tra lần lượt: lệnh có tồn tại không, đường dẫn đúng không, quyền đủ không, đầu vào có đúng không và mã lỗi nói gì.
 
 ### 15.1 “Không tìm thấy lệnh”
 
@@ -869,6 +898,8 @@ mã kết thúc của tiến trình nào đang được quan sát?
 
 ## 16. Liên hệ với Embedded Linux
 
+> **Nói đơn giản:** Trên Embedded Linux, terminal là công cụ chính để cấu hình, kiểm tra log, chạy chương trình và chẩn đoán thiết bị khi không có giao diện đồ họa.
+
 ### 16.1 Board thường không có GUI đầy đủ
 
 Trong giai đoạn bring-up, giao diện thường là:
@@ -876,7 +907,7 @@ Trong giai đoạn bring-up, giao diện thường là:
 ```text
 UART serial console
 SSH
-local shell
+cục bộ shell
 ```
 
 Nắm CLI giúp làm việc khi chưa có desktop.
@@ -889,7 +920,7 @@ Cú pháp chi tiết có thể khác GNU utilities, nhưng mô hình:
 
 ```text
 stdin/stdout/stderr
-file descriptor
+bộ mô tả tệp
 pipe
 exit status
 ```
@@ -917,6 +948,8 @@ Do đó Topic 1 là nền cho hầu hết các chủ đề tiếp theo.
 
 ## 17. Tổng kết
 
+> **Nói đơn giản:** Topic 01 cần để lại một mô hình đơn giản: Shell nhận lệnh, thiết lập đầu vào/đầu ra, chạy chương trình và nhận mã kết thúc.
+
 ```text
 Người dùng nhập dòng lệnh
         |
@@ -936,7 +969,7 @@ Shell
 Tiến trình / builtin
         |
         v
-Linux kernel
+Linux nhân Linux
 ```
 
 Các ý cần nhớ:
@@ -947,8 +980,8 @@ Các ý cần nhớ:
 4. `PATH` chỉ tham gia khi tên lệnh cần được tìm kiếm.
 5. Mỗi tiến trình có thư mục làm việc hiện tại.
 6. Biến môi trường được truyền từ cha sang con; tiến trình con không trực tiếp sửa môi trường của cha.
-7. `stdin`, `stdout`, `stderr` tương ứng với các file descriptor chuẩn.
-8. Chuyển hướng là thay đổi nơi các file descriptor trỏ tới.
+7. `stdin`, `stdout`, `stderr` tương ứng với các bộ mô tả tệp chuẩn.
+8. Chuyển hướng là thay đổi nơi các bộ mô tả tệp trỏ tới.
 9. Pipeline là ghép các tiến trình bằng `pipe`.
 10. Mã kết thúc là kênh điều khiển, không phải nội dung `stdout`.
 11. `grep` tìm trong dữ liệu; `find` duyệt cây filesystem.
@@ -957,6 +990,8 @@ Các ý cần nhớ:
 ---
 
 ## 18. Tài liệu tham khảo
+
+> **Nói đơn giản:** Phần này liệt kê các nguồn chính thống để bạn tra cứu khi cần kiểm chứng hoặc học sâu hơn.
 
 Nguồn ưu tiên cho chủ đề này:
 
@@ -968,7 +1003,7 @@ Nguồn ưu tiên cho chủ đề này:
 - GNU Findutils Manual: https://www.gnu.org/software/findutils/manual/
 - procps-ng: https://gitlab.com/procps-ng/procps
 - util-linux: https://github.com/util-linux/util-linux
-- Linux TTY documentation: https://docs.kernel.org/driver-api/tty/
+- Linux TTY documentation: https://docs.nhân Linux.org/driver-api/tty/
 - Bootlin Embedded Linux training: https://bootlin.com/training/embedded-linux/
 - BusyBox documentation: https://busybox.net/
 

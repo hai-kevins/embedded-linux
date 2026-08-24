@@ -8,6 +8,11 @@
 >
 > Chương này chỉ có **lý thuyết**, không có bài thực hành. Các chủ đề nâng cao như raw `futex`, lock-free, RCU, spinlock nhân Linux và mô hình atomic C/C++ chi tiết không thuộc phạm vi chương này.
 
+> **Cách đọc tài liệu này nếu bạn mới bắt đầu:**
+> 1. Đọc câu **Nói đơn giản** ở đầu mỗi mục lớn để biết mục đó đang giải quyết vấn đề gì.
+> 2. Xem sơ đồ và ví dụ trước; chưa cần nhớ ngay mọi cờ, mã lỗi hay trường hợp đặc biệt.
+> 3. Sau khi đã hiểu ý chính, mới đọc các mục `###` theo thứ tự. Nếu gặp thuật ngữ mới, hãy quay lại câu giải thích đầu mục thay vì cố học thuộc định nghĩa.
+
 ---
 
 ## Mục lục
@@ -38,7 +43,7 @@
 
 ## 1. Vì sao cần đồng bộ luồng?
 
-> **Nói đơn giản:** nhiều luồng có thể cùng nhìn thấy một vùng dữ liệu. Nếu chúng cùng đọc/ghi mà không thống nhất “ai được làm gì, vào lúc nào”, trạng thái có thể sai dù từng luồng riêng lẻ nhìn có vẻ đúng.
+> **Nói đơn giản:** Khi nhiều luồng cùng dùng dữ liệu, kết quả có thể sai nếu chúng truy cập không đúng thứ tự. Synchronization tạo ra quy tắc để các luồng phối hợp an toàn.
 
 ### 1.1 Vấn đề bắt đầu từ dữ liệu dùng chung có thể thay đổi
 
@@ -109,6 +114,8 @@ barrier
 ---
 
 ## 2. Điều kiện tranh chấp, data race và vùng tới hạn
+
+> **Nói đơn giản:** Race condition là kết quả phụ thuộc thời điểm; data race là một dạng truy cập bộ nhớ không được đồng bộ đúng; critical section là đoạn cần được bảo vệ.
 
 ### 2.1 Điều kiện tranh chấp (`race condition`)
 
@@ -217,7 +224,7 @@ có thể là một chuyển trạng thái cần bảo vệ chung.
 
 ## 3. Đồng bộ còn liên quan tới khả năng nhìn thấy dữ liệu
 
-> **Nói đơn giản:** mutex không chỉ ngăn hai luồng cùng vào một đoạn mã; các phép đồng bộ còn tạo ra quy tắc để thay đổi bộ nhớ của luồng này được luồng kia quan sát đúng theo chuẩn.
+> **Nói đơn giản:** Đồng bộ không chỉ ngăn hai luồng sửa cùng lúc. Nó còn giúp đảm bảo một luồng nhìn thấy thay đổi dữ liệu mà luồng khác đã công bố đúng cách.
 
 ### 3.1 Vì sao “A ghi trước, B đọc sau” chưa đủ nếu không có đồng bộ?
 
@@ -236,7 +243,7 @@ Nhưng khi có nhiều CPU/compiler, thứ tự và khả năng quan sát giữa
 
 ### 3.2 Mutex tạo quan hệ đồng bộ
 
-Mental model:
+Cách hình dung:
 
 ```text
 Luồng A                        Luồng B
@@ -270,6 +277,8 @@ Mutex có thể làm cho một nhóm thao tác trở thành vùng tới hạn ng
 ---
 
 ## 4. Mutex: chỉ một luồng được sở hữu vùng bảo vệ
+
+> **Nói đơn giản:** Mutex giống một chìa khóa: tại một thời điểm chỉ một luồng giữ khóa và đi vào vùng dữ liệu được bảo vệ.
 
 ### 4.1 Mutex là gì?
 
@@ -336,7 +345,7 @@ vì hành vi phụ thuộc loại mutex và thường là lỗi giao thức.
 
 ### 4.4 Mutex không tự biết dữ liệu nào nó “bảo vệ”
 
-Kernel/thư viện không biết:
+Nhân Linux/thư viện không biết:
 
 ```text
 mutex M bảo vệ biến X
@@ -358,6 +367,8 @@ Mọi bên phải tuân thủ cùng một giao thức.
 ---
 
 ## 5. Vòng đời và thao tác của Mutex
+
+> **Nói đơn giản:** Mutex phải được khởi tạo, lock, unlock và hủy đúng vòng đời. Quên unlock có thể làm luồng khác chờ mãi.
 
 ### 5.1 Khởi tạo
 
@@ -442,7 +453,7 @@ không còn luồng chờ
 không còn bị khóa
 ```
 
-Một synchronization object cũng có vòng đời. Hủy quá sớm là một loại race về vòng đời tài nguyên.
+Một synchronization đối tượng cũng có vòng đời. Hủy quá sớm là một loại race về vòng đời tài nguyên.
 
 ---
 
@@ -467,6 +478,8 @@ không nhất thiết là:
 ---
 
 ## 6. Các loại Mutex cơ bản
+
+> **Nói đơn giản:** Một số loại mutex khác nhau ở cách phản ứng khi lock lặp hoặc phát hiện lỗi. Fresher chỉ cần hiểu mặc định mutex trước, sau đó mới đọc loại đặc biệt.
 
 ### 6.1 Vì sao có nhiều loại?
 
@@ -535,7 +548,7 @@ Khi chương trình phụ thuộc vào hành vi đặc biệt, nên dùng loại
 
 ## 7. Condition Variable: ngủ để chờ trạng thái thay đổi
 
-> **Nói đơn giản:** mutex trả lời “ai được sửa/đọc trạng thái lúc này?”, còn `condition variable` giúp một luồng ngủ cho tới khi trạng thái mà nó quan tâm **có thể đã thay đổi**.
+> **Nói đơn giản:** Condition Variable cho luồng ngủ khi điều kiện chưa đúng và được đánh thức khi trạng thái có thể đã thay đổi. Nó luôn đi cùng một điều kiện dữ liệu cụ thể.
 
 ### 7.1 Vấn đề của việc kiểm tra liên tục
 
@@ -656,6 +669,8 @@ sequenceDiagram
 
 ## 8. Predicate, spurious wakeup và lost wakeup
 
+> **Nói đơn giản:** Luồng phải kiểm tra điều kiện trong vòng lặp vì wakeup không đồng nghĩa điều kiện chắc chắn đúng. Đây là cách tránh spurious wakeup và nhiều lỗi lost wakeup.
+
 ### 8.1 Predicate là điều kiện logic thật
 
 Ví dụ consumer:
@@ -756,6 +771,8 @@ Nhờ đó trạng thái và chờ được phối hợp đúng.
 
 ## 9. Signal, broadcast và chờ có thời hạn
 
+> **Nói đơn giản:** `signal` đánh thức ít nhất một waiter phù hợp; `broadcast` đánh thức nhiều waiter. Timed wait thêm giới hạn thời gian chờ.
+
 ### 9.1 `pthread_cond_signal()`
 
 Dùng để đánh thức ít nhất một luồng đang chờ thích hợp.
@@ -793,10 +810,10 @@ Mỗi luồng vẫn phải kiểm tra lại predicate sau khi lấy mutex.
 Về tư duy:
 
 ```text
-state mới chỉ cho phép một waiter tiến lên
+trạng thái mới chỉ cho phép một waiter tiến lên
   -> signal có thể phù hợp
 
-state mới có thể cho nhiều waiter cùng tiến lên
+trạng thái mới có thể cho nhiều waiter cùng tiến lên
   -> broadcast có thể phù hợp
 ```
 
@@ -822,7 +839,7 @@ Dù trả về vì timeout, ứng dụng vẫn nên kiểm tra trạng thái the
 
 ## 10. Semaphore: bộ đếm tài nguyên hoặc token
 
-> **Nói đơn giản:** semaphore giữ một số đếm không âm. `wait` lấy một đơn vị; nếu hết thì chờ. `post` trả/thêm một đơn vị.
+> **Nói đơn giản:** Semaphore là một bộ đếm. Giá trị lớn hơn 0 có thể xem như số 'vé' tài nguyên còn sẵn để luồng lấy.
 
 ### 10.1 Mô hình bộ đếm
 
@@ -883,6 +900,8 @@ Sự khác biệt này quan trọng với thiết kế và real-time priority in
 
 ## 11. Khi nào dùng Mutex, Condition Variable hay Semaphore?
 
+> **Nói đơn giản:** Mutex hợp để bảo vệ dữ liệu, Condition Variable hợp để chờ trạng thái thay đổi, Semaphore hợp để đếm tài nguyên/sự kiện. Chọn theo bài toán, không theo thói quen.
+
 ### 11.1 Mutex
 
 Câu hỏi:
@@ -937,7 +956,7 @@ Dùng khi bản chất bài toán là số đếm.
 
 ## 12. Mô hình Producer–Consumer
 
-> **Nói đơn giản:** producer tạo dữ liệu, consumer lấy dữ liệu. Một hàng đợi dùng chung phải vừa tránh race vừa cho consumer ngủ khi rỗng và producer ngủ/chờ khi đầy.
+> **Nói đơn giản:** Producer–Consumer là mô hình kinh điển: producer đưa dữ liệu vào hàng đợi, consumer lấy ra; mutex bảo vệ hàng đợi và condition variable/semaphore điều phối chờ.
 
 ### 12.1 Kiến trúc
 
@@ -1037,11 +1056,13 @@ condition variable
   cho phép chờ trạng thái
 ```
 
-Khi đã hiểu mô hình này, nhiều kiến trúc worker queue, audio pipeline, sensor pipeline sẽ dễ hiểu hơn.
+Khi đã hiểu mô hình này, nhiều kiến trúc luồng xử lý hàng đợi, audio pipeline, sensor pipeline sẽ dễ hiểu hơn.
 
 ---
 
 ## 13. Barrier: các luồng chờ nhau ở cuối một giai đoạn
+
+> **Nói đơn giản:** Barrier buộc một nhóm luồng chờ nhau tại một mốc trước khi tất cả cùng đi tiếp sang giai đoạn sau.
 
 ### 13.1 Barrier giải quyết bài toán khác mutex
 
@@ -1103,7 +1124,7 @@ Vòng đời thành viên phải được thiết kế đồng bộ với barrie
 
 ## 14. Deadlock
 
-> **Nói đơn giản:** deadlock là tình huống các bên đang chờ tài nguyên của nhau theo một vòng khép kín, nên không ai có thể tiến tiếp.
+> **Nói đơn giản:** Deadlock xảy ra khi các luồng chờ tài nguyên của nhau theo vòng kín nên không ai tiến tiếp được.
 
 ### 14.1 Ví dụ hai mutex
 
@@ -1175,6 +1196,8 @@ barrier chờ thành viên không còn chạy
 
 ## 15. Starvation và Livelock
 
+> **Nói đơn giản:** Starvation là một luồng bị thiếu cơ hội chạy/tài nguyên trong thời gian dài; livelock là các luồng vẫn hoạt động nhưng cứ phản ứng lẫn nhau mà không hoàn thành việc.
+
 ### 15.1 Starvation
 
 Một luồng không bị khóa chết toàn hệ thống nhưng liên tục không giành được tài nguyên/cơ hội chạy.
@@ -1232,6 +1255,8 @@ Trừ khi chuẩn hoặc chính sách lập lịch nêu rõ.
 
 ## 16. Thứ tự khóa, độ lớn vùng tới hạn và tranh chấp
 
+> **Nói đơn giản:** Giữ thứ tự lock nhất quán và vùng critical section ngắn giúp giảm deadlock và contention.
+
 ### 16.1 Quy tắc thứ tự khóa
 
 Một kỹ thuật quan trọng để tránh vòng chờ:
@@ -1247,7 +1272,7 @@ Không cho phép đường ngược:
 M3 -> M1
 ```
 
-Mental model:
+Cách hình dung:
 
 ```text
 M1 -> M2 -> M3
@@ -1344,6 +1369,8 @@ trong vùng khóa.
 
 ## 17. Priority Inversion và Priority Inheritance
 
+> **Nói đơn giản:** Priority inversion xảy ra khi luồng ưu tiên cao phải chờ tài nguyên do luồng ưu tiên thấp giữ; priority inheritance là một cơ chế giảm vấn đề này.
+
 ### 17.1 Priority inversion là gì?
 
 Giả sử:
@@ -1415,6 +1442,8 @@ thiết kế lock-order sai
 ---
 
 ## 18. Tư duy gỡ lỗi đồng bộ
+
+> **Nói đơn giản:** Debug synchronization cần biết luồng nào đang giữ khóa, luồng nào đang chờ, điều kiện dữ liệu hiện tại là gì và thứ tự lock có nhất quán không.
 
 ### 18.1 Phân loại triệu chứng trước
 
@@ -1507,6 +1536,8 @@ mutex đang bị giữ
 ---
 
 ## 19. Liên hệ với Embedded Linux
+
+> **Nói đơn giản:** Embedded Linux có nhiều luồng I/O thời gian nhạy cảm; synchronization sai có thể gây treo, trễ bất thường hoặc dữ liệu sai rất khó tái hiện.
 
 ### 19.1 Hàng đợi sensor
 
@@ -1603,6 +1634,8 @@ Priority inversion có thể làm một luồng ưu tiên cao trễ quá giới 
 
 ## 20. Tổng kết
 
+> **Nói đơn giản:** Topic 07 cần để lại mô hình: dữ liệu chia sẻ → vùng cần bảo vệ → mutex/condition/semaphore → tránh race và deadlock.
+
 ### 20.1 Bản đồ chọn cơ chế
 
 ```text
@@ -1682,6 +1715,8 @@ B giữ M2, chờ M1
 
 ## 21. Tài liệu tham khảo
 
+> **Nói đơn giản:** Phần này liệt kê nguồn chuẩn về mutex, condition variable, semaphore và đồng bộ POSIX.
+
 ### POSIX.1-2024 / The Open Group
 
 - https://pubs.opengroup.org/onlinepubs/9799919799/
@@ -1704,7 +1739,7 @@ Nguồn cho ngữ nghĩa chuẩn của mutex, condition variable, barrier, proto
 
 - Bootlin PREEMPT_RT: https://bootlin.com/doc/training/preempt-rt/
 - Bootlin Embedded Linux: https://bootlin.com/doc/training/embedded-linux/
-- The Linux Programming Interface: https://man7.org/tlpi/
+- The Linux Programming Giao diện: https://man7.org/tlpi/
 
 ### Nguồn cộng đồng
 
