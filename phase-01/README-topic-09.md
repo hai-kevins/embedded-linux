@@ -1,856 +1,532 @@
-# Chủ đề 9 — Socket Programming trong Linux
+# Chủ đề 9 — Lập trình Socket trong Linux
 
-> **Mục tiêu dễ hiểu:** Hiểu socket như một communication endpoint và xây mô hình tư duy TCP server/client, UDP datagram, địa chỉ/port và graceful shutdown.
+> **Mục tiêu:** hiểu socket là gì, cách TCP máy chủ/máy khách hình thành kết nối, UDP khác TCP ở đâu, địa chỉ `sockaddr` và thứ tự byte mạng hoạt động thế nào, và cách một kết nối được đóng hoặc báo lỗi ở mức lý thuyết.
 >
-> **Bạn cần biết trước:** Biết fd, blocking I/O và IPC. Networking cơ bản như IP/port sẽ được giải thích lại ở mức cần dùng.
+> **Quy ước ngôn ngữ:** phần giải thích dùng Tiếng Việt. Giữ nguyên các tên chuẩn cần tra cứu như `socket()`, `bind()`, `listen()`, `accept()`, `connect()`, `TCP`, `UDP`, `AF_INET`, `AF_INET6`, `AF_UNIX`, `SOCK_STREAM`, `SOCK_DGRAM`, `sockaddr`, `htons()`, `getaddrinfo()`, `FIN`, `RST`, `TIME_WAIT`.
 >
-> **Các từ khóa sẽ gặp nhiều:**
-> - **socket** = endpoint giao tiếp có fd
-> - **TCP** = reliable ordered byte stream
-> - **UDP** = datagram/message transport không đảm bảo delivery/order
-> - **bind** = gán local address
-> - **listen/accept** = phía TCP server
-> - **connect** = chọn/thiết lập peer tùy socket type
+> **Phạm vi:** socket API, miền địa chỉ/kiểu/giao thức, địa chỉ socket, IPv4/IPv6, cổng, byte order, `getaddrinfo()`, TCP và UDP, vòng đời máy chủ/máy khách, TCP bắt tay/trạng thái, luồng byte và đóng khung, I/O từng phần, graceful shutdown, UDP datagram, Unix Miền địa chỉ Socket ở mức socket API và xử lý lỗi cơ bản.
 >
-> **Quy ước đọc thuật ngữ:** khi gặp `state`, `context`, `semantics`, `object`, hãy hiểu lần lượt là **trạng thái**, **ngữ cảnh**, **hành vi theo chuẩn**, **đối tượng/tài nguyên**. Tên API và thuật ngữ chuẩn như process, thread, socket, mutex được giữ nguyên để bạn quen dần với tài liệu kỹ thuật.
->
-> **Cách đọc nếu bạn mới bắt đầu:**
-> 1. Lượt đầu chỉ đọc các ô **“Nói đơn giản”**, sơ đồ ASCII/Mermaid và phần **Tổng kết**.
-> 2. Lượt hai đọc các mục `###` để hiểu API/khái niệm cụ thể.
-> 3. Các mục `####`, caveat POSIX/Linux và edge case có thể để lần đọc thứ ba. **Không cần hiểu hết trong một lượt.**
->
-> Chương này chỉ có **lý thuyết**, không có lab hay bài tập thực hành. Thuật ngữ tiếng Anh được giữ khi đó là tên chuẩn, nhưng luôn ưu tiên giải thích ý nghĩa trước.
+> Chương này chỉ có **lý thuyết**, không có bài thực hành. `O_NONBLOCK`, `select()`, `poll()`, `epoll()`, readiness model và event loop thuộc **Chủ đề 10**; Topic 9 chỉ nhắc ranh giới cần thiết.
+
 ---
 
 ## Mục lục
 
-- [1. Socket Programming là gì?](#1-socket-programming-là-gì)
-- [2. Domain, Type và Protocol quyết định Socket ra sao?](#2-domain-type-và-protocol-quyết-định-socket-ra-sao)
-- [3. Socket có File Descriptor nhưng không phải Regular File](#3-socket-có-file-descriptor-nhưng-không-phải-regular-file)
-- [4. Socket Address và `sockaddr`](#4-socket-address-và-sockaddr)
-- [5. Network Byte Order: vì sao phải đổi thứ tự byte?](#5-network-byte-order-vì-sao-phải-đổi-thứ-tự-byte)
-- [6. `getaddrinfo()`: từ Hostname tới Socket Address](#6-getaddrinfo-từ-hostname-tới-socket-address)
-- [7. IP Address, Port và Endpoint](#7-ip-address-port-và-endpoint)
-- [8. `bind()`: chọn Local Address/Port](#8-bind-chọn-local-addressport)
+- [1. Lập trình Socket là gì?](#1-lập-trình-socket-là-gì)
+- [2. Miền địa chỉ, kiểu và giao thức quyết định Socket ra sao?](#2-miền-địa-chỉ-kiểu-và-giao-thức-quyết-định-socket-ra-sao)
+- [3. Socket có `file descriptor` nhưng không phải tệp thông thường](#3-socket-có-file-descriptor-nhưng-không-phải-tệp-thông-thường)
+- [4. Địa chỉ Socket và `sockaddr`](#4-địa-chỉ-socket-và-sockaddr)
+- [5. Thứ tự byte mạng: vì sao phải đổi thứ tự byte?](#5-thứ-tự-byte-mạng-vì-sao-phải-đổi-thứ-tự-byte)
+- [6. `getaddrinfo()`: từ tên máy tới địa chỉ Socket](#6-getaddrinfo-từ-tên-máy-tới-địa-chỉ-socket)
+- [7. Địa chỉ IP, cổng và điểm cuối](#7-địa-chỉ-ip-cổng-và-điểm-cuối)
+- [8. `bind()`: chọn địa chỉ và cổng cục bộ](#8-bind-chọn-địa-chỉ-và-cổng-cục-bộ)
 - [9. TCP và UDP khác nhau ở mô hình dữ liệu nào?](#9-tcp-và-udp-khác-nhau-ở-mô-hình-dữ-liệu-nào)
-- [10. TCP Server: `socket → bind → listen → accept`](#10-tcp-server-socket-bind-listen-accept)
-- [11. TCP Client: `socket → connect`](#11-tcp-client-socket-connect)
-- [12. TCP Handshake và các State quan trọng](#12-tcp-handshake-và-các-state-quan-trọng)
-- [13. TCP là Byte Stream: Application phải tự chia Message](#13-tcp-là-byte-stream-application-phải-tự-chia-message)
-- [14. Buffer, Backpressure và Partial I/O trong TCP](#14-buffer-backpressure-và-partial-io-trong-tcp)
-- [15. Đóng TCP đúng cách: `shutdown`, FIN, RST, TIME_WAIT](#15-đóng-tcp-đúng-cách-shutdown-fin-rst-time_wait)
+- [10. Máy chủ TCP: `socket → bind → listen → accept`](#10-máy-chủ-tcp-socket--bind--listen--accept)
+- [11. Máy khách TCP: `socket → connect`](#11-máy-khách-tcp-socket--connect)
+- [12. Bắt tay TCP và các trạng thái quan trọng](#12-bắt-tay-tcp-và-các-trạng-thái-quan-trọng)
+- [13. TCP là luồng byte: ứng dụng phải tự chia thông điệp](#13-tcp-là-luồng-byte-ứng-dụng-phải-tự-chia-thông-điệp)
+- [14. Bộ đệm, áp lực ngược và I/O từng phần trong TCP](#14-bộ-đệm-áp-lực-ngược-và-io-từng-phần-trong-tcp)
+- [15. Đóng TCP đúng cách: `shutdown()`, FIN, RST và `TIME_WAIT`](#15-đóng-tcp-đúng-cách-shutdown-fin-rst-và-time_wait)
 - [16. UDP: mỗi lần gửi là một Datagram](#16-udp-mỗi-lần-gửi-là-một-datagram)
-- [17. UDP `bind/connect/sendto/recvfrom` có ý nghĩa gì?](#17-udp-bindconnectsendtorecvfrom-có-ý-nghĩa-gì)
-- [18. `send()` và `recv()` — API dữ liệu cơ bản](#18-send-và-recv-api-dữ-liệu-cơ-bản)
-- [19. Unix Domain Socket: cùng API nhưng giao tiếp Local](#19-unix-domain-socket-cùng-api-nhưng-giao-tiếp-local)
-- [20. Tư duy Debugging Socket theo từng Layer](#20-tư-duy-debugging-socket-theo-từng-layer)
+- [17. UDP `bind()`, `connect()`, `sendto()` và `recvfrom()`](#17-udp-bind-connect-sendto-và-recvfrom)
+- [18. `send()` và `recv()`: API truyền nhận dữ liệu cơ bản](#18-send-và-recv-api-truyền-nhận-dữ-liệu-cơ-bản)
+- [19. Unix Miền địa chỉ Socket: cùng API nhưng giao tiếp cục bộ](#19-unix-miền địa chỉ-socket-cùng-api-nhưng-giao-tiếp-cục-bộ)
+- [20. Tư duy gỡ lỗi Socket theo từng lớp](#20-tư-duy-gỡ-lỗi-socket-theo-từng-lớp)
 - [21. Liên hệ với Embedded Linux](#21-liên-hệ-với-embedded-linux)
-- [22. Tổng kết và Mô hình tư duy](#22-tổng-kết-và-mô-hình-tư-duy)
+- [22. Tổng kết và mô hình tư duy](#22-tổng-kết-và-mô-hình-tư-duy)
 - [23. Tài liệu tham khảo](#23-tài-liệu-tham-khảo)
 
 ---
 
-## 1. Socket Programming là gì?
+## 1. Lập trình Socket là gì?
 
-> **Nói đơn giản:** Socket là endpoint giao tiếp. Cùng socket API có thể dùng cho TCP, UDP và Unix-domain local communication.
+> **Nói đơn giản:** socket là một đầu mút giao tiếp mà chương trình điều khiển qua file descriptor. Với Internet socket, socket nối ứng dụng tới TCP/UDP; với Unix Miền địa chỉ Socket, socket nối các tiến trình trên cùng máy.
 
-> **Hình dung:** Socket giống một đầu cắm giao tiếp mà kernel quản lý. File descriptor là số tay cầm để process chỉ tới đầu cắm đó.
+### 1.1 Socket nằm ở đâu trong hệ thống?
 
-
-### 1.1 Socket là gì?
-
-Linux `socket(2)` mô tả:
+Mô hình đơn giản:
 
 ```text
-socket()
-  creates an endpoint for communication
-```
-
-Từ khóa quan trọng là:
-
-```text
-endpoint
-```
-
-Socket là một đầu mút mà application dùng để giao tiếp thông qua một protocol/domain nhất định.
-
-Mô hình tư duy:
-
-```text
-Application
-    |
-    v
-Socket endpoint
-    |
-    v
-Transport / local protocol
-    |
-    v
-Peer endpoint
-    |
-    v
-Peer application
-```
-
----
-
-### 1.2 Socket API là interface chung cho nhiều communication domains
-
-Cùng nhóm API:
-
-```text
-socket()
-bind()
-connect()
-listen()
-accept()
-send()
-recv()
-shutdown()
-```
-
-có thể được dùng với nhiều domain:
-
-```text
-AF_INET
-  IPv4
-
-AF_INET6
-  IPv6
-
-AF_UNIX
-  local Unix-domain communication
-```
-
-Điều này tạo ra một abstraction thống nhất:
-
-```text
-socket operations
-```
-
-trong khi:
-
-```text
-address representation
-protocol semantics
-connection behavior
-```
-
-phụ thuộc domain/type/protocol.
-
----
-
-### 1.3 Socket API không phải là TCP API riêng
-
-Sai mô hình tư duy:
-
-```text
-socket = TCP
-```
-
-Đúng hơn:
-
-```text
-Socket API
+Ứng dụng
+   |
+   | socket API
+   v
+Socket trong nhân Linux
    |
    +--> TCP
+   |
    +--> UDP
-   +--> Unix domain socket
-   +--> other Linux socket families
+   |
+   +--> Unix Miền địa chỉ Socket
 ```
 
-Ví dụ:
+Với TCP/UDP qua IP:
 
 ```text
-AF_INET + SOCK_STREAM
-```
-
-thường maps tới TCP.
-
-```text
-AF_INET + SOCK_DGRAM
-```
-
-thường maps tới UDP.
-
----
-
-### 1.4 Socket programming nằm giữa application và protocol stack
-
-Simplified Linux data path:
-
-```text
-+--------------------------+
-| Application              |
-+------------+-------------+
-             |
-             | socket API
-             v
-+--------------------------+
-| Linux socket layer       |
-+------------+-------------+
-             |
-       +-----+-----+
-       |           |
-       v           v
-      TCP         UDP
-       |           |
-       +-----+-----+
-             |
-             v
-             IP
-             |
-             v
-      routing / qdisc
-             |
-             v
-        net_device
-             |
-             v
-       NIC / PHY / link
-```
-
-Topic này tập trung vào:
-
-```text
-application ↔ socket ↔ transport
-```
-
-không đi sâu xuống network-driver layer.
-
----
-
-### 1.5 Client và server là application roles, không phải socket types
-
-Một common misunderstanding:
-
-```text
-client socket type
-server socket type
-```
-
-Không tồn tại hai socket types như vậy.
-
-Role được tạo bởi operation sequence.
-
-Ví dụ TCP server:
-
-```text
-socket
-bind
-listen
-accept
-```
-
-TCP client:
-
-```text
-socket
-connect
-```
-
-Cả hai thường bắt đầu với:
-
-```text
-socket(AF_INET/AF_INET6, SOCK_STREAM, ...)
+Ứng dụng
+   |
+Socket API
+   |
+TCP / UDP
+   |
+IP
+   |
+route / interface
+   |
+NIC / mạng
 ```
 
 ---
 
-### 1.6 Protocol semantics phải được hiểu trước API sequence
+### 1.2 Socket là điểm cuối
 
-Biết:
+`socket(2)` mô tả socket như một điểm cuối cho communication.
+
+Hai phía:
 
 ```text
-socket()
-bind()
-listen()
+Ứng dụng A
+   |
+Socket A
+   |
+   +========== giao tiếp ==========+
+                                |
+                             Socket B
+                                |
+                           Ứng dụng B
 ```
 
-nhưng không hiểu TCP byte stream, connection state, half-close hoặc UDP message boundaries thì vẫn chưa hiểu socket programming.
+---
 
-Chương này vì vậy đi theo hai lớp:
+### 1.3 Socket API không đồng nghĩa TCP
+
+Cùng API socket có thể phục vụ:
 
 ```text
-Socket API semantics
+TCP
+UDP
+Unix Miền địa chỉ Socket
+```
+
+Do đó:
+
+```text
+socket = giao diện/đầu mút
+TCP/UDP = giao thức với ngữ nghĩa riêng
+```
+
+---
+
+### 1.4 Máy khách và Máy chủ là vai trò
+
+Không có kiểu:
+
+```text
+SOCK_CLIENT
+SOCK_SERVER
+```
+
+Vai trò hình thành bởi chuỗi thao tác.
+
+TCP máy chủ:
+
+```text
+socket -> bind -> listen -> accept
+```
+
+TCP máy khách:
+
+```text
+socket -> connect
+```
+
+---
+
+## 2. Miền địa chỉ, kiểu và giao thức quyết định Socket ra sao?
+
+### 2.1 `socket(domain, type, protocol)`
+
+Ba tham số trả lời ba câu hỏi:
+
+```text
+miền địa chỉ
+  dùng họ địa chỉ/giao thức nào?
+
+kiểu
+  kiểu giao tiếp nào?
+
+giao thức
+  giao thức cụ thể nào trong cặp trên?
+```
+
+---
+
+### 2.2 `AF_INET`
+
+Dùng cho:
+
+```text
+IPv4 Internet socket
+```
+
+Địa chỉ điển hình gồm:
+
+```text
+IPv4 địa chỉ
 +
-Transport protocol semantics
+16-bit cổng
 ```
 
 ---
 
-## 2. Domain, Type và Protocol quyết định Socket ra sao?
+### 2.3 `AF_INET6`
 
-> **Nói đơn giản:** `domain` chọn họ địa chỉ, `type` chọn kiểu stream/datagram, `giao thức` chọn giao thức cụ thể. Ba thứ cùng nhau quyết định hành vi theo chuẩn.
-
-
-### 2.1 Ba tham số logic của `socket()`
-
-Conceptual signature:
+Dùng cho:
 
 ```text
-socket(domain, type, protocol)
+IPv6 Internet socket
 ```
 
-Ba thành phần trả lời ba câu hỏi khác nhau:
-
-```text
-domain
-  address/protocol family nào?
-
-type
-  communication semantics nào?
-
-protocol
-  protocol cụ thể nào trong family/type đó?
-```
+IPv6 địa chỉ rộng 128 bit và có thêm một số trường địa chỉ/định tuyến cục bộ như scope trong cấu trúc địa chỉ socket.
 
 ---
 
-### 2.2 Domain
+### 2.4 `AF_UNIX` / `AF_LOCAL`
 
-Common domains:
+Dùng cho giao tiếp socket giữa các tiến trình trên cùng hệ thống Linux/Unix.
 
-```text
-AF_INET
-  IPv4 Internet sockets
-
-AF_INET6
-  IPv6 Internet sockets
-
-AF_UNIX / AF_LOCAL
-  local Unix domain sockets
-```
-
-Domain quyết định:
+không gian tên địa chỉ khác IP:
 
 ```text
-address namespace
-address structure
-supported protocols
-```
-
----
-
-### 2.3 `AF_*` và `PF_*`
-
-Modern POSIX/Linux application code conventionally uses:
-
-```text
-AF_INET
-AF_INET6
-AF_UNIX
-```
-
-Linux historical headers also expose:
-
-```text
-PF_INET
-PF_INET6
-...
-```
-
-`socket(2)` notes historical distinction between protocol family and address family, but modern standards use `AF_*` consistently for the socket-domain argument.
-
-Mental rule:
-
-```text
-Use AF_* as the conceptual modern interface.
-```
-
----
-
-### 2.4 Socket type
-
-Important types:
-
-```text
-SOCK_STREAM
-SOCK_DGRAM
-SOCK_SEQPACKET
-```
-
-For Internet sockets, primary focus:
-
-```text
-SOCK_STREAM
-  TCP-style reliable byte stream
-
-SOCK_DGRAM
-  UDP-style datagram/message transport
+pathname
+hoặc các dạng cục bộ khác tùy hệ thống
 ```
 
 ---
 
 ### 2.5 `SOCK_STREAM`
 
-Linux defines stream sockets as:
+Kiểu luồng cung cấp mô hình:
 
 ```text
-sequenced
-reliable
-two-way
-connection-based
-byte streams
+kết nối
+hai chiều
+chuỗi byte có thứ tự
 ```
 
-The word:
-
-```text
-byte stream
-```
-
-is critical.
-
-It means:
-
-```text
-record/message boundaries are not preserved
-```
+Với Internet socket, `AF_INET/AF_INET6 + SOCK_STREAM` thông thường tương ứng TCP.
 
 ---
 
 ### 2.6 `SOCK_DGRAM`
 
-Datagram socket provides:
+Kiểu datagram giữ ranh giới từng datagram/thông điệp.
 
-```text
-message/datagram-oriented communication
-```
-
-Each datagram is an individual unit.
-
-For UDP:
-
-```text
-delivery is not guaranteed
-ordering is not guaranteed
-duplicate protection is not guaranteed
-```
+Với Internet socket, thông thường tương ứng UDP.
 
 ---
 
-### 2.7 Protocol argument
+### 2.7 `protocol = 0`
 
-Often:
+Thường có nghĩa:
 
 ```text
-protocol = 0
+kernel chọn giao thức mặc định phù hợp với miền địa chỉ + kiểu
 ```
 
-means kernel selects the normal protocol for chosen domain/type pair.
-
-Concept:
+Ví dụ:
 
 ```text
 AF_INET + SOCK_STREAM + 0
-    -> normal Internet stream protocol
-    -> TCP
+  -> TCP thông thường
 
 AF_INET + SOCK_DGRAM + 0
-    -> normal Internet datagram protocol
-    -> UDP
-```
-
-This is a common mapping, not a statement that every domain supports exactly one protocol/type combination.
-
----
-
-### 2.8 Domain + type + protocol define semantics together
-
-Mô hình tư duy:
-
-```text
-socket semantics
-    =
-domain
-  + type
-  + protocol
-```
-
-Example:
-
-```text
-SOCK_STREAM alone
-```
-
-does not tell you whether endpoint is:
-
-```text
-TCP
-AF_UNIX stream
-another stream-capable protocol
+  -> UDP thông thường
 ```
 
 ---
 
-## 3. Socket có File Descriptor nhưng không phải Regular File
+### 2.8 Phải nhìn cả ba thành phần
 
-> **Nói đơn giản:** Socket được process giữ bằng file descriptor, nên `close`, `dup`, inheritance... theo fd model; nhưng socket không phải regular file có offset.
+`SOCK_STREAM` một mình chưa nói rõ:
 
+```text
+TCP luồng?
+AF_UNIX luồng?
+```
 
-### 3.1 Successful `socket()` returns a file descriptor
+Ngữ nghĩa đầy đủ là:
 
-Linux:
+```text
+miền địa chỉ + kiểu + giao thức
+```
+
+---
+
+## 3. Socket có `file descriptor` nhưng không phải tệp thông thường
+
+### 3.1 `socket()` trả về fd
 
 ```text
 socket()
    |
    v
-file descriptor
+fd = 7
 ```
 
-Therefore socket participates in the same process fd table learned in Topic 3.
+fd 7 nằm trong cùng bảng file descriptor của tiến trình:
 
 ```text
-Process
- |
- +--> fd 0
- +--> fd 1
- +--> fd 2
- +--> fd 7 ---> socket
+fd 0 -> stdin
+fd 1 -> stdout
+fd 2 -> stderr
+fd 7 -> socket
 ```
 
 ---
 
-### 3.2 Socket descriptor is a reference to kernel socket state
+### 3.2 fd trỏ tới trạng thái socket trong kernel
 
-Concept:
+Mental model:
 
 ```text
 fd
  |
  v
-open file description / kernel file object
+open file description / kernel file trạng thái
  |
  v
 socket object
  |
  v
-protocol state
+TCP/UDP/Unix trạng thái giao thức
 ```
 
-For TCP this protocol state can include:
+Với TCP, trạng thái có thể gồm:
 
 ```text
-local endpoint
-remote endpoint
-connection state
-send buffer
-receive buffer
-sequence state
-error state
+điểm cuối cục bộ
+điểm cuối từ xa
+bộ đệm gửi
+bộ đệm nhận
+TCP trạng thái
+trạng thái lỗi
 ```
 
 ---
 
-### 3.3 File-descriptor operations apply, but object semantics differ
+### 3.3 Vì sao `read()`/`write()` có thể dùng trên socket?
 
-Socket fd can use operations such as:
+Vì socket được biểu diễn qua fd và tích hợp vào mô hình I/O của Unix.
+
+Một connected luồng socket có thể dùng:
 
 ```text
-close()
-read()
-write()
-fcntl()
+read()/write()
+```
+
+hoặc:
+
+```text
+recv()/send()
+```
+
+Các API socket-specific thêm khả năng như flags, source/destination và metadata.
+
+---
+
+### 3.4 Nhưng Socket không có vị trí đọc/ghi của tệp
+
+Không nên suy ra:
+
+```text
+có fd -> là tệp thông thường
+```
+
+Internet socket không có nội dung persistent và không có vị trí seek kiểu tệp thông thường.
+
+---
+
+### 3.5 Nhiều fd có thể trỏ cùng socket
+
+Do:
+
+```text
 dup()
+fork()
+truyền fd
 ```
 
-but socket is not a regular file.
-
-It does not imply meaningful:
+có thể có:
 
 ```text
-filesystem pathname
-file offset
-lseek()
-persistent contents
+fd 7 ----+
+         +--> cùng underlying socket
+fd 10 ---+
 ```
 
-for Internet sockets.
+Đóng một fd chưa chắc đóng kết nối nếu reference khác vẫn còn.
 
 ---
 
-### 3.4 `send()` vs `write()`
+### 3.6 `FD_CLOEXEC`
 
-On a connected socket, Linux `send()` with zero flags is generally equivalent to:
+Socket fd có thể sống qua `execve()` nếu không đặt close-on-exec.
 
-```text
-write()
-```
-
-for data transmission.
-
-`send()` exists because sockets need additional per-call controls such as flags, while `sendto()` additionally carries an explicit destination for datagram-style communication.
-
----
-
-### 3.5 `recv()` vs `read()`
-
-Likewise:
+Rò fd qua `exec` có thể gây:
 
 ```text
-recv(..., flags = 0)
-```
-
-is generally similar to:
-
-```text
-read()
-```
-
-but receive APIs can expose:
-
-```text
-flags
-source address
-ancillary/control metadata
-message-specific semantics
+kết nối sống lâu bất ngờ
+socket lắng nghe còn reference
+child thừa quyền truy cập socket
 ```
 
 ---
 
-### 3.6 Descriptor duplication matters
+## 4. Địa chỉ Socket và `sockaddr`
 
-If socket fd is duplicated by:
+### 4.1 Mỗi miền địa chỉ có cấu trúc địa chỉ riêng
+
+IPv4:
 
 ```text
-dup
-fork
-descriptor passing
+IP + cổng
 ```
 
-multiple fd entries can refer to same underlying socket/open-file state.
+IPv6:
+
+```text
+IPv6 địa chỉ + cổng + trường IPv6 liên quan
+```
+
+Unix Miền địa chỉ:
+
+```text
+cục bộ địa chỉ socket
+```
+
+API chung cần một cách truyền các cấu trúc khác nhau.
+
+---
+
+### 4.2 `struct sockaddr`
+
+Đây là cấu trúc địa chỉ socket tổng quát dùng ở interface API.
+
+Nó chứa ít nhất thông tin family và vùng dữ liệu địa chỉ tương ứng.
+
+Ứng dụng IPv4 thường thao tác bằng `sockaddr_in`, sau đó truyền con trỏ theo kiểu chung mà API yêu cầu.
+
+---
+
+### 4.3 `sockaddr_in` cho IPv4
+
+Mental structure:
+
+```text
+sockaddr_in
+  |
+  +--> sin_family = AF_INET
+  |
+  +--> sin_port
+  |
+  +--> sin_addr
+```
+
+Điểm cuối IPv4:
+
+```text
+IPv4 địa chỉ + TCP/UDP cổng
+```
+
+---
+
+### 4.4 `sockaddr_in6` cho IPv6
 
 Concept:
 
 ```text
-fd 7 ------+
-           |
-fd 10 -----+--> same socket state
+sockaddr_in6
+  |
+  +--> sin6_family
+  +--> sin6_port
+  +--> sin6_addr
+  +--> sin6_scope_id
+  +--> trường IPv6 khác
 ```
 
-Closing one fd does not necessarily destroy underlying socket while another reference remains.
+`scope_id` đặc biệt quan trọng với các địa chỉ có phạm vi như link-cục bộ.
 
 ---
 
-### 3.7 `FD_CLOEXEC`
+### 4.5 `sockaddr_storage`
 
-Like other descriptors, socket descriptor may leak across:
-
-```text
-execve()
-```
-
-unless close-on-exec policy is established.
-
-This matters for service architecture because accidental fd inheritance can:
+Nếu chương trình cần một bộ đệm đủ lớn cho nhiều family:
 
 ```text
-keep connections alive
-keep listening socket alive
-delay EOF/disconnect
-expose privileged resource to child
+sockaddr_storage
 ```
 
----
-
-## 4. Socket Address và `sockaddr`
-
-> **Nói đơn giản:** `sockaddr` là interface generic; IPv4 dùng `sockaddr_in`, IPv6 dùng `sockaddr_in6`. Address structure chứa family-specific fields.
-
-
-### 4.1 Socket address is protocol-family-specific data
-
-Functions such as:
-
-```text
-bind()
-connect()
-accept()
-sendto()
-recvfrom()
-```
-
-need addresses.
-
-But different domains need different address forms.
-
-Examples:
-
-```text
-IPv4
-  IP address + port
-
-IPv6
-  IPv6 address + port + additional IPv6 fields
-
-Unix domain
-  pathname/abstract/local address
-```
-
----
-
-### 4.2 Generic `struct sockaddr`
-
-POSIX defines generic address structure conceptually:
-
-```text
-struct sockaddr {
-    sa_family_t sa_family;
-    ...
-};
-```
-
-It acts as generic socket-address interface.
-
-It is not the natural structure application uses to manipulate IPv4 fields directly.
-
----
-
-### 4.3 IPv4 `sockaddr_in`
-
-Conceptual IPv4 structure:
-
-```text
-struct sockaddr_in
- |
- +--> sin_family
- |      AF_INET
- |
- +--> sin_port
- |      16-bit transport port
- |
- +--> sin_addr
-        IPv4 address
-```
-
-Mô hình tư duy:
-
-```text
-IPv4 endpoint
-   =
-IPv4 address
-   +
-port
-```
-
----
-
-### 4.4 IPv6 `sockaddr_in6`
-
-Conceptually:
-
-```text
-struct sockaddr_in6
- |
- +--> sin6_family
- +--> sin6_port
- +--> sin6_flowinfo
- +--> sin6_addr
- +--> sin6_scope_id
-```
-
-IPv6 address itself is:
-
-```text
-128 bits
-```
-
-and scope information matters particularly for scoped addresses such as link-local addresses.
-
----
-
-### 4.5 Generic API uses pointer to `sockaddr`
-
-Address-family-specific structures are passed through generic APIs conceptually as:
-
-```text
-sockaddr *
-```
-
-This is why APIs can support many families without one function per family.
+được thiết kế đủ lớn và đúng alignment cho các địa chỉ socket chuẩn được hỗ trợ.
 
 ---
 
 ### 4.6 `socklen_t`
 
-Socket APIs carry address length separately:
+Socket API thường nhận:
 
 ```text
-address pointer
+pointer tới địa chỉ
 +
-socklen_t length
+độ dài địa chỉ
 ```
 
-because address structures have family-specific sizes.
+vì mỗi family có cấu trúc kích thước khác nhau.
 
----
-
-### 4.7 `sockaddr_storage`
-
-POSIX defines:
+Kiểu độ dài chuẩn là:
 
 ```text
-sockaddr_storage
-```
-
-large and properly aligned enough for supported socket-address structures.
-
-This is useful when code needs storage for:
-
-```text
-unknown address family returned by API
-```
-
-Concept:
-
-```text
-sockaddr_storage
-   |
-   +--> may contain IPv4 sockaddr_in
-   +--> may contain IPv6 sockaddr_in6
-   +--> may contain another supported address
+socklen_t
 ```
 
 ---
 
-### 4.8 Address representation vs text representation
+### 4.7 Địa chỉ dạng chữ và dạng nhị phân
 
-Kernel socket APIs normally operate on:
-
-```text
-binary address structures
-```
-
-Human users think in:
+Con người dùng:
 
 ```text
-"192.0.2.1"
-"2001:db8::1"
-"example.com"
+192.168.1.10
+2001:db8::1
 ```
 
-Conversion/name-resolution layers bridge these forms.
+Socket API làm việc với binary cấu trúc địa chỉ.
+
+Các hàm như:
+
+```text
+inet_pton()
+inet_ntop()
+getaddrinfo()
+```
+
+nối hai thế giới này.
 
 ---
 
-## 5. Network Byte Order: vì sao phải đổi thứ tự byte?
+## 5. Thứ tự byte mạng: vì sao phải đổi thứ tự byte?
 
-> **Nói đơn giản:** Network byte order chuẩn hóa cách đặt byte của integer trên wire. Port 16-bit thường phải được biểu diễn theo network order.
+> **Nói đơn giản:** các CPU khác nhau có thể lưu số nhiều byte theo thứ tự khác nhau. Giao thức mạng phải chọn một thứ tự chung để hai máy hiểu cùng một giá trị.
 
+### 5.1 Little-endian và big-endian
 
-### 5.1 Why byte order matters
-
-Multi-byte integer can be stored differently by CPU architectures.
-
-Example 16-bit number:
+Giá trị 16-bit:
 
 ```text
 0x1234
 ```
 
-Possible memory layouts:
+có thể nằm trong bộ nhớ:
 
 ```text
 Big-endian:
@@ -860,1195 +536,667 @@ Little-endian:
 34 12
 ```
 
-A network protocol needs one standardized representation.
+---
+
+### 5.2 thứ tự byte mạng là big-endian
+
+Các trường số của Internet giao thức dùng quy ước thứ tự byte mạng.
+
+Ứng dụng không nên truyền raw integer host-order rồi mong mọi máy hiểu giống nhau.
 
 ---
 
-### 5.2 Network byte order is big-endian
-
-Internet protocols conventionally encode relevant multi-byte integer fields in:
-
-```text
-network byte order
-=
-big-endian
-```
-
-Socket address fields such as IPv4:
-
-```text
-sin_port
-sin_addr
-```
-
-are represented according to network-order requirements.
-
----
-
-### 5.3 Host byte order
-
-Host byte order is CPU/native representation used by local application.
-
-Could be:
-
-```text
-little-endian
-```
-
-or another architecture-defined order.
-
-Therefore:
-
-```text
-host order
-```
-
-must not be assumed identical to:
-
-```text
-network order
-```
-
----
-
-### 5.4 Conversion functions
-
-Standard conversion family:
+### 5.3 Các hàm chuyển đổi
 
 ```text
 htons()
-  host-to-network short
+  host -> mạng, 16 bit
 
 htonl()
-  host-to-network long
+  host -> mạng, 32 bit
 
 ntohs()
-  network-to-host short
+  mạng -> host, 16 bit
 
 ntohl()
-  network-to-host long
-```
-
-Mental map:
-
-```text
-Host value
-   |
- htons / htonl
-   |
-   v
-Network representation
-   |
- ntohs / ntohl
-   |
-   v
-Host value
+  mạng -> host, 32 bit
 ```
 
 ---
 
-### 5.5 Why port usually uses `htons()`
+### 5.4 Vì sao cổng dùng `htons()`?
 
-Transport port is:
+TCP/UDP cổng là 16 bit.
 
-```text
-16 bits
-```
-
-therefore conceptual conversion:
+Mental model:
 
 ```text
-host integer port
-    |
-  htons()
-    |
-    v
+cổng dạng số host
+   |
+ htons()
+   |
+   v
 sin_port
 ```
 
 ---
 
-### 5.6 Do not double-convert
+### 5.5 Không chuyển đổi hai lần
 
-An address conversion/resolver API may already return fields in:
+Nếu một API đã trả địa chỉ ở dạng cách biểu diễn trên mạng phù hợp, không được mù quáng gọi `hton*()` lại.
 
-```text
-network byte order
-```
-
-Application must know representation contract.
-
-Blindly applying:
-
-```text
-hton*
-```
-
-multiple times is incorrect.
+Mỗi field/API phải được đọc đúng hợp đồng biểu diễn của nó.
 
 ---
 
-### 5.7 Text conversion APIs
-
-For numeric IP addresses:
+### 5.6 `inet_pton()` và `inet_ntop()`
 
 ```text
+"192.0.2.1"
+   |
 inet_pton()
-  presentation text -> binary network address
-
-inet_ntop()
-  binary network address -> presentation text
+   |
+   v
+binary IPv4 địa chỉ
 ```
 
-`inet_pton()` supports:
+Ngược lại:
 
 ```text
-AF_INET
-AF_INET6
+địa chỉ nhị phân
+   |
+inet_ntop()
+   |
+   v
+chuỗi để con người đọc
 ```
-
-and writes binary address representation suitable for network use.
 
 ---
 
-## 6. `getaddrinfo()`: từ Hostname tới Socket Address
+## 6. `getaddrinfo()`: từ tên máy tới địa chỉ Socket
 
-> **Nói đơn giản:** `getaddrinfo()` biến hostname/service thành một hoặc nhiều candidate socket addresses, giúp code không khóa cứng vào IPv4.
+### 6.1 Vì sao không nên gắn chương trình cứng vào IPv4?
 
-
-### 6.1 Application should not hard-code IPv4 structure thinking everywhere
-
-Modern applications may need:
+Máy chủ có thể có:
 
 ```text
 IPv4
 IPv6
-hostname
-numeric address
-service name
-numeric port
+nhiều IP
+DNS thay đổi
 ```
 
-`getaddrinfo()` provides protocol-independent translation.
+tên máy:
+
+```text
+example.com
+```
+
+không đồng nghĩa một IP duy nhất.
 
 ---
 
-### 6.2 Inputs
+### 6.2 `getaddrinfo()` làm gì?
 
-Conceptually:
-
-```text
-node
-  host name or numeric network address
-
-service
-  service name or numeric port string
-
-hints
-  desired family/type/protocol constraints
-```
-
-Outputs:
+Concept:
 
 ```text
-linked list of addrinfo candidates
+tên máy + service/cổng + yêu cầu family/kiểu
+             |
+             v
+        getaddrinfo()
+             |
+             v
+    danh sách địa chỉ phù hợp
 ```
 
 ---
 
 ### 6.3 `struct addrinfo`
 
-Conceptual fields:
+Mỗi candidate chứa thông tin như:
 
 ```text
 ai_family
 ai_socktype
 ai_protocol
-ai_addrlen
 ai_addr
+ai_addrlen
 ai_next
 ```
 
-Each result represents one candidate compatible with requested constraints.
+Ứng dụng có thể duyệt nhiều candidate thay vì tự ghép `sockaddr_in` cho mọi trường hợp.
 
 ---
 
 ### 6.4 `AF_UNSPEC`
 
-When application is willing to support both:
-
-```text
-IPv4
-IPv6
-```
-
-it can conceptually request:
+Nếu chấp nhận cả IPv4 và IPv6:
 
 ```text
 AF_UNSPEC
 ```
 
-and evaluate returned addresses.
+cho phép resolver trả nhiều family phù hợp.
 
-This avoids embedding IPv4-only assumptions in higher-level logic.
-
----
-
-### 6.5 Server-side passive address resolution
-
-For server addresses, resolver can produce:
-
-```text
-wildcard local addresses
-```
-
-suitable for:
-
-```text
-bind()
-```
-
-when passive-address semantics are requested.
-
-Concept:
-
-```text
-service = desired service/port
-node = none/local wildcard intent
-      |
-      v
-getaddrinfo
-      |
-      v
-addresses suitable for bind
-```
+Đây là nền cho code ít phụ thuộc IPv4 hơn.
 
 ---
 
-### 6.6 Client-side resolution
-
-Client:
+### 6.5 Máy khách resolution
 
 ```text
-hostname/service
-      |
-      v
+tên máy
+  +
+service
+  |
+  v
 getaddrinfo()
-      |
-      v
-candidate addresses
-      |
-      v
-socket/connect attempts
-```
-
-A hostname can resolve to:
-
-```text
-multiple addresses
-multiple address families
-```
-
-Therefore:
-
-```text
-hostname != one fixed IP address
+  |
+  v
+candidate A
+candidate B
+candidate C
+  |
+  v
+thử socket/connect theo chính sách ứng dụng
 ```
 
 ---
 
-### 6.7 Resolution is not the same as connection
+### 6.6 Máy chủ resolution
 
-Successful `getaddrinfo()` means:
-
-```text
-name/service translated into candidate addresses
-```
-
-It does not prove:
-
-```text
-host reachable
-service running
-TCP connect will succeed
-application protocol is healthy
-```
-
-Those belong later stages.
+Với `AI_PASSIVE`, resolver có thể tạo cục bộ wildcard địa chỉ phù hợp cho `bind()` khi máy chủ không chỉ định một cục bộ IP cụ thể.
 
 ---
 
-### 6.8 `getnameinfo()`
+### 6.7 Resolve thành công không có nghĩa connect thành công
 
-Reverse/general presentation translation can map a socket address into:
+`getaddrinfo()` chỉ cho biết:
 
 ```text
-host representation
-service representation
+có thể biểu diễn tên/service thành địa chỉ candidate
 ```
 
-according to flags/resolution rules.
+Nó không chứng minh:
 
-It is conceptually the reverse side of generic address handling.
+```text
+mạng thông
+host sống
+cổng mở
+máy chủ đang chạy
+giao thức ứng dụng đúng
+```
 
 ---
 
-## 7. IP Address, Port và Endpoint
+## 7. Địa chỉ IP, cổng và điểm cuối
 
-> **Nói đơn giản:** Một Internet endpoint cần IP address + transport port. TCP connection còn gắn cả local và remote endpoint.
+### 7.1 IP và Cổng trả lời hai câu hỏi khác nhau
 
-
-### 7.1 IP address identifies network-layer interface/address context
-
-IP address answers approximately:
+Đơn giản hóa:
 
 ```text
-which host/interface/address?
+IP
+  máy/địa chỉ mạng nào?
+
+Cổng
+  điểm cuối/service giao vận nào trên máy đó?
 ```
-
-Port answers:
-
-```text
-which transport endpoint/service context on that host?
-```
-
-Together:
-
-```text
-IP address + port
-```
-
-form a transport endpoint address.
 
 ---
 
-### 7.2 Port number is 16-bit transport namespace
+### 7.2 Cổng là 16 bit
 
-TCP and UDP ports use:
-
-```text
-16-bit numbers
-```
-
-so range is:
+Range:
 
 ```text
 0 ... 65535
 ```
 
-Port number has meaning within transport protocol context.
-
-Concept:
+TCP cổng và UDP cổng là hai namespace giao vận riêng.
 
 ```text
-TCP port 5000
+TCP :5000
 ```
 
-and:
+và:
 
 ```text
-UDP port 5000
+UDP :5000
 ```
 
-are separate transport namespaces.
+không phải cùng một binding theo giao thức.
 
 ---
 
-### 7.3 Port does not belong permanently to a process
+### 7.3 IANA cổng ranges
 
-Port binding is kernel socket/protocol state.
-
-A process may own multiple sockets:
+IANA chia registry thành:
 
 ```text
-Process
- |
- +--> socket A local port 8000
- +--> socket B local port 9000
+0–1023
+  System Ports
+
+1024–49151
+  User/Registered Ports
+
+49152–65535
+  Dynamic/Private Ports
 ```
 
-Another process can later use a port after prior binding/vòng đời permits.
+Đây là phân loại registry.
 
-Therefore:
-
-```text
-port != process ID
-```
+Range ephemeral mà Linux tự chọn cho máy khách có thể được cấu hình khác; không nên đồng nhất máy móc hai khái niệm.
 
 ---
 
-### 7.4 TCP connection identity
+### 7.4 Điểm cuối Internet
 
-A TCP connection is commonly identified by endpoint tuple:
+Điểm cuối có thể được nghĩ:
 
 ```text
-local IP
-local port
-remote IP
-remote port
+giao thức family
++
+IP địa chỉ
++
+giao vận giao thức
++
+cổng
 ```
 
-Within TCP context this 4-tuple distinguishes connections.
-
-Across protocol families, transport protocol itself is also part of overall demultiplexing context.
+Với một socket TCP cụ thể, kết nối được phân biệt bởi cục bộ/điểm cuối từ xas.
 
 ---
 
-### 7.5 One listening port can serve many simultaneous TCP connections
-
-Server may listen on:
+### 7.5 Một TCP kết nối thường được mô tả bằng 4-tuple
 
 ```text
-local :443
+cục bộ IP
+cục bộ cổng
+từ xa IP
+từ xa cổng
 ```
 
-while accepted connections differ by remote endpoint:
+Ví dụ một máy chủ cổng 8080 có thể phục vụ nhiều máy khách:
 
 ```text
-local A:443 <-> client X:51001
-local A:443 <-> client Y:52200
-local A:443 <-> client Z:60010
-```
-
-Thus:
-
-```text
-one server port
-```
-
-does not imply:
-
-```text
-only one TCP connection
+192.168.1.10:8080 <-> 192.168.1.20:51001
+192.168.1.10:8080 <-> 192.168.1.21:52311
+192.168.1.10:8080 <-> 192.168.1.22:60002
 ```
 
 ---
 
-### 7.6 Wildcard address
+### 7.6 Wildcard địa chỉ
 
 IPv4:
 
 ```text
-INADDR_ANY
-0.0.0.0
+0.0.0.0 / INADDR_ANY
 ```
 
-when used for binding means:
-
-```text
-accept traffic addressed to appropriate local IPv4 addresses
-```
-
-It is a local bind wildcard.
-
-It should not be casually treated as a normal remote host destination.
+khi bind có nghĩa lắng nghe/nhận trên các cục bộ IPv4 địa chỉ phù hợp, không phải một “máy từ xa 0.0.0.0”.
 
 ---
 
 ### 7.7 Loopback
 
-IPv4 loopback:
-
 ```text
 127.0.0.1
-```
-
-IPv6 loopback:
-
-```text
 ::1
 ```
 
-represent local-host communication through IP networking stack.
+là địa chỉ loopback qua IP stack trên cùng host.
 
-This differs from:
-
-```text
-AF_UNIX
-```
-
-even though both stay on local machine.
+Nó khác `AF_UNIX`, dù đều dùng cho giao tiếp cục bộ.
 
 ---
 
-## 8. `bind()`: chọn Local Address/Port
+## 8. `bind()`: chọn địa chỉ và cổng cục bộ
 
-> **Nói đơn giản:** `bind()` chọn local address/port cho socket. Server thường bind cố định; client thường để kernel chọn local ephemeral endpoint.
+### 8.1 Socket mới chưa có địa chỉ cục bộ do ứng dụng chọn
 
-
-### 8.1 Newly created socket initially has no application-assigned address
-
-Linux `bind(2)` states:
+`bind()` gán địa chỉ cục bộ/name cho socket.
 
 ```text
 socket()
-  creates socket in address family
-  but no address is assigned yet
-```
-
-`bind()` assigns:
-
-```text
-local socket address
+   |
+   v
+socket chưa bind cụ thể
+   |
+bind(địa chỉ cục bộ)
+   |
+   v
+socket có điểm cuối cục bộ
 ```
 
 ---
 
-### 8.2 Bind answers “which local endpoint should this socket use?”
+### 8.2 Máy chủ thường cần `bind()`
 
-For IPv4:
+Máy khách phải biết:
 
 ```text
-local IPv4 address
+máy chủ ở IP/địa chỉ nào?
+cổng nào?
+```
+
+Do đó máy chủ cần điểm cuối ổn định.
+
+---
+
+### 8.3 Máy khách thường không cần tự bind
+
+Nếu máy khách không bind trước, kernel thường có thể tự chọn:
+
+```text
+cục bộ địa chỉ nguồn
 +
-local port
+ephemeral cổng nguồn
 ```
 
-For IPv6:
-
-```text
-local IPv6 address
-+
-local port
-```
-
-For Unix domain:
-
-```text
-local Unix socket address
-```
+khi `connect()` hoặc truyền datagram phù hợp.
 
 ---
 
-### 8.3 Server bind
+### 8.4 Cổng 0
 
-A server normally needs stable local endpoint so clients know where to connect/send.
-
-Concept:
+Bind cổng 0 có thể yêu cầu kernel chọn một cổng khả dụng.
 
 ```text
-Server socket
-    |
- bind(local address, service port)
-    |
-    v
-Known local endpoint
+Ứng dụng:
+"Tôi cần một cục bộ cổng, số cụ thể không quan trọng"
 ```
+
+Kernel chọn theo chính sách ephemeral-cổng của hệ thống.
 
 ---
 
-### 8.4 Client bind is often implicit for Internet sockets
+### 8.5 `EADDRINUSE`
 
-A client often does not explicitly choose source address/port.
+Thường chỉ ra địa chỉ cục bộ/cổng đang xung đột theo binding/reuse rule hiện tại.
 
-During:
+Không nên chỉ nghĩ:
 
-```text
-connect()
-```
+> “Có một chương trình khác dùng đúng cổng.”
 
-or suitable send operation, kernel can select:
-
-```text
-local source address
-ephemeral source port
-```
-
-according to routing and protocol rules.
-
-Thus client-side explicit `bind()` is optional in common cases.
+Còn có trạng thái giao thức/socket option có thể ảnh hưởng.
 
 ---
 
-### 8.5 Port zero
+### 8.6 `EADDRNOTAVAIL`
 
-Binding Internet socket with:
+Thường liên quan tới địa chỉ yêu cầu không khả dụng/không thuộc cục bộ context hiện tại.
 
-```text
-port = 0
-```
-
-can request kernel to select an ephemeral local port.
-
-Concept:
+Câu hỏi cần đặt:
 
 ```text
-application:
-"I need a local port, any valid available one"
-
-kernel:
-selects according to local ephemeral-port policy
+Địa chỉ này có thật sự là địa chỉ cục bộ trong namespace/interface này không?
 ```
-
----
-
-### 8.6 `EADDRINUSE`
-
-Typical bind error:
-
-```text
-EADDRINUSE
-```
-
-means requested local address/port combination cannot be assigned because of current binding/reuse rules.
-
-Exact behavior depends on:
-
-```text
-protocol
-address
-socket options
-existing socket state
-TIME_WAIT/reuse context
-```
-
----
-
-### 8.7 `EADDRNOTAVAIL`
-
-Can mean requested local address does not exist/is not locally assignable in current network namespace/interface context.
-
-This is different from:
-
-```text
-port already in use
-```
-
----
-
-### 8.8 `getsockname()`
-
-After implicit or explicit binding, application can query socket's current local address.
-
-This is useful conceptually because:
-
-```text
-kernel may choose local address/port
-```
-
-rather than application knowing it in advance.
 
 ---
 
 ## 9. TCP và UDP khác nhau ở mô hình dữ liệu nào?
 
-> **Nói đơn giản:** TCP là connection-oriented byte stream; UDP là datagram transport. “TCP reliable, UDP fast” là cách nhớ quá đơn giản và dễ hiểu sai.
+### 9.1 TCP
 
-
-### 9.1 TCP model
-
-TCP provides:
+TCP cung cấp:
 
 ```text
-connection-oriented
-reliable
-ordered
-full-duplex
-byte-stream
+kết nối
+hai chiều
+đáng tin cậy ở mức luồng byte
+đúng thứ tự
+luồng byte
 ```
 
-transport.
-
-Linux `tcp(7)` describes a reliable stream-oriented full-duplex connection over IP.
+TCP tự xử lý nhiều cơ chế như retransmission và điều khiển tắc nghẽn.
 
 ---
 
-### 9.2 UDP model
+### 9.2 UDP
 
-UDP provides:
-
-```text
-connectionless datagram/message transport
-```
-
-with minimal protocol mechanism.
-
-RFC 768 and RFC 8085 emphasize:
+UDP cung cấp:
 
 ```text
-delivery not guaranteed
-duplicate protection not guaranteed
-ordering not guaranteed
+datagram
+không có bắt tay kết nối kiểu TCP
+không bảo đảm giao hàng
+không bảo đảm thứ tự
+không bảo đảm loại bỏ duplicate
 ```
+
+Ứng dụng nhìn dữ liệu theo từng datagram.
 
 ---
 
-### 9.3 TCP vs UDP overview
+### 9.3 Bảng so sánh
 
-| Property | TCP | UDP |
+| Thuộc tính | TCP | UDP |
 |---|---|---|
-| Connection establishment | Yes | No transport handshake |
-| Data model | Byte stream | Datagram/message |
-| Ordering | Ordered byte stream | Not guaranteed |
-| Retransmission | TCP handles loss recovery | Application/protocol responsibility |
-| Duplicate suppression | TCP stream semantics | Not guaranteed by UDP |
-| Message boundaries | No | Yes |
-| Full duplex | Yes | Datagram send/receive |
-| Congestion control | TCP provides protocol mechanisms | Application must follow UDP usage/congestion guidance |
-| Connection state | Significant | Minimal transport association |
+| Kết nối giao vận | Có | Không có bắt tay TCP-style |
+| Mô hình dữ liệu | luồng byte | datagram |
+| Thứ tự | được giữ | không bảo đảm |
+| Mất gói | TCP phục hồi theo giao thức | ứng dụng/giao thức tự quyết |
+| ranh giới thông điệp | Không | Có |
+| điều khiển tắc nghẽn | TCP có | ứng dụng UDP phải tuân thủ guideline phù hợp |
 
 ---
 
-### 9.4 “UDP is faster” is too simplistic
+### 9.4 “TCP đáng tin cậy” không có nghĩa logic nghiệp vụ thành công
 
-UDP has less built-in transport machinery, but application may need to add:
+TCP có thể xác nhận luồng byte đã được giao vận đầu bên kia xử lý ở mức giao thức, nhưng không chứng minh:
 
 ```text
-retransmission
-ordering
+ứng dụng từ xa đã parse xong
+đã ghi database
+đã lưu flash
+đã thực hiện command thành công
+```
+
+Nếu cần xác nhận nghiệp vụ, giao thức ứng dụng phải có ACK/trạng thái riêng.
+
+---
+
+### 9.5 “UDP nhanh hơn TCP” là cách nói quá đơn giản
+
+UDP ít cơ chế giao vận hơn, nhưng ứng dụng có thể phải tự bổ sung:
+
+```text
+sequence
+retry
+timeout
 duplicate detection
-congestion control
-session state
-fragmentation avoidance
-security
+congestion handling
+session trạng thái
 ```
 
-If application recreates TCP-like reliability, complexity can exceed using a full-featured transport.
-
-RFC 8085 specifically warns UDP applications to handle congestion responsibly.
+Việc lựa chọn phải theo yêu cầu giao thức, không chỉ theo một benchmark latency nhỏ.
 
 ---
 
-### 9.5 “TCP is reliable” has a precise scope
+## 10. Máy chủ TCP: `socket → bind → listen → accept`
 
-TCP guarantees an ordered reliable byte stream between TCP endpoints under protocol semantics.
+> **Nói đơn giản:** máy chủ có một socket để “đứng ở cửa” nghe kết nối mới. Mỗi khi một máy khách kết nối, `accept()` tạo ra một socket mới cho riêng máy khách đó; socket nghe ban đầu vẫn tiếp tục đứng ở cửa.
 
-It does **not** guarantee:
+### 10.1 Bước 1 — `socket()`
 
-```text
-receiver application processed data
-receiver saved data persistently
-business transaction succeeded
-peer application generated correct response
-```
-
-Application protocol still needs:
+Tạo điểm cuối:
 
 ```text
-acknowledgment/state semantics
-```
-
-where business-level confirmation matters.
-
----
-
-### 9.6 “UDP is unreliable” does not mean “random”
-
-UDP still provides:
-
-```text
-datagram boundaries
-port demultiplexing
-checksum behavior
-IP-based delivery attempt
-```
-
-But application cannot assume reliable arrival/order/uniqueness.
-
----
-
-## 10. TCP Server: `socket → bind → listen → accept`
-
-> **Nói đơn giản:** TCP server có hai loại socket: listening socket nhận connection mới và connected socket riêng cho từng client sau `accept()`.
-
-> **Hình dung:** TCP server có một “quầy lễ tân” là listening socket. Mỗi lần `accept()` tạo một “phòng nói chuyện riêng” là connected socket cho một client.
-
-
-### 10.1 High-level vòng đời
-
-Classic server path:
-
-```text
-socket()
-   |
-   v
-bind()
-   |
-   v
-listen()
-   |
-   v
-accept()
-   |
-   v
-connected socket
-   |
-send/recv
-   |
-shutdown/close
-```
-
-This sequence is one of the most important system-programming mô hình tư duys.
-
----
-
-### 10.2 `socket()`
-
-Creates communication endpoint.
-
-For TCP-over-IPv4 concept:
-
-```text
-domain   = AF_INET
-type     = SOCK_STREAM
-protocol = default TCP-compatible protocol
-```
-
-At this point socket is not yet a listening server.
-
----
-
-### 10.3 `bind()`
-
-Assigns known local endpoint.
-
-Example concept:
-
-```text
-server address
+AF_INET/AF_INET6
 +
-service port
-```
-
-Without stable local endpoint, clients cannot predict server destination.
-
----
-
-### 10.4 `listen()`
-
-`listen()` marks a connection-mode socket as:
-
-```text
-passive/listening socket
-```
-
-Its role changes conceptually:
-
-```text
-active data endpoint?
-   no
-
-accept incoming connection requests?
-   yes
-```
-
----
-
-### 10.5 Listening socket is not the per-client data socket
-
-Critical distinction:
-
-```text
-Listening socket
-  represents local service acceptance point
-
-Accepted socket
-  represents one connected peer relationship
-```
-
-ASCII:
-
-```text
-                 Listening Socket
-                 local :8080
-                       |
-        +--------------+--------------+
-        |              |              |
-        v              v              v
- Accepted A       Accepted B      Accepted C
-client X          client Y        client Z
-```
-
----
-
-### 10.6 `accept()`
-
-`accept()`:
-
-```text
-removes/extracts one pending connection
-creates a new connected socket
-returns a new fd
-```
-
-Original listening socket remains listening.
-
-This is fundamental:
-
-```text
-accept()
-  does not turn listener into client connection
-```
-
----
-
-### 10.7 Server socket topology
-
-```text
-Process
- |
- +--> listening fd
- |      |
- |      +--> accepts future connections
- |
- +--> connected fd A
- |      |
- |      +--> peer A
- |
- +--> connected fd B
-        |
-        +--> peer B
-```
-
-Each accepted TCP socket has its own:
-
-```text
-remote endpoint
-send/receive state
-TCP connection state
-```
-
----
-
-### 10.8 `listen(backlog)` conceptual role
-
-Backlog limits/hints how many pending incoming connections can wait before application accepts them.
-
-But exact queue semantics are implementation-dependent.
-
-POSIX allows implementation to:
-
-```text
-limit backlog
-include incomplete connections differently
-```
-
-Linux modern TCP behavior specifically separates:
-
-```text
-completed connections waiting for accept
-```
-
-from:
-
-```text
-incomplete SYN/request queue
-```
-
-and Linux `listen(2)` documents backlog as limit for completely established sockets waiting to be accepted.
-
-Therefore:
-
-```text
-backlog
-```
-
-must not be simplistically interpreted as:
-
-```text
-"maximum total number of clients server can ever support"
-```
-
----
-
-### 10.9 Accept queue is not worker limit
-
-A server may eventually handle many connections over time.
-
-Backlog is about:
-
-```text
-pending acceptance
-```
-
-not:
-
-```text
-total lifetime connection count
-```
-
-or necessarily:
-
-```text
-maximum concurrent application sessions
-```
-
----
-
-### 10.10 Server vòng đời sequence diagram
-
-```mermaid
-sequenceDiagram
-    participant S as Server Process
-    participant K as Linux Socket/TCP Stack
-    participant C as Client
-
-    S->>K: socket()
-    S->>K: bind(local address, port)
-    S->>K: listen()
-    C->>K: TCP connection initiation
-    K->>K: TCP handshake / queue state
-    S->>K: accept()
-    K-->>S: new connected socket fd
-    K-->>C: connection established
-    S<<->>C: byte-stream data
-    S->>K: shutdown()/close()
-```
-
-The diagram is a high-level API/protocol view, not a literal syscall-to-packet one-to-one mapping.
-
----
-
-## 11. TCP Client: `socket → connect`
-
-> **Nói đơn giản:** TCP client tạo socket rồi `connect()` tới server endpoint. Connection thành công mới chỉ nói transport đã nối, chưa nói ứng dụng request thành công.
-
-
-### 11.1 High-level path
-
-TCP client:
-
-```text
-resolve destination
-      |
-      v
-socket()
-      |
-      v
-connect()
-      |
-      v
-connected socket
-      |
-      v
-send/recv
-      |
-      v
-shutdown/close
-```
-
----
-
-### 11.2 Client usually needs remote endpoint, not fixed local endpoint
-
-Remote endpoint:
-
-```text
-server IP/address
-server port
-```
-
-Local endpoint can often be selected automatically:
-
-```text
-source address
-ephemeral source port
-```
-
----
-
-### 11.3 `connect()` for stream socket
-
-For:
-
-```text
 SOCK_STREAM
 ```
 
-`connect()` attempts to establish connection with socket bound/listening at remote address.
-
-For TCP this means interaction with TCP connection establishment.
+Ở thời điểm này chưa phải listener.
 
 ---
 
-### 11.4 Blocking `connect()`
+### 10.2 Bước 2 — `bind()`
 
-Default socket is blocking unless configured otherwise.
-
-Therefore TCP `connect()` can wait until:
+Chọn điểm cuối cục bộ:
 
 ```text
-connection established
+cục bộ IP/wildcard
++
+cổng dịch vụ
 ```
-
-or:
-
-```text
-failure/timeout
-```
-
-according to protocol/system behavior.
-
-Nonblocking connection establishment belongs Topic 10.
 
 ---
 
-### 11.5 Successful `connect()` does not mean application protocol succeeded
+### 10.3 Bước 3 — `listen()`
 
-Successful TCP connection means transport connection exists.
-
-It does not mean:
+Chuyển socket luồng sang vai trò thụ động:
 
 ```text
-server authenticated client
-application request accepted
-protocol version compatible
-resource exists
-business transaction succeeded
+socket lắng nghe
 ```
 
-Transport and application protocols are separate layers.
+Nó nhận kết nối request chứ không phải là socket dữ liệu riêng của một máy khách.
 
 ---
 
-### 11.6 Implicit local endpoint selection
+### 10.4 Bước 4 — `accept()`
 
-If client socket was not explicitly bound:
+Khi có kết nối đã sẵn sàng:
 
 ```text
-connect()
+accept()
+   |
+   v
+fd mới
 ```
 
-can cause kernel to assign local address/ephemeral port.
-
-Routing influences which local address is appropriate.
+fd mới là **socket đã kết nối** cho một đầu bên kia cụ thể.
 
 ---
 
-### 11.7 Connection refused
-
-Typical conceptual cause of:
+### 10.5 socket lắng nghe và socket đã kết nối phải tách nhau trong đầu
 
 ```text
-ECONNREFUSED
+                 Listening fd
+                    :8080
+                      |
+        +-------------+-------------+
+        |             |             |
+        v             v             v
+ Connected A     Connected B     Connected C
+ máy khách A         máy khách B        máy khách C
 ```
 
-is destination actively indicates no listener/connection endpoint available for requested transport endpoint.
-
-This differs from:
-
-```text
-timeout
-```
-
-where response may never arrive due to routing/filtering/unreachable conditions.
+Listener tiếp tục dùng cho `accept()` các kết nối sau.
 
 ---
 
-## 12. TCP Handshake và các State quan trọng
+### 10.6 `backlog`
 
-> **Nói đơn giản:** TCP có trạng thái machine và three-way handshake. Các trạng thái như ESTABLISHED, CLOSE_WAIT, TIME_WAIT giải thích nhiều hiện tượng khi debug.
+`listen(backlog)` liên quan tới hàng đợi kết nối đang chờ ứng dụng accept.
 
-
-### 12.1 TCP has a protocol state machine
-
-TCP is not simply:
+Không được hiểu:
 
 ```text
-"socket connected = true/false"
+backlog = số máy khách tối đa suốt đời máy chủ
 ```
 
-RFC 9293 defines states including:
+Trên Linux hiện đại, `listen(2)` mô tả backlog theo hàng đợi kết nối đã hoàn tất bắt tay chờ accept, trong khi SYN queue có quản lý riêng.
+
+---
+
+### 10.7 Chuỗi máy chủ
+
+```mermaid
+sequenceDiagram
+    participant S as Máy chủ
+    participant K as Linux TCP
+    participant C as Máy khách
+
+    S->>K: socket()
+    S->>K: bind()
+    S->>K: listen()
+    C->>K: bắt đầu kết nối TCP
+    K->>K: bắt tay
+    S->>K: accept()
+    K-->>S: connected fd mới
+    S<<->>C: luồng byte TCP
+    S->>K: shutdown()/close()
+```
+
+---
+
+## 11. Máy khách TCP: `socket → connect`
+
+### 11.1 Chuỗi cơ bản
+
+```text
+tên máy/service
+      |
+getaddrinfo()
+      |
+      v
+socket()
+      |
+connect(máy chủ địa chỉ)
+      |
+      v
+socket đã kết nối
+```
+
+---
+
+### 11.2 `connect()` với TCP
+
+`connect()` bắt đầu active open tới điểm cuối từ xa.
+
+Ở chế độ blocking thông thường, lời gọi có thể chờ tới khi:
+
+```text
+kết nối thành công
+hoặc
+lỗi/timeout
+```
+
+Nonblocking connect và `EINPROGRESS` thuộc Topic 10.
+
+---
+
+### 11.3 điểm cuối cục bộ có thể được kernel chọn
+
+Máy khách thường chỉ chỉ định:
+
+```text
+từ xa địa chỉ + từ xa cổng
+```
+
+Kernel dựa trên route để chọn:
+
+```text
+cục bộ địa chỉ nguồn
+cục bộ cổng tạm thời
+```
+
+---
+
+### 11.4 `connect()` thành công chỉ là thành công ở tầng TCP
+
+Không chứng minh:
+
+```text
+máy chủ ứng dụng chấp nhận login
+giao thức version đúng
+request được xử lý
+```
+
+Đó là tầng giao thức ứng dụng.
+
+---
+
+## 12. Bắt tay TCP và các trạng thái quan trọng
+
+### 12.1 TCP có máy trạng thái
+
+Một kết nối TCP đi qua những trạng thái như:
 
 ```text
 CLOSED
@@ -2059,1443 +1207,1112 @@ ESTABLISHED
 FIN-WAIT-1
 FIN-WAIT-2
 CLOSE-WAIT
-CLOSING
 LAST-ACK
 TIME-WAIT
 ```
 
----
-
-### 12.2 Three-way handshake
-
-Basic connection establishment:
+Không nên nghĩ TCP chỉ có:
 
 ```text
-Client                           Server
-
-SYN ---------------------------->
-
-    <---------------------- SYN + ACK
-
-ACK ---------------------------->
-
-ESTABLISHED                    ESTABLISHED
+connected / disconnected
 ```
-
-RFC 9293 defines this as the TCP three-way handshake.
 
 ---
 
-### 12.3 Why three messages?
-
-Handshake establishes synchronized connection state and sequence-number context and protects against confusion from stale/duplicate connection initiations.
-
-It is not just:
+### 12.2 bắt tay ba bước
 
 ```text
-"three packets because TCP is slow"
+Máy khách                         Máy chủ
+
+SYN -------------------------->
+
+    <--------------------- SYN + ACK
+
+ACK -------------------------->
+
+ESTABLISHED                 ESTABLISHED
 ```
 
-It is part of TCP correctness.
+Bắt tay đồng bộ trạng thái kết nối và sequence number giữa hai điểm cuối.
 
 ---
 
-### 12.4 Sequence-number space
+### 12.3 `LISTEN`
 
-TCP is a byte-stream protocol with sequence-numbered data.
-
-Concept:
-
-```text
-byte stream
-   |
-   v
-TCP segmentation
-   |
-sequence numbers
-   |
-receiver reorders/reassembles
-   |
-   v
-ordered byte stream to application
-```
-
-Application normally does not manage TCP sequence numbers directly.
+Máy chủ passive socket đang chờ quá trình bắt đầu kết nối.
 
 ---
 
-### 12.5 TCP segmentation is not application message segmentation
+### 12.4 `SYN-SENT`
 
-RFC 9293 explicitly notes individual TCP segments often do not correspond one-to-one with:
-
-```text
-send()
-write()
-```
-
-calls.
-
-Therefore packet boundaries, send boundaries and application-message boundaries are three different concepts.
+Máy khách đã gửi yêu cầu active open và đang chờ phản hồi bắt tay.
 
 ---
 
-### 12.6 Simplified TCP state machine
+### 12.5 `SYN-RECEIVED`
+
+Phía nhận đã nhận SYN, trả SYN/ACK và chờ hoàn tất bắt tay.
+
+---
+
+### 12.6 `ESTABLISHED`
+
+Kết nối hai phía đã được thiết lập ở mức TCP và có thể truyền luồng byte.
+
+---
+
+### 12.7 máy trạng thái đơn giản
 
 ```mermaid
 stateDiagram-v2
     [*] --> CLOSED
-
-    CLOSED --> LISTEN: passive open / listen
-    CLOSED --> SYN_SENT: active open / connect
-
-    LISTEN --> SYN_RECEIVED: receive SYN
-    SYN_SENT --> ESTABLISHED: handshake completes
-    SYN_RECEIVED --> ESTABLISHED: final ACK accepted
-
-    ESTABLISHED --> FIN_WAIT_1: local side initiates close
-    ESTABLISHED --> CLOSE_WAIT: peer FIN received
-
-    FIN_WAIT_1 --> FIN_WAIT_2: local FIN acknowledged
-    FIN_WAIT_2 --> TIME_WAIT: peer FIN received
-    CLOSE_WAIT --> LAST_ACK: local application closes send side
-    LAST_ACK --> CLOSED: FIN acknowledged
-
-    TIME_WAIT --> CLOSED: timeout
-
-    ESTABLISHED --> CLOSED: reset / abort path
+    CLOSED --> LISTEN: máy chủ listen
+    CLOSED --> SYN_SENT: máy khách connect
+    LISTEN --> SYN_RECEIVED: nhận SYN
+    SYN_SENT --> ESTABLISHED: bắt tay hoàn tất
+    SYN_RECEIVED --> ESTABLISHED: nhận ACK cuối
+    ESTABLISHED --> FIN_WAIT_1: cục bộ chủ động đóng
+    ESTABLISHED --> CLOSE_WAIT: nhận FIN từ đầu bên kia
+    FIN_WAIT_1 --> FIN_WAIT_2: FIN cục bộ được ACK
+    FIN_WAIT_2 --> TIME_WAIT: nhận FIN đầu bên kia
+    CLOSE_WAIT --> LAST_ACK: cục bộ đóng phần còn lại
+    LAST_ACK --> CLOSED: FIN được ACK
+    TIME_WAIT --> CLOSED: hết thời gian bảo vệ
 ```
 
-This is simplified for learning. RFC 9293 contains additional transitions such as simultaneous open/close and reset paths.
+RFC 9293 có máy trạng thái đầy đủ hơn; sơ đồ trên phục vụ nhập môn.
 
 ---
 
-### 12.7 `LISTEN`
+## 13. TCP là luồng byte: ứng dụng phải tự chia thông điệp
 
-Server-side TCP endpoint waits for connection initiation.
+> **Đây là một trong những điểm quan trọng nhất của lập trình Socket.** TCP không giữ ranh giới giữa các lần `send()`.
 
-This is protocol state associated with listening socket.
+### 13.1 Ví dụ
 
-Accepted connected socket does not remain:
-
-```text
-LISTEN
-```
-
----
-
-### 12.8 `SYN-SENT`
-
-Client has initiated active open and waits for handshake response.
-
----
-
-### 12.9 `SYN-RECEIVED`
-
-Peer has received SYN, sent SYN/ACK and is waiting for handshake completion.
-
----
-
-### 12.10 `ESTABLISHED`
-
-Both directions have synchronized transport state.
-
-Application can exchange byte-stream data.
-
----
-
-## 13. TCP là Byte Stream: Application phải tự chia Message
-
-> **Nói đơn giản:** TCP không giữ message boundaries. ứng dụng phải tự framing bằng length, delimiter, fixed record hoặc giao thức grammar.
-
-> **Đừng nhầm:** TCP chỉ giữ thứ tự byte. Nếu ứng dụng có message A/B/C thì ứng dụng phải tự ghi dấu ranh giới.
-
-
-### 13.1 TCP is byte stream
-
-The most important TCP programming rule:
-
-```text
-TCP does not preserve application message boundaries.
-```
-
-Suppose sender logically performs:
+Sender:
 
 ```text
 send("ABC")
 send("DEF")
 ```
 
-Receiver may get:
+Receiver có thể thấy:
 
 ```text
-"ABCDEF"
+recv -> "ABCDEF"
 ```
 
-or:
+hoặc:
 
 ```text
-"A"
-"BCDE"
-"F"
+recv -> "A"
+recv -> "BCDE"
+recv -> "F"
 ```
 
-or another valid partition preserving byte order.
+miễn thứ tự byte đúng.
 
 ---
 
-### 13.2 Send-call boundary is not receive-call boundary
+### 13.2 `send()` ranh giới không phải `recv()` ranh giới
 
-False assumption:
+Sai:
 
 ```text
-one send()
-=
-one recv()
+1 send = 1 recv
 ```
 
-Correct:
+Đúng:
 
 ```text
-send operations contribute bytes to stream
-recv operations consume available bytes from stream
-```
-
----
-
-### 13.3 TCP only preserves order of bytes
-
-If sender stream is:
-
-```text
-A B C D E F
-```
-
-receiver application observes:
-
-```text
-A B C D E F
-```
-
-in order if connection delivers successfully.
-
-But it is application's job to know:
-
-```text
-where one logical message ends
+send đưa byte vào luồng
+recv lấy một số byte hiện có từ luồng
 ```
 
 ---
 
-### 13.4 Application framing
+### 13.3 TCP segment cũng không phải thông điệp
 
-Common conceptual framing strategies:
+Kernel có thể:
 
 ```text
-fixed-size records
-
-length prefix
-  [length][payload]
-
-delimiter
-  [payload]\n
-
-self-describing protocol grammar
+chia dữ liệu thành nhiều TCP segment
+hoặc gộp dữ liệu ứng dụng vào segment
 ```
 
-Socket/TCP does not choose framing automatically.
+theo giao thức/MTU/bộ đệm/timing.
+
+RFC 9293 nhấn mạnh TCP segment không tương ứng 1:1 với ứng dụng write/send.
 
 ---
 
-### 13.5 Length-prefix model
+### 13.4 đóng khung thông điệp ở tầng ứng dụng
+
+Nếu ứng dụng có thông điệp:
 
 ```text
-TCP byte stream
-
-+--------+--------------------+--------+-----------+
-| len=20 | 20-byte payload    | len=5  | payload   |
-+--------+--------------------+--------+-----------+
+[M1][M2][M3]
 ```
 
-Receiver state machine:
+phải tự mã hóa ranh giới vào luồng byte.
+
+Các cách khái niệm:
 
 ```text
-read enough header
-      |
+fixed-size frame
+tiền tố độ dài
+separator/delimiter
+giao thức grammar
+```
+
+---
+
+### 13.5 tiền tố độ dài
+
+```text
++--------+------------------+--------+----------+
+| len=20 | 20 byte payload  | len=5  | 5 byte   |
++--------+------------------+--------+----------+
+```
+
+Receiver phải có máy trạng thái:
+
+```text
+đọc đủ header
+    |
 parse length
-      |
-read exactly logical payload amount
-      |
-next frame
+    |
+đọc đủ payload
+    |
+chuyển sang frame tiếp theo
 ```
-
-This remains conceptual; implementation belongs later application work.
 
 ---
 
-### 13.6 Framing and endian representation are related
+### 13.6 Đóng khung cần giới hạn và kiểm tra
 
-If protocol stores integer length field:
-
-```text
-length = 32-bit integer
-```
-
-sender and receiver must agree on:
+Đầu bên kia có thể gửi:
 
 ```text
-byte order
-field width
-signedness
-maximum allowed length
+length vô lý
+frame thiếu
+payload lỗi
 ```
 
-Network byte order is a common protocol convention.
+Do đó đóng khung không chỉ là tiện lợi mà còn là biên kiểm tra dữ liệu không tin cậy.
 
 ---
 
-### 13.7 Framing is also a security boundary
+## 14. Bộ đệm, áp lực ngược và I/O từng phần trong TCP
 
-Untrusted peer can send:
+### 14.1 `send()` không gửi thẳng vào tay ứng dụng từ xa ngay lập tức
 
-```text
-invalid length
-huge length
-malformed payload
-partial frame
-```
-
-Application protocol must validate fields.
-
-Socket reliability does not validate application message meaning.
-
----
-
-## 14. Buffer, Backpressure và Partial I/O trong TCP
-
-> **Nói đơn giản:** `send/recv` có thể xử lý ít byte hơn yêu cầu. Socket buffers hữu hạn nên TCP cũng có backpressure.
-
-
-### 14.1 `send()` usually copies/queues data into socket send path
-
-Successful:
+Mô hình đơn giản:
 
 ```text
+Ứng dụng A
+   |
 send()
-```
-
-does not mean remote application has already read the bytes.
-
-At a high level:
-
-```text
-Application send
-      |
-      v
-local socket send buffer / protocol state
-      |
-      v
-TCP transmission
-      |
-      v
-remote TCP
-      |
-      v
-remote receive buffer
-      |
-      v
-remote application recv
+   |
+   v
+bộ đệm gửi / TCP cục bộ
+   |
+mạng
+   |
+bộ đệm nhận / TCP từ xa
+   |
+recv()
+   |
+   v
+Ứng dụng B
 ```
 
 ---
 
-### 14.2 Send success is local/protocol progress, not business acknowledgment
+### 14.2 Send thành công không có nghĩa đầu bên kia đã xử lý
 
-A successful positive return from `send()` says local socket accepted that many bytes according to API semantics.
+Nếu `send()` trả số byte dương, cục bộ stack đã chấp nhận tiến triển tương ứng.
 
-It does not prove:
+Nó không chứng minh:
 
 ```text
-peer processed them
-peer persisted them
-peer application still logically accepts them
+đầu bên kia ứng dụng đã recv
+đã parse
+đã ghi flash
+giao dịch đã thành công
 ```
 
 ---
 
-### 14.3 Partial send
-
-For stream sockets:
+### 14.3 I/O từng phần khi gửi
 
 ```text
-send(requested N bytes)
+muốn gửi N byte
+send() trả M
+0 < M < N
 ```
 
-may return:
+đây có thể là tiến triển hợp lệ.
+
+Ứng dụng luồng phải theo dõi:
 
 ```text
-M bytes
-where 0 < M < N
-```
-
-especially under constraints/interruption/nonblocking state.
-
-Therefore stream output is conceptually a loop/progress problem.
-
-Topic 3 partial-I/O mô hình tư duy applies directly.
-
----
-
-### 14.4 Partial receive
-
-`recv()` normally returns:
-
-```text
-whatever data is currently available
-up to requested size
-```
-
-rather than waiting for full requested buffer.
-
-Thus:
-
-```text
-request 4096 bytes
-```
-
-can validly return:
-
-```text
-125 bytes
-```
-
-without error.
-
----
-
-### 14.5 `recv() == 0` for stream socket
-
-For connected stream socket:
-
-```text
-recv() returns 0
-```
-
-when peer has performed orderly shutdown of its sending direction and all prior received bytes have been consumed.
-
-This is stream EOF semantics.
-
----
-
-### 14.6 Zero-length datagram nuance
-
-For datagram sockets, zero is different:
-
-```text
-zero-size datagram
-```
-
-is valid.
-
-Therefore:
-
-```text
-recv returns 0
-```
-
-must be interpreted according to socket type/context.
-
-On TCP stream:
-
-```text
-orderly EOF
-```
-
-On datagram:
-
-```text
-possibly valid zero-length datagram
+đã gửi bao nhiêu
+còn bao nhiêu
 ```
 
 ---
 
-### 14.7 Send buffer full
+### 14.4 `recv()` có thể trả ít hơn bộ đệm yêu cầu
 
-If socket send buffer cannot currently accept requested progress:
+Nếu gọi với bộ đệm 4096 byte nhưng hiện chỉ có 125 byte:
 
 ```text
-blocking send
-  waits
-
-nonblocking send
-  returns EAGAIN/EWOULDBLOCK
+recv() có thể trả 125
 ```
 
-Detailed readiness handling belongs Topic 10.
+không cần chờ đủ 4096 trong semantics thông thường.
 
 ---
 
-### 14.8 Receive buffer empty
+### 14.5 `recv() == 0` trên TCP
 
-If no receive data:
+Khi mọi byte trước đó đã được đọc và đầu bên kia đã đóng orderly phía gửi:
 
 ```text
-blocking recv
-  waits
-
-nonblocking recv
-  returns EAGAIN/EWOULDBLOCK
+recv() -> 0
 ```
 
-unless stream EOF/error is already present.
+Đó là EOF của TCP luồng.
+
+Không phải:
+
+```text
+"nhận một packet TCP có payload 0"
+```
 
 ---
 
-### 14.9 Flow control and congestion control are not the same
+### 14.6 Bộ đệm hữu hạn tạo áp lực ngược
 
-TCP includes:
+Nếu ứng dụng gửi nhanh hơn mạng/đầu bên kia đọc:
 
 ```text
-flow control
-  protect receiver from being overrun
-
-congestion control
-  adapt sending to network path congestion
+bộ đệm gửi dần đầy
+   |
+   v
+send blocking phải chờ
 ```
 
-These are transport concerns distinct from application buffering/backpressure.
-
-Detailed algorithms are outside Topic 9.
+hoặc nonblocking sẽ báo chưa sẵn sàng.
 
 ---
 
-### 14.10 Application-level backpressure still exists
+### 14.7 TCP điều khiển luồng và điều khiển tắc nghẽn
 
-Even though TCP has transport flow/congestion control, application can still produce faster than:
-
-```text
-socket
-network
-peer application
-```
-
-can consume.
-
-Eventually:
+Hai khái niệm khác nhau:
 
 ```text
-send buffers fill
-send blocks / becomes non-ready
+điều khiển luồng
+  tránh gửi quá khả năng nhận của đầu bên kia
+
+điều khiển tắc nghẽn
+  điều chỉnh theo khả năng đường mạng
 ```
 
-This propagates backpressure upward.
+Ứng dụng-level queue/áp lực ngược vẫn là lớp khác phía trên.
 
 ---
 
-## 15. Đóng TCP đúng cách: `shutdown`, FIN, RST, TIME_WAIT
+## 15. Đóng TCP đúng cách: `shutdown()`, FIN, RST và `TIME_WAIT`
 
-> **Nói đơn giản:** TCP full-duplex có thể đóng từng chiều. `shutdown()` khác `close()`, FIN khác RST, TIME_WAIT khác CLOSE_WAIT.
+### 15.1 TCP là song công toàn phần
 
-
-### 15.1 Full-duplex means two independent data directions
-
-TCP connection:
+Có hai chiều:
 
 ```text
-A ======> B
-A <====== B
+A =====> B
+A <===== B
 ```
 
-Two byte-stream directions can be closed independently.
-
-This enables:
-
-```text
-half-close
-```
+mỗi chiều có thể được đóng độc lập.
 
 ---
 
 ### 15.2 `shutdown()`
 
-POSIX/Linux:
-
 ```text
-shutdown(fd, SHUT_RD)
-  disable further receive operations
+SHUT_RD
+  ngừng phía nhận
 
-shutdown(fd, SHUT_WR)
-  disable further send operations
+SHUT_WR
+  ngừng phía gửi
 
-shutdown(fd, SHUT_RDWR)
-  disable both
+SHUT_RDWR
+  ngừng cả hai
 ```
 
-This acts on socket connection directionality.
+`shutdown()` thay đổi trạng thái truyền thông của socket.
 
 ---
 
-### 15.3 `shutdown()` vs `close()`
-
-`shutdown()`:
+### 15.3 `shutdown()` khác `close()`
 
 ```text
-changes communication direction state
+shutdown()
+  điều khiển các hướng truyền dữ liệu
+
+close()
+  giải phóng một file descriptor reference
 ```
 
-`close()`:
-
-```text
-releases this file descriptor reference
-```
-
-These are not identical operations.
-
-If duplicate descriptors refer same socket:
-
-```text
-close(one fd)
-```
-
-may not terminate communication object because other references remain.
-
-`shutdown()` affects socket connection state associated with underlying socket.
+Nếu cùng socket còn fd reference khác, `close()` một fd chưa chắc phá toàn bộ socket ngay.
 
 ---
 
-### 15.4 Half-close
+### 15.4 đóng một chiều
 
-Typical conceptual protocol:
+Một phía có thể báo:
 
 ```text
-Client
-  finished sending request
-      |
-      v
-shutdown(SHUT_WR)
-      |
-TCP FIN sent when appropriate
-      |
-      v
-Server sees stream EOF after prior bytes
-      |
-Server may still send response
-      |
-      v
-Client continues recv
+"Tôi gửi xong rồi, nhưng vẫn muốn nhận"
 ```
 
-This is a powerful property of full-duplex streams.
-
----
-
-### 15.5 FIN means “no more bytes in this direction”
-
-TCP FIN does not mean:
+Ví dụ:
 
 ```text
-all connection state instantly disappears
-```
-
-It indicates closure of one byte-stream direction.
-
-Peer can still have:
-
-```text
-remaining unread data
-open reverse direction
+Máy khách gửi request
+Máy khách shutdown(SHUT_WR)
+        |
+        v
+Máy chủ đọc tới EOF request
+Máy chủ vẫn gửi response
+        |
+        v
+Máy khách vẫn recv response
 ```
 
 ---
 
-### 15.6 Orderly close
+### 15.5 FIN
 
-RFC 9293 normal close uses FIN/ACK exchanges.
+FIN có nghĩa:
 
-Concept:
+```text
+không còn byte mới trong chiều gửi này
+```
+
+không có nghĩa toàn kết nối object biến mất ngay.
+
+---
+
+### 15.6 Đóng bình thường
+
+Mô hình đơn giản:
 
 ```text
 A                              B
 
 FIN -------------------------->
-
     <----------------------- ACK
-
     <----------------------- FIN
-
 ACK -------------------------->
 ```
 
-Actual FIN/ACK can be combined/piggybacked depending traffic/state.
+FIN và ACK có thể được kết hợp tùy timing/trạng thái giao thức.
 
 ---
 
-### 15.7 Half-closed TCP connection
+### 15.7 `CLOSE_WAIT`
 
-RFC 9293 explicitly permits:
-
-```text
-one direction closed
-other direction remains open
-```
-
-Thus:
+Đầu bên kia đã gửi FIN, cục bộ TCP đã nhận.
 
 ```text
-CLOSE-WAIT
-FIN-WAIT
+đầu bên kia: không gửi thêm
+cục bộ ứng dụng: vẫn chưa đóng phía của mình
 ```
 
-states are not inherently errors.
-
-They represent normal portions of termination state machine.
+Nếu `CLOSE_WAIT` tồn tại lâu bất thường, thường nên kiểm tra ứng dụng có quên hoàn tất lifecycle socket hay không.
 
 ---
 
 ### 15.8 `TIME_WAIT`
 
-Active closer can enter:
+Phía active close thường đi qua `TIME_WAIT` để bảo vệ correctness của TCP trước delayed duplicate và final ACK handling.
+
+`TIME_WAIT` là trạng thái TCP bình thường.
+
+Không nên kết luận:
 
 ```text
-TIME-WAIT
-```
-
-after normal close.
-
-Its purpose includes protecting protocol correctness from delayed duplicate segments and ensuring final acknowledgments can be handled.
-
-RFC 9293 defines active close TIME-WAIT behavior and 2×MSL conceptual timeout.
-
----
-
-### 15.9 `TIME_WAIT` is not automatically a socket leak
-
-Seeing TIME_WAIT does not mean:
-
-```text
-application forgot close()
-```
-
-It is a normal TCP protocol state for active close.
-
-Large TIME_WAIT populations can still matter operationally, but diagnosis must distinguish:
-
-```text
-normal protocol behavior
-```
-
-from:
-
-```text
-resource/lifecycle bugs
+TIME_WAIT = fd leak
 ```
 
 ---
 
-### 15.10 `CLOSE_WAIT`
+### 15.9 RST
 
-If local endpoint receives peer FIN:
+`RST` biểu diễn đường kết thúc/reset không orderly như FIN.
 
-```text
-local TCP enters CLOSE-WAIT
-```
-
-until local application closes its sending side.
-
-Long-lived CLOSE_WAIT often indicates:
+Ứng dụng cần phân biệt:
 
 ```text
-application has observed peer close
-but has not completed its own close lifecycle
+EOF orderly
 ```
 
-Unlike TIME_WAIT, persistent CLOSE_WAIT is frequently application-vòng đời relevant.
+với:
+
+```text
+ECONNRESET / reset
+```
+
+vì ý nghĩa dữ liệu có thể khác nhau.
 
 ---
 
-### 15.11 Reset / abort
+### 15.10 `SIGPIPE` và `EPIPE`
 
-TCP can terminate via:
-
-```text
-RST
-```
-
-abortive path rather than normal FIN handshake.
-
-Peer application should distinguish:
-
-```text
-orderly EOF
-```
-
-from:
-
-```text
-connection reset
-```
-
-because data/vòng đời meaning differs.
-
----
-
-### 15.12 `SIGPIPE` / `EPIPE`
-
-Sending on broken/shut-down stream can produce:
-
-```text
-EPIPE
-```
-
-and:
+Gửi trên luồng không còn khả năng gửi có thể tạo:
 
 ```text
 SIGPIPE
++
+EPIPE
 ```
 
-unless signal behavior is suppressed/handled.
+nếu signal không kết thúc process trước.
 
-POSIX provides:
-
-```text
-MSG_NOSIGNAL
-```
-
-for per-send suppression of SIGPIPE while still returning error.
-
-This connects Topic 5 signals with socket vòng đời.
+Linux/Socket API cũng có cách per-call như `MSG_NOSIGNAL` để không phát `SIGPIPE` cho lần gửi đó mà vẫn nhận lỗi.
 
 ---
 
 ## 16. UDP: mỗi lần gửi là một Datagram
 
-> **Nói đơn giản:** UDP giữ từng datagram riêng nhưng có thể mất, trùng hoặc đến sai thứ tự. ứng dụng phải quyết định mức reliability/session cần thêm.
+> **Nói đơn giản:** TCP đưa cho ứng dụng một dòng byte dài; UDP đưa từng bức thư riêng. Mỗi datagram có ranh giới riêng nhưng có thể mất, đến sai thứ tự hoặc bị lặp tùy đường mạng.
 
+### 16.1 ranh giới thông điệp được giữ
 
-### 16.1 UDP is message-oriented
-
-Unlike TCP:
-
-```text
-one UDP send
-```
-
-corresponds to:
-
-```text
-one UDP datagram
-```
-
-at transport-message abstraction.
-
-Receiver obtains datagrams as discrete units.
-
----
-
-### 16.2 Message boundary is preserved
-
-Concept:
-
-```text
 Sender:
 
+```text
 Datagram A
 Datagram B
 Datagram C
-
-Receiver:
-
-[A]
-[B]
-[C]
 ```
 
-if those datagrams arrive.
+Receiver, nếu nhận đủ, xử lý từng datagram riêng.
 
-They do not merge into one byte stream like TCP.
+UDP không gộp chúng thành một luồng byte duy nhất.
 
 ---
 
-### 16.3 UDP does not guarantee delivery
+### 16.2 Không có bắt tay ba bước
 
-Possible outcomes:
+Sender UDP không cần:
 
 ```text
-datagram arrives
-datagram lost
-datagram duplicated
-datagrams reordered
+SYN -> SYN/ACK -> ACK
 ```
 
-Application must be correct under expected network conditions.
+trước khi gửi datagram.
 
 ---
 
-### 16.4 UDP has no transport connection-establishment handshake
+### 16.3 Không bảo đảm việc chuyển tới đích
 
-Normal UDP communication does not require:
+Một datagram có thể:
 
 ```text
-SYN
-SYN-ACK
-ACK
+đến
+mất
+đến lặp
+đến sau datagram gửi sau
 ```
 
-before sending data.
-
-A sender can transmit datagram to destination immediately.
+Nếu ứng dụng cần reliability, nó phải chọn giao thức phù hợp hoặc xây logic phù hợp trên UDP.
 
 ---
 
-### 16.5 Minimal transport state is not zero system state
+### 16.4 UDP vẫn có trạng thái ở socket/kernel
 
-Kernel still tracks socket state such as:
+“Connectionless” không có nghĩa socket không giữ gì.
+
+Socket vẫn có thể có:
 
 ```text
-local address/port
-optional connected peer
+địa chỉ cục bộ/cổng
+connected đầu bên kia mặc định
 receive queue
-send/error state
+trạng thái lỗi
 socket options
 ```
 
-“Connectionless” does not mean “stateless in every implementation layer”.
+---
+
+### 16.5 Kích thước datagram quan trọng
+
+Datagram quá lớn có thể chạm:
+
+```text
+path MTU
+fragmentation
+EMSGSIZE
+```
+
+Fragmentation làm datagram nhạy với mất mát hơn vì mất một fragment có thể làm cả datagram không tái hợp được.
 
 ---
 
-## 17. UDP `bind/connect/sendto/recvfrom` có ý nghĩa gì?
+### 16.6 UDP và điều khiển tắc nghẽn
 
-> **Nói đơn giản:** UDP `connect()` chỉ gắn default peer/receive association; nó không có TCP handshake và không biến UDP thành reliable stream.
+UDP không tự có TCP điều khiển tắc nghẽn.
 
+RFC 8085 yêu cầu thiết kế UDP ứng dụng/giao thức phải ứng xử có trách nhiệm với congestion.
 
-### 17.1 Basic unconnected UDP model
+Không nên hiểu UDP là:
+
+```text
+"cứ gửi nhanh nhất có thể"
+```
+
+---
+
+## 17. UDP `bind()`, `connect()`, `sendto()` và `recvfrom()`
+
+### 17.1 UDP máy chủ thường `bind()`
 
 ```text
 socket(SOCK_DGRAM)
       |
-      +--> sendto(destination, datagram)
+bind(cục bộ cổng)
       |
-      +--> recvfrom() -> datagram + source address
+      v
+recvfrom()/sendto()
 ```
 
-No `listen()` or `accept()` is required.
+Máy khách biết cổng đó để gửi datagram tới.
 
 ---
 
-### 17.2 UDP server usually uses `bind()`
+### 17.2 UDP không cần `listen()`/`accept()`
 
-Server wants stable local port:
+Một socket UDP đã bind có thể nhận từ nhiều sender:
 
 ```text
-socket
-  |
-bind(local address, port)
-  |
-recvfrom/sendto
+Máy khách A ---\
+Máy khách B ----> UDP socket :5000
+Máy khách C ---/
 ```
 
-This lets clients know destination port.
+Không có connected fd mới cho mỗi máy khách như TCP `accept()`.
 
 ---
 
-### 17.3 UDP client may use implicit local bind
+### 17.3 `sendto()`
 
-If no explicit bind:
-
-```text
-sendto()
-```
-
-or:
+Mỗi lần gửi có thể chỉ rõ destination:
 
 ```text
-connect()
-```
-
-can cause kernel to select:
-
-```text
-local source address
-ephemeral port
+Datagram 1 -> Đầu bên kia A
+Datagram 2 -> Đầu bên kia B
+Datagram 3 -> Đầu bên kia C
 ```
 
 ---
 
-### 17.4 `sendto()`
+### 17.4 `recvfrom()`
 
-For unconnected datagram socket:
-
-```text
-sendto()
-```
-
-specifies destination per datagram.
-
-Concept:
+Ngoài payload, có thể nhận địa chỉ nguồn của datagram.
 
 ```text
-Datagram 1 -> Peer A
-Datagram 2 -> Peer B
-Datagram 3 -> Peer C
-```
-
-same socket can communicate with different destinations.
-
----
-
-### 17.5 `recvfrom()`
-
-Returns:
-
-```text
-datagram
+payload
 +
-source address
+sender địa chỉ
 ```
 
-This is useful for connectionless server:
+Đây là cơ sở để một UDP máy chủ biết phải trả response về đâu.
+
+---
+
+### 17.5 `connect()` trên UDP không tạo TCP kết nối
+
+Đây là điểm rất dễ nhầm.
+
+UDP `connect()` chủ yếu gắn socket với một đầu bên kia mặc định và thay đổi cách kernel lọc/liên kết gửi nhận/lỗi.
+
+Không có:
 
 ```text
-receive request
-identify sender
-send response to that sender
+TCP bắt tay
+retransmission guarantee
+đúng thứ tự luồng byte
 ```
 
 ---
 
-### 17.6 UDP `connect()` does not establish TCP-like connection
+### 17.6 UDP đã `connect()` có thể dùng `send()`/`recv()`
 
-This is a critical distinction.
-
-For UDP, Linux `connect()` sets:
-
-```text
-default destination
-```
-
-and filters/associates receive peer semantics.
-
-There is no TCP handshake.
-
-Mô hình tư duy:
-
-```text
-UDP connect()
-   =
-configure peer association
-   ≠
-establish reliable connection
-```
-
----
-
-### 17.7 Connected UDP can use `send()` / `recv()`
-
-Once UDP socket is connected:
+Sau khi `connect()`:
 
 ```text
 send()
-```
+  dùng đầu bên kia mặc định
 
-knows default destination.
-
-```text
 recv()
+  nhận trong association đã chọn
 ```
 
-does not need return source address for normal peer data.
-
-This can simplify code and error association.
+nhưng giao vận vẫn là UDP.
 
 ---
 
-### 17.8 Connected UDP can expose asynchronous network errors more directly
+### 17.7 UDP có thể báo lỗi bất đồng bộ
 
-Linux UDP can report asynchronous network errors, including errors related to previous datagrams.
+Linux có thể lưu/trả mạng error liên quan datagram trước đó ở thao tác sau.
 
-Connected UDP often gives clearer association of peer/errors, but it still does not gain TCP reliability.
-
----
-
-### 17.9 UDP does not use `listen()` / `accept()`
-
-Because there is no transport connection establishment requiring server to accept per-peer connections.
-
-A single bound UDP socket can receive datagrams from many senders:
-
-```text
-Client A --\
-Client B ---> UDP socket :port
-Client C --/
-```
-
-Application chooses whether to maintain per-peer logical session state.
+Do đó một lỗi UDP không phải lúc nào cũng đồng bộ 1:1 với đúng lần `send()` hiện tại.
 
 ---
 
-## 18. `send()` và `recv()` — API dữ liệu cơ bản
+---
 
-> **Nói đơn giản:** `send/recv` là API cơ bản cho connected socket; các biến thể khác thêm source/destination hoặc metadata. Topic này chỉ giữ phần cần cho roadmap.
+## 18. `send()` và `recv()`: API truyền nhận dữ liệu cơ bản
 
+> **Nói đơn giản:** `send()` và `recv()` là hai API cơ bản để truyền/nhận dữ liệu trên socket đã biết đầu bên kia. `sendto()` và `recvfrom()` thêm địa chỉ đích/nguồn, đặc biệt hữu ích với UDP.
 
-### 18.1 Send family
+### 18.1 Nhóm hàm gửi dữ liệu
+
+Hai API cơ bản cần phân biệt:
 
 ```text
 send()
 sendto()
 ```
 
-represent increasing flexibility.
+`send()` phù hợp khi socket đã biết đầu bên kia, ví dụ TCP socket đã kết nối hoặc UDP socket đã gọi `connect()`.
+
+`sendto()` cho phép chỉ rõ địa chỉ đích cho từng lần gửi, nên rất tự nhiên với UDP chưa kết nối.
 
 ---
 
 ### 18.2 `send()`
 
-Useful when destination is already known by connected socket.
+Mô hình tư duy:
 
-Adds per-call flags beyond normal `write()`.
+```text
+socket đã biết đầu bên kia
+        |
+      send()
+        |
+        v
+kernel nhận một phần/toàn bộ số byte được yêu cầu
+```
+
+Giá trị trả về cho biết số byte mà lời gọi đã chấp nhận xử lý. Với socket kiểu luồng, số byte này có thể nhỏ hơn số byte ứng dụng yêu cầu gửi.
 
 ---
 
 ### 18.3 `sendto()`
 
-Adds explicit:
+`sendto()` thêm một địa chỉ đích:
 
 ```text
-destination address
+dữ liệu
+  +
+địa chỉ đích
+  |
+  v
+sendto()
 ```
 
-for connectionless communication.
-
-Common conceptual fit:
-
-```text
-UDP
-```
+Với UDP, cùng một socket chưa kết nối có thể gửi các datagram khác nhau tới các đích khác nhau.
 
 ---
 
-### 18.4 Receive family
+### 18.4 Nhóm hàm nhận dữ liệu
+
+Hai API cơ bản:
 
 ```text
 recv()
 recvfrom()
 ```
 
-mirror receive needs.
+`recv()` nhận dữ liệu khi ứng dụng không cần lấy địa chỉ nguồn trên từng lần nhận.
+
+`recvfrom()` ngoài dữ liệu còn có thể trả lại địa chỉ của bên đã gửi datagram.
 
 ---
 
 ### 18.5 `recv()`
 
-Receives data when peer identity is already known/not needed.
+Với TCP, `recv()` lấy các byte từ luồng nhận:
+
+```text
+TCP receive stream
+       |
+       v
+    recv()
+       |
+       v
+một số byte đang sẵn có
+```
+
+Không được giả định rằng một lần `recv()` sẽ trả đúng một thông điệp của ứng dụng.
 
 ---
 
 ### 18.6 `recvfrom()`
 
-Can return:
+Với UDP chưa kết nối:
 
 ```text
-source address
+Datagram
+   |
+   +--> payload
+   |
+   +--> địa chỉ nguồn
 ```
 
-especially useful with datagram sockets.
+`recvfrom()` cho phép ứng dụng nhận cả hai. Đây là cơ sở để một máy chủ UDP biết phải gửi phản hồi về địa chỉ nào.
 
 ---
 
-### 18.7 Datagram truncation
+### 18.7 Bộ đệm nhận nhỏ hơn Datagram
 
-If receive buffer smaller than datagram, datagram semantics can cause excess data to be discarded and truncation indicated according to socket/API flags.
+UDP giữ ranh giới datagram. Nếu bộ đệm ứng dụng nhỏ hơn datagram nhận được, phần vượt quá kích thước bộ đệm có thể bị loại bỏ và API/cờ trạng thái có thể báo việc cắt ngắn dữ liệu.
 
-This differs fundamentally from TCP stream where unread bytes remain part of stream.
-
----
-
-### 18.8 `send()` does not guarantee remote delivery
-
-Linux `send(2)` explicitly notes no implicit indication of delivery failure is provided merely by successful send.
-
-Transport/application confirmation must be considered separately.
-
----
-
-## 19. Unix Domain Socket: cùng API nhưng giao tiếp Local
-
-> **Nói đơn giản:** Unix-domain socket dùng cùng API `socket/bind/listen/accept/connect` nhưng giao tiếp local thay vì IP network. Đây là cầu nối giữa Topic 8 và 9.
-
-
-### 19.1 Topic 8 already covered Unix-domain IPC semantics
-
-Topic 9 only revisits it to show one key architectural point:
+Điều này khác TCP:
 
 ```text
-same socket API
-```
+TCP:
+byte chưa đọc vẫn còn trong luồng
 
-can address:
-
-```text
-local IPC
-and
-IP networking
+UDP:
+mỗi datagram là một đơn vị riêng
 ```
 
 ---
 
-### 19.2 Same high-level vòng đời
+### 18.8 `send()` thành công không bảo đảm đầu bên kia đã nhận/xử lý dữ liệu
 
-Unix stream server:
+Linux `send(2)` phân biệt rõ việc dữ liệu được socket cục bộ chấp nhận với việc dữ liệu đã được ứng dụng ở đầu bên kia xử lý.
+
+Mô hình:
+
+```text
+send() thành công
+      |
+      v
+socket cục bộ đã nhận dữ liệu từ ứng dụng
+      |
+      X
+không đồng nghĩa
+      |
+      v
+ứng dụng đầu bên kia đã xử lý thành công
+```
+
+Nếu giao thức ứng dụng cần xác nhận nghiệp vụ, nó phải tự định nghĩa thông điệp phản hồi/xác nhận phù hợp.
+
+---
+
+## 19. Unix Domain Socket: cùng API nhưng giao tiếp cục bộ
+
+> **Nói đơn giản:** Unix Domain Socket dùng cùng họ API `socket()`, `bind()`, `listen()`, `accept()`, `connect()` nhưng chỉ giao tiếp giữa các process trên cùng máy thay vì đi qua mạng IP.
+
+### 19.1 Mối liên hệ với Topic 8
+
+Topic 8 đã giải thích Unix Domain Socket ở góc nhìn IPC. Trong Topic 9 chỉ cần giữ một ý quan trọng:
+
+```text
+cùng Socket API
+      |
+      +--> AF_INET / AF_INET6 : giao tiếp qua IP
+      |
+      +--> AF_UNIX            : giao tiếp cục bộ
+```
+
+Nhờ đó, cùng tư duy máy chủ/máy khách có thể được dùng cho cả dịch vụ mạng và dịch vụ chỉ chạy trên một máy.
+
+---
+
+### 19.2 Chuỗi API ở mức cao gần giống TCP
+
+Máy chủ Unix Domain Socket kiểu luồng:
 
 ```text
 socket(AF_UNIX, SOCK_STREAM)
-bind(local Unix address)
-listen()
-accept()
+        |
+       bind
+        |
+      listen
+        |
+      accept
 ```
 
-Client:
+Máy khách:
 
 ```text
 socket(AF_UNIX, SOCK_STREAM)
-connect(local Unix address)
+        |
+      connect
 ```
 
-The API sequence resembles TCP server/client.
+Điểm khác nằm ở:
+
+```text
+miền địa chỉ
+đường truyền cục bộ
+quy tắc đặt tên/vòng đời
+khả năng đặc thù của AF_UNIX
+```
+
+chứ không phải ở mô hình API cơ bản.
 
 ---
 
-### 19.3 Semantics come from domain + type
+### 19.3 Miền địa chỉ + kiểu Socket quyết định ngữ nghĩa
 
-Compare:
+So sánh:
 
 ```text
 AF_INET + SOCK_STREAM
-  TCP-style Internet stream
+  -> TCP qua IP
+  -> luồng byte
 
 AF_UNIX + SOCK_STREAM
-  local Unix stream
+  -> giao tiếp cục bộ
+  -> vẫn là luồng byte
 ```
 
-Both are streams:
-
-```text
-message boundaries not preserved
-```
-
-but address namespace/protocol path/vòng đời differ.
+Cả hai đều **không giữ ranh giới thông điệp của ứng dụng** khi dùng `SOCK_STREAM`.
 
 ---
 
-### 19.4 Why this matters architecturally
+### 19.4 Ý nghĩa trong kiến trúc hệ thống
 
-Application can design a local service API with:
+Một dịch vụ có thể dùng mô hình máy chủ/máy khách nhưng không cần mở cổng ra mạng:
 
 ```text
-socket client/server model
+Ứng dụng A
+    |
+AF_UNIX socket
+    |
+Dịch vụ cục bộ
 ```
 
-without exposing network interface.
-
-This helps separate:
+Điều này giúp tách hai câu hỏi:
 
 ```text
-service API semantics
-```
+API dịch vụ hoạt động thế nào?
 
-from:
+và
 
-```text
-network transport reachability
+Dịch vụ có cần được truy cập qua mạng không?
 ```
 
 ---
 
-## 20. Tư duy Debugging Socket theo từng Layer
+## 20. Tư duy gỡ lỗi Socket theo từng lớp
 
-> **Nói đơn giản:** Debug socket theo lớp: fd → local address/bind → route/network → transport trạng thái → peer → ứng dụng framing/giao thức.
+> **Nói đơn giản:** Khi socket có lỗi, đừng bắt đầu bằng việc đoán “mạng hỏng”. Hãy đi từ dưới lên: fd → địa chỉ cục bộ → định tuyến → TCP/UDP → đầu bên kia → giao thức ứng dụng.
 
-
-### 20.1 Socket errors occur at multiple layers
-
-A failure can belong to:
+### 20.1 Một lỗi Socket có thể nằm ở nhiều lớp
 
 ```text
-descriptor layer
-address layer
-local bind layer
-routing/network layer
-transport layer
-peer lifecycle
-application protocol
+Giao thức ứng dụng
+        |
+Socket / fd
+        |
+TCP hoặc UDP
+        |
+IP / định tuyến
+        |
+Giao diện mạng
+        |
+Mạng vật lý / đầu bên kia
 ```
 
-Debugging must identify layer before guessing cause.
+Cùng biểu hiện “không nhận được dữ liệu” có thể xuất phát từ những lớp rất khác nhau.
 
 ---
 
-### 20.2 Layered error mô hình tư duy
+### 20.2 Mô hình gỡ lỗi theo lớp
 
 ```text
-Application protocol valid?
+Giao thức ứng dụng đúng chưa?
         ↓
-Socket state correct?
+Socket đang ở trạng thái đúng chưa?
         ↓
-Transport state correct?
+TCP/UDP đang ở trạng thái nào?
         ↓
-Local address/port valid?
+Địa chỉ/cổng cục bộ đúng chưa?
         ↓
-Route/interface available?
+Có route/giao diện mạng phù hợp không?
         ↓
-Peer reachable?
+Đầu bên kia có thể truy cập được không?
         ↓
-Peer service listening/responding?
+Dịch vụ ở đầu bên kia có đang lắng nghe/phản hồi không?
 ```
 
 ---
 
-### 20.3 `socket()` errors
+### 20.3 Lỗi tại `socket()`
 
-Possible categories:
+Nếu `socket()` thất bại, vấn đề còn xảy ra **trước khi** xét khả năng kết nối tới đầu bên kia.
 
-```text
-unsupported family/protocol
-descriptor limits
-memory/kernel-resource shortage
-permission restrictions
-```
-
-If socket creation itself fails, network reachability is not yet the issue.
-
----
-
-### 20.4 `bind()` — `EADDRINUSE`
-
-Means local address assignment conflicts with current binding/reuse state.
-
-Possible contexts:
+Các nhóm nguyên nhân có thể gồm:
 
 ```text
-another listener/binding
-existing socket state
-restart/reuse semantics
-port allocation conflict
+họ địa chỉ/giao thức không được hỗ trợ
+hết file descriptor
+tài nguyên kernel không đủ
+quyền không cho phép
 ```
 
 ---
 
-### 20.5 `bind()` — `EADDRNOTAVAIL`
+### 20.4 `bind()` trả `EADDRINUSE`
 
-Requested address is not locally assignable in current network context.
-
-Possible mental question:
+Ý nghĩa chính:
 
 ```text
-Does this address actually belong to this host/interface/namespace?
+địa chỉ/cổng cục bộ được yêu cầu
+không thể bind theo trạng thái hiện tại
+```
+
+Có thể liên quan tới:
+
+```text
+socket khác đang dùng
+quy tắc tái sử dụng địa chỉ
+trạng thái TCP trước đó
+xung đột cấp cổng
 ```
 
 ---
 
-### 20.6 `connect()` — `ECONNREFUSED`
+### 20.5 `bind()` trả `EADDRNOTAVAIL`
 
-Peer/network returns refusal indicating no acceptable listening endpoint/service path.
-
-Conceptually different from:
+Thường cần hỏi:
 
 ```text
-ETIMEDOUT
+Địa chỉ này có thực sự thuộc máy/giao diện/network namespace hiện tại không?
 ```
 
-where expected connection establishment response never completed within timeout.
+Đây không phải cùng một lỗi với “cổng đang được dùng”.
 
 ---
 
-### 20.7 `connect()` — `ENETUNREACH` / `EHOSTUNREACH`
+### 20.6 `connect()` trả `ECONNREFUSED`
 
-These indicate routing/reachability class failures.
+`ECONNREFUSED` thường thuộc lớp:
 
-They are below application protocol layer.
+```text
+đích đã phản hồi
+nhưng không có điểm lắng nghe phù hợp
+```
+
+Nó khác `ETIMEDOUT`, nơi quá trình thiết lập kết nối không hoàn tất trong thời gian cho phép.
 
 ---
 
-### 20.8 `accept()` blocks forever
+### 20.7 `ENETUNREACH` và `EHOSTUNREACH`
 
-Possible conceptual reasons:
+Đây là các lỗi thuộc nhóm:
 
 ```text
-no completed connection waiting
-client never reaches server
-wrong local address/port
-firewall/routing issue
-listener not actually in expected namespace
-backlog/handshake issues
+định tuyến / khả năng tới mạng hoặc máy đích
 ```
 
-Need separate:
+Nó xảy ra thấp hơn tầng giao thức ứng dụng.
+
+---
+
+### 20.8 `accept()` chờ mãi
+
+Có thể đơn giản là chưa có kết nối hoàn tất nào trong hàng đợi `accept()`.
+
+Cần phân biệt:
 
 ```text
-server listening
+máy chủ đã listen
 ```
 
-from:
+với:
 
 ```text
-client connection reaches it
+kết nối từ máy khách thực sự tới được máy chủ
+```
+
+Các nguyên nhân cần nghĩ tới:
+
+```text
+sai địa chỉ/cổng
+máy khách chưa connect
+định tuyến/firewall
+khác network namespace
+quá trình bắt tay TCP chưa hoàn tất
 ```
 
 ---
 
-### 20.9 `recv()` blocks
+### 20.9 `recv()` chờ
 
-Could simply mean:
+Một `recv()` đang chặn không tự động có nghĩa deadlock.
+
+Nó có thể chỉ có nghĩa:
 
 ```text
-connection exists
-but no data/EOF/error currently available
+kết nối vẫn tồn tại
+nhưng hiện chưa có dữ liệu, EOF hoặc lỗi để trả về
 ```
-
-Do not interpret every blocked receive as deadlock.
 
 ---
 
-### 20.10 `recv() == 0` on TCP
+### 20.10 `recv() == 0` trên TCP
 
-Means orderly shutdown from peer's sending direction after buffered data is consumed.
-
-It does **not** mean:
+Trên TCP, sau khi các byte đã nhận trước đó được đọc hết:
 
 ```text
-"zero-byte packet received"
+recv() == 0
 ```
 
-in TCP stream semantics.
+có nghĩa đầu bên kia đã đóng có trật tự chiều gửi của nó.
+
+Không nên hiểu đây là:
+
+```text
+"nhận được một gói TCP dài 0 byte"
+```
 
 ---
 
 ### 20.11 `ECONNRESET`
 
-Represents connection reset/abort class.
+`ECONNRESET` biểu thị kết nối bị đặt lại/huỷ theo kiểu bất thường.
 
-This is different from orderly FIN/EOF.
-
-Application often should treat:
+Cần phân biệt:
 
 ```text
-EOF
+EOF do FIN
 ```
 
-and:
+với:
 
 ```text
-reset
+reset do RST
 ```
 
-as different vòng đời outcomes.
+vì ý nghĩa vòng đời và dữ liệu khác nhau.
 
 ---
 
-### 20.12 `EPIPE` and SIGPIPE
+### 20.12 `EPIPE` và `SIGPIPE`
 
-Sending on stream whose local/peer state no longer permits send can cause:
+Khi gửi vào một luồng không còn cho phép gửi:
 
 ```text
 EPIPE
@@ -3503,438 +2320,535 @@ EPIPE
 SIGPIPE
 ```
 
-unless SIGPIPE is suppressed/handled.
+có thể xuất hiện theo ngữ nghĩa POSIX/Linux.
 
-Signal behavior must be part of error architecture.
+Do đó xử lý `SIGPIPE` là một phần của thiết kế lỗi đối với socket kiểu luồng.
 
 ---
 
 ### 20.13 `EINTR`
 
-Blocking socket call can be interrupted by signal.
+Một lời gọi socket đang chặn có thể bị signal ngắt.
 
-Topic 5 rules apply:
+Cần áp dụng kiến thức Topic 5:
 
 ```text
 SA_RESTART
-specific syscall semantics
-partial progress
-application cancellation/deadline policy
+ngữ nghĩa của từng system call
+I/O đã tiến triển một phần hay chưa
+chính sách timeout/hủy của ứng dụng
 ```
 
-Blind unconditional retry is not always correct.
+Không nên biến mọi `EINTR` thành một vòng lặp retry vô điều kiện mà không hiểu trạng thái ứng dụng.
 
 ---
 
-### 20.14 UDP silent loss
+### 20.14 UDP có thể mất Datagram mà phía gửi không thấy lỗi trực tiếp
 
-UDP send success can be followed by:
+`send()`/`sendto()` thành công không chứng minh datagram đã tới ứng dụng phía nhận.
+
+Sau đó vẫn có thể xảy ra:
 
 ```text
-network loss
-receiver loss
-application drop
+mất trên mạng
+bị phía nhận loại bỏ
+ứng dụng phía nhận không xử lý
 ```
 
-without sender receiving direct synchronous error.
-
-Therefore absence of error does not prove datagram delivered.
+Đây là bản chất của mô hình UDP.
 
 ---
 
-### 20.15 UDP asynchronous errors
+### 20.15 Lỗi UDP bất đồng bộ
 
-Linux may report asynchronous network errors from earlier UDP transmission.
+Linux có thể báo một lỗi mạng liên quan tới datagram đã gửi trước đó ở một thao tác socket xảy ra sau đó.
 
-Therefore an error returned on later operation may relate to previous datagram.
-
-This surprises programmers expecting every UDP send error to map synchronously to current call.
-
----
-
-### 20.16 Message framing bug
-
-Symptoms:
+Vì vậy không nên luôn giả định:
 
 ```text
-messages merged
-messages split
-parser sees partial header
-```
-
-on TCP usually indicate application assumed:
-
-```text
-send boundary = message boundary
-```
-
-Transport may be working perfectly.
-
----
-
-### 20.17 Byte-order bug
-
-Symptoms:
-
-```text
-expected port 8080 appears as another value
-binary protocol fields misread
-```
-
-can arise from host/network byte-order confusion.
-
-Always distinguish:
-
-```text
-host integer
-network representation
-presentation string
+lỗi trả về ở lần gọi N
+= lỗi chỉ thuộc datagram của lần gọi N
 ```
 
 ---
 
-### 20.18 Wrong address-family size/structure
+### 20.16 Lỗi đóng khung thông điệp trên TCP
 
-Common class:
+Triệu chứng:
 
 ```text
-sockaddr_in used for IPv6 result
-wrong addrlen
-family mismatch
+hai thông điệp dính vào nhau
+một thông điệp bị tách thành nhiều lần recv
+header chỉ nhận được một phần
 ```
 
-Generic code should follow:
+thường có nghĩa ứng dụng đã giả định sai:
+
+```text
+một send() = một recv()
+```
+
+TCP có thể đang hoạt động hoàn toàn đúng.
+
+---
+
+### 20.17 Lỗi thứ tự byte
+
+Triệu chứng có thể là:
+
+```text
+cổng 8080 xuất hiện thành giá trị khác
+trường số nguyên trong giao thức bị đọc sai
+```
+
+Cần phân biệt ba dạng:
+
+```text
+giá trị số nguyên trên máy
+cách biểu diễn theo thứ tự byte mạng
+dạng chữ để con người đọc
+```
+
+---
+
+### 20.18 Sai họ địa chỉ hoặc kích thước cấu trúc
+
+Ví dụ lớp lỗi:
+
+```text
+dùng sockaddr_in cho kết quả IPv6
+truyền sai addrlen
+family không khớp cấu trúc
+```
+
+Khi dùng `getaddrinfo()`, nên tôn trọng trực tiếp:
 
 ```text
 ai_addr
 ai_addrlen
+ai_family
 ```
 
-or family-aware storage semantics.
+thay vì tự giả định mọi địa chỉ đều là IPv4.
 
 ---
 
-### 20.19 Server accepts but application fails
+### 20.19 TCP đã kết nối nhưng ứng dụng vẫn lỗi
 
-Transport connection exists.
-
-Then debug moves upward:
+Khi TCP đã kết nối thành công, việc gỡ lỗi phải chuyển lên tầng ứng dụng:
 
 ```text
-framing
-protocol version
-authentication
-request parsing
-state machine
+đóng khung thông điệp
+phiên bản giao thức
+xác thực
+phân tích request
+máy trạng thái của giao thức
 timeout
-business logic
+logic nghiệp vụ
 ```
 
-Socket success is only one layer.
+Socket thành công chỉ chứng minh một phần của toàn bộ hệ thống.
 
 ---
 
-### 20.20 Many `TIME_WAIT` sockets
+### 20.20 Có nhiều `TIME_WAIT`
 
-First interpretation:
-
-```text
-normal active-close TCP state
-```
-
-Then evaluate architecture if volume causes resource/port pressure.
-
-Do not call every TIME_WAIT:
+Cách hiểu đầu tiên phải là:
 
 ```text
-leak
+đây có thể là trạng thái TCP bình thường của phía chủ động đóng
 ```
+
+Chỉ sau đó mới đánh giá xem số lượng lớn có gây áp lực lên tài nguyên/cổng hay không.
+
+Không nên coi mọi `TIME_WAIT` là rò rỉ socket.
 
 ---
 
-### 20.21 Many `CLOSE_WAIT` sockets
+### 20.21 Có nhiều `CLOSE_WAIT`
 
-Often suggests:
+`CLOSE_WAIT` thường cho thấy:
 
 ```text
-peer already closed sending direction
-local application has not completed local close lifecycle
+đầu bên kia đã gửi FIN
+nhưng ứng dụng cục bộ chưa hoàn tất việc đóng phía mình
 ```
 
-This is more likely application resource-management issue than TIME_WAIT itself.
+Nếu trạng thái này tồn tại lâu với số lượng lớn, cần xem lại vòng đời descriptor/kết nối trong ứng dụng.
 
 ---
 
 ## 21. Liên hệ với Embedded Linux
 
-> **Nói đơn giản:** Embedded device có thể là TCP/UDP server hoặc client; tài nguyên limits, reconnect, backpressure và wire format phải được thiết kế rõ.
+> **Nói đơn giản:** Thiết bị Embedded Linux có thể vừa là máy chủ vừa là máy khách TCP/UDP. Vì tài nguyên có giới hạn, số kết nối, bộ đệm, reconnect và định dạng dữ liệu trên dây phải được thiết kế rõ ràng.
 
+### 21.1 Thiết bị Embedded Linux làm máy chủ mạng
 
-### 21.1 Embedded device as network server
-
-An embedded target may expose:
+Một thiết bị có thể cung cấp:
 
 ```text
-diagnostic service
-configuration service
-telemetry endpoint
-device-control API
-local gateway
+dịch vụ chẩn đoán
+dịch vụ cấu hình
+điểm gửi telemetry
+API điều khiển thiết bị
+gateway cục bộ
 ```
 
-using TCP/UDP sockets.
+qua TCP hoặc UDP.
 
 ---
 
-### 21.2 Embedded device as network client
+### 21.2 Thiết bị Embedded Linux làm máy khách mạng
 
-Device may connect outbound to:
+Thiết bị có thể chủ động kết nối tới:
 
 ```text
-cloud service
-local gateway
-management server
-time/configuration service
+cloud
+gateway trong mạng cục bộ
+máy chủ quản lý
+dịch vụ thời gian/cấu hình
 ```
 
-Client vòng đời depends on:
+Vòng đời phía máy khách phải tính tới:
 
 ```text
-network availability
-name resolution
-connection retry
-backoff
-shutdown
+mạng có/không có
+phân giải tên
+kết nối thất bại
+retry và backoff
 reconnect
+đóng dịch vụ
 ```
 
-Higher-level retry architecture builds on Topic 9 socket semantics.
+Topic 9 cung cấp nền ngữ nghĩa socket; kiến trúc timer/event loop sẽ thuộc các topic sau.
 
 ---
 
-### 21.3 TCP control channel
+### 21.3 TCP làm kênh điều khiển
 
-TCP is natural when application needs:
+TCP phù hợp khi ứng dụng cần:
 
 ```text
-reliable ordered command stream
-configuration exchange
-request/response session
-firmware metadata/control
-remote shell-like protocol
+luồng lệnh đáng tin cậy và đúng thứ tự
+trao đổi cấu hình
+request/response
+điều khiển hoặc metadata firmware
 ```
 
-Application still needs explicit message framing.
+Nhưng ứng dụng vẫn phải tự định nghĩa ranh giới thông điệp trên luồng byte TCP.
 
 ---
 
-### 21.4 UDP telemetry/control
+### 21.4 UDP cho telemetry hoặc điều khiển nhẹ
 
-UDP can fit:
+UDP có thể phù hợp với:
 
 ```text
-small independent telemetry datagrams
+các datagram telemetry độc lập
 discovery
-multicast/broadcast-related protocols
-latency-sensitive application-specific flows
+multicast/broadcast
+luồng ưu tiên độ trễ thấp
 ```
 
-provided protocol accounts for:
+khi giao thức ứng dụng đã tính tới:
 
 ```text
-loss
-reordering
-duplication
-congestion
-message size
+mất gói
+đảo thứ tự
+trùng dữ liệu
+tắc nghẽn
+kích thước datagram
 ```
 
 ---
 
-### 21.5 Local service vs network service
+### 21.5 Dịch vụ cục bộ và dịch vụ mạng
 
-Same socket-style architecture can choose:
+Cùng mô hình socket có thể chọn:
 
 ```text
 AF_UNIX
-  local-only service
+  -> chỉ giao tiếp trên cùng máy
 
-AF_INET/AF_INET6
-  network-reachable service
+AF_INET / AF_INET6
+  -> có thể giao tiếp qua IP
 ```
 
-This helps architect service boundary separately from reachability boundary.
+Điều này giúp tách thiết kế API của dịch vụ khỏi quyết định có cho phép truy cập qua mạng hay không.
 
 ---
 
-### 21.6 Resource limits matter
+### 21.6 Giới hạn tài nguyên rất quan trọng
 
-Embedded target may have limited:
+Thiết bị Embedded Linux có thể bị giới hạn về:
 
 ```text
 RAM
-socket buffers
-file descriptors
-threads
+file descriptor
+bộ đệm socket
+thread
 CPU
-network bandwidth
+băng thông mạng
 ```
 
-Every connected TCP client consumes kernel/application state.
+Mỗi kết nối TCP đồng thời đều tiêu tốn trạng thái trong kernel và ứng dụng.
 
-Unbounded connection architecture is dangerous.
+Vì vậy kiến trúc số kết nối không nên tăng vô hạn.
 
 ---
 
-### 21.7 TCP keepalive vs application heartbeat
+### 21.7 TCP keepalive khác heartbeat của ứng dụng
 
-TCP keepalive probes transport path after inactivity.
+TCP keepalive kiểm tra đường truyền/kết nối sau một khoảng thời gian không hoạt động theo các tham số TCP.
 
-Application heartbeat can carry semantic health:
+Heartbeat của ứng dụng có thể kiểm tra ý nghĩa ở mức cao hơn:
 
 ```text
-service responsive?
-sensor pipeline alive?
-peer state current?
+dịch vụ còn phản hồi không?
+đường xử lý sensor còn sống không?
+trạng thái đầu bên kia còn hợp lệ không?
 ```
 
-They solve different problems.
+Hai cơ chế giải quyết hai bài toán khác nhau.
 
 ---
 
-### 21.8 Graceful shutdown during service stop
+### 21.8 Đóng dịch vụ có kiểm soát
 
-Embedded service managed by init/systemd may receive:
+Một dịch vụ có thể nhận `SIGTERM` từ `systemd`/init.
 
-```text
-SIGTERM
-```
-
-Normal architecture:
+Mô hình lý thuyết:
 
 ```text
-signal/control request
+nhận yêu cầu dừng
       |
-stop accepting new work
+ngừng nhận công việc/kết nối mới
       |
-finish/cancel current protocol operations
+hoàn tất hoặc hủy các thao tác đang chạy
       |
-shutdown socket directions as required
+shutdown các chiều socket nếu cần
       |
-close descriptors
+close descriptor
       |
-exit
+process kết thúc
 ```
 
-Complex synchronization belongs earlier Thread/Signal topics.
+Đây là nơi kiến thức Signal, Thread Synchronization và Socket gặp nhau.
 
 ---
 
-### 21.9 Network byte order matters on heterogeneous systems
+### 21.9 Thứ tự byte mạng đặc biệt quan trọng khi các kiến trúc khác nhau giao tiếp
 
-Embedded devices can communicate with:
+Thiết bị có thể giao tiếp giữa:
 
 ```text
-x86 host
-ARM target
-MCU gateway
-other architectures
+x86
+ARM
+MCU
+SoC khác
 ```
 
-Protocol fields must use defined wire representation.
-
-Never transmit raw in-memory C struct and assume identical:
+Không được gửi thẳng một `struct` C trong RAM rồi giả định hai phía có cùng:
 
 ```text
 endianness
 padding
 alignment
-type widths
+kích thước kiểu dữ liệu
 ABI
 ```
 
-across peers.
+Giao thức phải định nghĩa định dạng dữ liệu trên đường truyền một cách độc lập với ABI của chương trình.
 
 ---
 
-### 21.10 Protocol serialization is separate from socket transport
+### 21.10 Tuần tự hóa dữ liệu là bài toán riêng với Socket
 
-Socket transports:
-
-```text
-bytes or datagrams
-```
-
-Application must define serialization:
+Socket chỉ truyền:
 
 ```text
-field widths
-endianness
-framing
-version
-validation
-maximum sizes
+byte stream
+hoặc
+datagram
 ```
 
-This is especially important for long-lived embedded products.
+Ứng dụng vẫn phải định nghĩa:
+
+```text
+kích thước trường
+thứ tự byte
+cách đóng khung
+phiên bản giao thức
+kiểm tra dữ liệu đầu vào
+giới hạn kích thước
+```
+
+Đây là điểm rất quan trọng với sản phẩm Embedded Linux cần duy trì lâu dài.
 
 ---
 
-### 21.11 IPv4/IPv6 portability
+### 21.11 Khả năng hỗ trợ IPv4/IPv6
 
-Embedded products may encounter:
+Một sản phẩm có thể gặp:
 
 ```text
-IPv4-only environment
-dual-stack LAN
-IPv6-capable deployment
+mạng chỉ IPv4
+mạng dual-stack
+môi trường có IPv6
 ```
 
-Using generic address-resolution/address structures reduces protocol-family assumptions.
+Dùng `getaddrinfo()` và các cấu trúc địa chỉ tổng quát giúp giảm việc gắn cứng chương trình vào IPv4.
 
 ---
 
-## 22. Tổng kết và Mô hình tư duy
+## 22. Tổng kết và mô hình tư duy
 
-> **Nói đơn giản:** Mô hình tư duy: socket fd + address + giao thức trạng thái; TCP là byte stream connection, UDP là datagrams.
+> **Nói đơn giản:** Socket là điểm cuối giao tiếp do kernel quản lý và ứng dụng giữ bằng `file descriptor`. TCP cung cấp luồng byte có kết nối; UDP cung cấp các datagram độc lập.
 
+### 22.1 Bản đồ tổng thể
 
 ```text
-Application
-   ↓
+Ứng dụng
+   |
+   v
 socket fd
-   ↓
-domain + type + protocol
-   ├─ AF_INET/AF_INET6 + SOCK_STREAM → TCP
-   ├─ AF_INET/AF_INET6 + SOCK_DGRAM  → UDP
-   └─ AF_UNIX                         → local socket IPC
+   |
+   v
+miền địa chỉ + kiểu + giao thức
+   |
+   +--> AF_INET / AF_INET6 + SOCK_STREAM -> TCP
+   |
+   +--> AF_INET / AF_INET6 + SOCK_DGRAM  -> UDP
+   |
+   +--> AF_UNIX                          -> giao tiếp cục bộ
 ```
 
-TCP server:
+---
+
+### 22.2 Máy chủ TCP
 
 ```text
-socket → bind → listen → accept → connected socket → send/recv → shutdown/close
+socket()
+   |
+bind()
+   |
+listen()
+   |
+accept()
+   |
+   +--> socket đã kết nối với máy khách A
+   |
+   +--> socket đã kết nối với máy khách B
 ```
 
-Các điểm cần giữ:
-- Socket là communication endpoint represented by a file descriptor.
-- Socket address gồm family-specific address data; Internet endpoints dùng IP + transport port.
-- Internet protocol integer fields dùng network byte order where specified.
-- TCP là reliable ordered full-duplex byte stream; nó không preserve application message boundaries.
-- `accept()` trả về connected socket mới; listening socket vẫn tiếp tục listen.
-- Stream `send()`/`recv()` có partial-I/O semantics và application phải tự framing.
-- UDP giữ datagram boundaries nhưng không guarantee delivery/order/duplicate suppression.
-- UDP `connect()` chỉ thiết lập peer/default-destination semantics, không tạo TCP-style handshake.
-- `shutdown()` điều khiển direction của connected communication; graceful close cần phân biệt EOF, FIN và reset/error.
+Điểm phải nhớ:
+
+```text
+socket lắng nghe
+!=
+socket đã kết nối trả về từ accept()
+```
+
+---
+
+### 22.3 Máy khách TCP
+
+```text
+tên máy / địa chỉ
+      |
+ getaddrinfo()
+      |
+   socket()
+      |
+  connect()
+      |
+      v
+kết nối TCP
+```
+
+---
+
+### 22.4 TCP
+
+```text
+hướng kết nối
+đáng tin cậy
+đúng thứ tự
+song công toàn phần
+luồng byte
+```
+
+Điểm quan trọng nhất:
+
+```text
+TCP không giữ ranh giới thông điệp của ứng dụng
+```
+
+Do đó ứng dụng phải tự đóng khung thông điệp.
+
+---
+
+### 22.5 UDP
+
+```text
+Datagram A
+Datagram B
+Datagram C
+```
+
+Ranh giới từng datagram được giữ, nhưng không có bảo đảm chung về:
+
+```text
+chuyển tới đích
+thứ tự
+loại bỏ bản trùng
+```
+
+---
+
+### 22.6 Đóng TCP
+
+```text
+shutdown()
+  -> thay đổi chiều giao tiếp
+
+close()
+  -> giải phóng tham chiếu fd
+
+FIN
+  -> đóng có trật tự một chiều
+
+RST
+  -> đặt lại/hủy kết nối
+
+TIME_WAIT
+  -> trạng thái bình thường trong vòng đời TCP
+```
+
+---
+
+### 22.7 Mười nguyên tắc cần nhớ nhất
+
+1. `socket()` tạo một điểm cuối giao tiếp và trả về `file descriptor`.
+2. `domain + type + protocol` cùng quyết định ngữ nghĩa của socket.
+3. `bind()` chọn địa chỉ/cổng cục bộ.
+4. Máy chủ TCP dùng chuỗi `socket → bind → listen → accept`.
+5. Máy khách TCP dùng `socket → connect`.
+6. `accept()` trả về **socket mới** cho từng kết nối; socket lắng nghe vẫn tiếp tục lắng nghe.
+7. TCP là **luồng byte**, không phải hàng đợi thông điệp.
+8. UDP giữ ranh giới datagram nhưng không bảo đảm chuyển tới đích/thứ tự.
+9. `shutdown()` và `close()` giải quyết hai phần khác nhau của vòng đời socket.
+10. Khi gỡ lỗi, phải xác định lỗi nằm ở fd, địa chỉ, TCP/UDP, IP/định tuyến hay giao thức ứng dụng.
 
 ---
 
 ## 23. Tài liệu tham khảo
 
-> **Nói đơn giản:** Nguồn tham khảo để kiểm chứng POSIX socket API, TCP/UDP RFC và Linux-specific behavior.
+> **Nói đơn giản:** Các nguồn dưới đây dùng để kiểm chứng API POSIX/Linux và ngữ nghĩa chuẩn của TCP/UDP. Phần giải thích trong chapter ưu tiên cách diễn đạt dễ học, còn chi tiết chuẩn nên đối chiếu lại các nguồn gốc này.
 
+### 23.1 POSIX và Linux Socket API
 
-- POSIX.1-2024 Socket Interfaces: https://pubs.opengroup.org/onlinepubs/9799919799/
+- POSIX.1-2024: https://pubs.opengroup.org/onlinepubs/9799919799/
 - `socket(2)`: https://man7.org/linux/man-pages/man2/socket.2.html
 - `socket(7)`: https://man7.org/linux/man-pages/man7/socket.7.html
 - `bind(2)`: https://man7.org/linux/man-pages/man2/bind.2.html
@@ -3944,14 +2858,36 @@ Các điểm cần giữ:
 - `send(2)`: https://man7.org/linux/man-pages/man2/send.2.html
 - `recv(2)`: https://man7.org/linux/man-pages/man2/recv.2.html
 - `shutdown(2)`: https://man7.org/linux/man-pages/man2/shutdown.2.html
+
+### 23.2 Địa chỉ Internet và phân giải tên
+
 - `ip(7)`: https://man7.org/linux/man-pages/man7/ip.7.html
 - `ipv6(7)`: https://man7.org/linux/man-pages/man7/ipv6.7.html
-- `unix(7)`: https://man7.org/linux/man-pages/man7/unix.7.html
-- `tcp(7)`: https://man7.org/linux/man-pages/man7/tcp.7.html
-- `udp(7)`: https://man7.org/linux/man-pages/man7/udp.7.html
-- RFC 9293 — TCP: https://www.rfc-editor.org/rfc/rfc9293.html
-- RFC 768 — UDP: https://www.rfc-editor.org/rfc/rfc768.html
 - `getaddrinfo(3)`: https://man7.org/linux/man-pages/man3/getaddrinfo.3.html
+- `inet_pton(3)`: https://man7.org/linux/man-pages/man3/inet_pton.3.html
+- `byteorder(3)`: https://man7.org/linux/man-pages/man3/byteorder.3.html
+
+### 23.3 TCP và UDP
+
+- RFC 9293 — Transmission Control Protocol (TCP): https://www.rfc-editor.org/rfc/rfc9293.html
+- `tcp(7)`: https://man7.org/linux/man-pages/man7/tcp.7.html
+- RFC 768 — User Datagram Protocol: https://www.rfc-editor.org/rfc/rfc768.html
+- RFC 8085 — UDP Usage Guidelines: https://www.rfc-editor.org/rfc/rfc8085.html
+- `udp(7)`: https://man7.org/linux/man-pages/man7/udp.7.html
+
+### 23.4 Unix Domain Socket
+
+- `unix(7)`: https://man7.org/linux/man-pages/man7/unix.7.html
+
+### 23.5 Nguồn giải thích bổ sung
+
+- Linux man-pages project: https://www.kernel.org/doc/man-pages/
+- The Linux Programming Interface / man7.org: https://man7.org/tlpi/
+- Bootlin Embedded Linux training: https://bootlin.com/training/embedded-linux/
+- Unix & Linux Stack Exchange: https://unix.stackexchange.com/
+- Stack Overflow: https://stackoverflow.com/
+
+> Các nguồn cộng đồng chỉ dùng để tham khảo cách giải thích hoặc tình huống lỗi thực tế; khi xác định hành vi chuẩn của API, ưu tiên POSIX, RFC và Linux man-pages.
 
 ---
 

@@ -1,2677 +1,1504 @@
-# Chủ đề 8 — Interprocess Communication (IPC) trong Linux
+# Chủ đề 8 — Giao tiếp liên tiến trình (IPC) trong Linux
 
-> **Mục tiêu dễ hiểu:** Hiểu các process tách biệt trao đổi dữ liệu bằng pipe, FIFO, message queue và shared memory như thế nào.
+> **Mục tiêu:** hiểu vì sao các tiến trình cần IPC, và phân biệt đúng `pipe`, `FIFO`, POSIX Message Queue và POSIX Shared Memory theo mô hình dữ liệu, cách đặt tên, hành vi chặn, vòng đời và trách nhiệm đồng bộ.
 >
-> **Bạn cần biết trước:** Biết process/fd và synchronization cơ bản. Unix domain socket được chuyển sang Topic 9 theo roadmap Socket Programming.
+> **Quy ước ngôn ngữ:** phần giải thích dùng Tiếng Việt. Giữ nguyên những tên chuẩn cần tra cứu như `IPC`, `FIFO`, `POSIX`, `pipe()`, `mkfifo()`, `mq_open()`, `shm_open()`, `mmap()`, `MAP_SHARED`, `SIGPIPE`, `EPIPE`, `PIPE_BUF`.
 >
-> **Các từ khóa sẽ gặp nhiều:**
-> - **IPC** = interprocess communication
-> - **pipe/FIFO** = byte stream
-> - **message queue** = hàng đợi message có ranh giới
-> - **shared memory** = nhiều process map cùng vùng memory
-> - **backpressure** = bên gửi phải chậm lại khi bên nhận không theo kịp
+> **Phạm vi:** IPC cơ bản, unnamed pipe, FIFO, POSIX Message Queue, POSIX Shared Memory, `mmap` dùng chung, semaphore/đồng bộ ở mức cần để hiểu shared memory, hành vi chặn, backpressure và so sánh lựa chọn cơ chế IPC.
 >
-> **Quy ước đọc thuật ngữ:** khi gặp `state`, `context`, `semantics`, `object`, hãy hiểu lần lượt là **trạng thái**, **ngữ cảnh**, **hành vi theo chuẩn**, **đối tượng/tài nguyên**. Tên API và thuật ngữ chuẩn như process, thread, socket, mutex được giữ nguyên để bạn quen dần với tài liệu kỹ thuật.
->
-> **Cách đọc nếu bạn mới bắt đầu:**
-> 1. Lượt đầu chỉ đọc các ô **“Nói đơn giản”**, sơ đồ ASCII/Mermaid và phần **Tổng kết**.
-> 2. Lượt hai đọc các mục `###` để hiểu API/khái niệm cụ thể.
-> 3. Các mục `####`, caveat POSIX/Linux và edge case có thể để lần đọc thứ ba. **Không cần hiểu hết trong một lượt.**
->
-> Chương này chỉ có **lý thuyết**, không có lab hay bài tập thực hành. Thuật ngữ tiếng Anh được giữ khi đó là tên chuẩn, nhưng luôn ưu tiên giải thích ý nghĩa trước.
+> Chương này chỉ có **lý thuyết**, không có bài thực hành. Unix Domain Socket thuộc **Chủ đề 9 — Socket Programming** và chỉ được nhắc khi cần so sánh phạm vi.
+
 ---
 
 ## Mục lục
 
 - [1. IPC là gì?](#1-ipc-là-gì)
 - [2. Trước khi chọn IPC cần hỏi những gì?](#2-trước-khi-chọn-ipc-cần-hỏi-những-gì)
-- [3. Unnamed Pipe: byte stream giữa các Process liên quan](#3-unnamed-pipe-byte-stream-giữa-các-process-liên-quan)
-- [4. FIFO: Pipe có tên trong Filesystem](#4-fifo-pipe-có-tên-trong-filesystem)
-- [5. POSIX Message Queue: gửi từng Message riêng](#5-posix-message-queue-gửi-từng-message-riêng)
-- [6. Shared Memory: nhiều Process cùng nhìn một vùng nhớ](#6-shared-memory-nhiều-process-cùng-nhìn-một-vùng-nhớ)
-- [7. Shared Memory cần Synchronization như thế nào?](#7-shared-memory-cần-synchronization-như-thế-nào)
-- [8. Blocking, Backpressure và Flow Control](#8-blocking-backpressure-và-flow-control)
-- [9. So sánh và chọn IPC Mechanism](#9-so-sánh-và-chọn-ipc-mechanism)
-- [10. Tư duy Debugging IPC](#10-tư-duy-debugging-ipc)
-- [11. Liên hệ với Embedded Linux](#11-liên-hệ-với-embedded-linux)
-- [12. Tổng kết và Mô hình tư duy](#12-tổng-kết-và-mô-hình-tư-duy)
-- [13. Tài liệu tham khảo](#13-tài-liệu-tham-khảo)
+- [3. Unnamed Pipe: luồng byte giữa các tiến trình có quan hệ](#3-unnamed-pipe-luồng-byte-giữa-các-tiến-trình-có-quan-hệ)
+- [4. Ngữ nghĩa I/O, EOF, `SIGPIPE` và `PIPE_BUF` của Pipe](#4-ngữ-nghĩa-io-eof-sigpipe-và-pipe_buf-của-pipe)
+- [5. FIFO: Pipe có tên trong hệ thống tệp](#5-fifo-pipe-có-tên-trong-hệ-thống-tệp)
+- [6. POSIX Message Queue: gửi từng thông điệp riêng](#6-posix-message-queue-gửi-từng-thông-điệp-riêng)
+- [7. POSIX Shared Memory: cùng nhìn một vùng nhớ](#7-posix-shared-memory-cùng-nhìn-một-vùng-nhớ)
+- [8. Vì sao Shared Memory cần đồng bộ?](#8-vì-sao-shared-memory-cần-đồng-bộ)
+- [9. Hành vi chặn, Backpressure và giới hạn tài nguyên](#9-hành-vi-chặn-backpressure-và-giới-hạn-tài-nguyên)
+- [10. So sánh và lựa chọn cơ chế IPC](#10-so-sánh-và-lựa-chọn-cơ-chế-ipc)
+- [11. Tư duy gỡ lỗi IPC](#11-tư-duy-gỡ-lỗi-ipc)
+- [12. Liên hệ với Embedded Linux](#12-liên-hệ-với-embedded-linux)
+- [13. Tổng kết](#13-tổng-kết)
+- [14. Tài liệu tham khảo](#14-tài-liệu-tham-khảo)
 
 ---
 
 ## 1. IPC là gì?
 
-> **Nói đơn giản:** Process có address space riêng nên cần IPC để trao đổi data/control. Mỗi IPC mechanism tạo một “cầu nối” với hành vi theo chuẩn khác nhau.
+> **Nói đơn giản:** hai tiến trình bình thường có không gian địa chỉ riêng. Muốn trao đổi dữ liệu hoặc báo cho nhau một sự kiện, chúng cần một cơ chế giao tiếp do hệ điều hành cung cấp. Nhóm cơ chế đó gọi là `IPC` — Interprocess Communication.
 
+### 1.1 Vì sao không thể dùng biến toàn cục giữa hai tiến trình?
 
-### 1.1 Vì sao process cần IPC?
-
-Topic 4 đã xây mô hình tư duy:
+Giả sử:
 
 ```text
-Process A
-  virtual address space A
+Tiến trình A
+  biến x ở địa chỉ 0x1000
 
-Process B
-  virtual address space B
+Tiến trình B
+  cũng có địa chỉ 0x1000
 ```
 
-Hai process bình thường không trực tiếp nhìn thấy private memory của nhau.
+Hai địa chỉ ảo giống nhau không có nghĩa chúng trỏ tới cùng bộ nhớ vật lý.
 
-Isolation này rất quan trọng cho:
+Mỗi tiến trình bình thường có không gian địa chỉ riêng:
 
 ```text
-fault containment
-security
-address-space protection
-independent lifecycle
++----------------------+       +----------------------+
+| Tiến trình A         |       | Tiến trình B         |
+| không gian địa chỉ A |       | không gian địa chỉ B |
++----------------------+       +----------------------+
 ```
 
-Nhưng một hệ thống thực tế thường gồm nhiều process phải phối hợp:
+IPC tạo một đường hoặc một đối tượng mà cả hai phía cùng có thể truy cập theo quy tắc của nó.
+
+---
+
+### 1.2 IPC dùng để truyền dữ liệu và phối hợp
+
+Hai mục đích thường gặp:
 
 ```text
-sensor service
-logger
-network service
-supervisor
-UI
-database
-worker
+Truyền dữ liệu
+  bytes
+  message
+  buffer lớn
+
+Phối hợp
+  báo có dữ liệu
+  báo hoàn thành
+  yêu cầu dừng
+  đánh thức bên kia
 ```
 
-Do đó cần cơ chế:
+Không phải cơ chế nào cũng phù hợp như nhau cho cả hai.
+
+---
+
+### 1.3 Các cơ chế trong Topic 8
 
 ```text
-Interprocess Communication
 IPC
+ |
+ +--> Pipe
+ |      luồng byte, không có tên pathname
+ |
+ +--> FIFO
+ |      luồng byte, có tên trong filesystem
+ |
+ +--> POSIX Message Queue
+ |      thông điệp riêng biệt
+ |
+ +--> POSIX Shared Memory
+        nhiều tiến trình ánh xạ cùng vùng nhớ
 ```
 
 ---
 
-### 1.2 IPC là communication + coordination
-
-IPC thường phục vụ hai loại mục đích:
-
-```text
-Data transfer
-  gửi bytes/messages/state
-
-Coordination
-  báo event
-  wake peer
-  indicate completion
-  control lifecycle
-```
-
-Một mechanism có thể làm tốt cả hai hoặc chỉ phù hợp một phần.
+### 1.4 IPC object và handle không phải lúc nào cũng giống nhau
 
 Ví dụ:
 
 ```text
 Pipe
-  stream data + EOF lifecycle
+  đối tượng pipe trong kernel
+  + file descriptor đầu đọc/ghi
 
-Message queue
-  discrete messages + priority
+Message Queue
+  đối tượng hàng đợi trong kernel
+  + mqd_t để tham chiếu
 
-Shared memory
-  common data region
-  but needs separate synchronization
-
-Unix socket
-  bidirectional data + local connection semantics
+Shared Memory
+  đối tượng bộ nhớ dùng chung
+  + fd từ shm_open()
+  + mapping từ mmap()
 ```
 
----
-
-### 1.3 IPC không chỉ dành cho unrelated processes
-
-Communication có thể giữa:
+Cần phân biệt:
 
 ```text
-parent ↔ child
-
-siblings created by same parent
-
-independent long-running services
-
-client ↔ local server
+đối tượng IPC
 ```
 
-Một unnamed pipe tự nhiên phù hợp với related processes vì các endpoint thường được truyền qua descriptor inheritance.
-
-Một số có names để unrelated processes rendezvous:
+với:
 
 ```text
-FIFO pathname
-POSIX message queue name
-POSIX shared-memory name
-Unix pathname socket
-```
-
----
-
-### 1.4 IPC object vs communication endpoint
-
-Important distinction:
-
-```text
-IPC object/channel
-```
-
-không phải lúc nào cũng giống:
-
-```text
-file descriptor
-```
-
-Examples:
-
-```text
-pipe
-  object + read/write fd endpoints
-
-FIFO
-  filesystem name → open endpoints
-
-POSIX MQ
-  queue object + mqd_t descriptor
-
-shared memory
-  object → fd → mmap mapping
-
-Unix socket
-  socket endpoint fd
-```
-
-The handle is how process refers to communication object.
-
-The object has its own vòng đời and semantics.
-
----
-
-### 1.5 IPC overview
-
-```text
-                         IPC
-                          |
-       +------------------+------------------+
-       |                  |                  |
-       v                  v                  v
-   Byte Stream         Messages         Shared State
-       |                  |                  |
-   Pipe/FIFO          Message Queue       Shared Memory
-       |
-       +------------------------------------------+
-                                                  |
-                                             Unix Socket
-                                       stream / datagram /
-                                         sequenced packet
+handle mà tiến trình dùng để truy cập đối tượng đó
 ```
 
 ---
 
 ## 2. Trước khi chọn IPC cần hỏi những gì?
 
-> **Nói đơn giản:** Khi chọn IPC, hỏi: stream hay message? có tên hay chỉ inherited fd? một chiều hay hai chiều? buffer hữu hạn? đối tượng sống bao lâu?
+### 2.1 Dữ liệu là luồng byte hay từng thông điệp?
 
-
-### 2.1 Stream vs message-oriented
-
-A stream gives:
+Pipe/FIFO:
 
 ```text
-bytes
+A B C D E F G ...
 ```
 
-without preserving application message boundaries.
+là **luồng byte**.
 
-Examples:
+Message Queue:
 
 ```text
-pipe
-FIFO
-SOCK_STREAM
+[Message 1]
+[Message 2]
+[Message 3]
 ```
 
-A message-oriented mechanism preserves units:
+giữ ranh giới từng thông điệp.
+
+Shared Memory:
 
 ```text
-message 1
-message 2
-message 3
+[ứng dụng tự định nghĩa cấu trúc]
 ```
 
-Examples:
-
-```text
-POSIX message queue
-SOCK_DGRAM
-SOCK_SEQPACKET
-```
-
-Shared memory is neither naturally stream nor message.
-
-Application defines structure.
+không tự là stream hay message.
 
 ---
 
-### 2.2 Named vs unnamed
+### 2.2 Có cần tên để hai tiến trình độc lập tìm nhau không?
 
-Unnamed pipe thường yêu cầu các process nhận endpoint thông qua descriptor inheritance hoặc một setup có sẵn.
-
-Named:
+Unnamed Pipe:
 
 ```text
-FIFO pathname
-POSIX MQ name
-POSIX SHM name
-Unix pathname socket
+không có pathname/tên IPC để mở lại từ tiến trình độc lập
 ```
 
-allows processes to locate/rendezvous through a stable name.
+thường phù hợp khi file descriptor được kế thừa hoặc truyền từ mối quan hệ đã có.
+
+FIFO / MQ / SHM:
+
+```text
+có tên
+```
+
+nên hai tiến trình được khởi động độc lập có thể cùng tham chiếu tới một đối tượng biết trước.
 
 ---
 
-### 2.3 Unidirectional vs bidirectional
+### 2.3 Một chiều hay hai chiều?
 
-Portable POSIX pipe:
+Portable pipe nên được xem là:
 
 ```text
-one read end
-one write end
+một chiều
+writer ------> reader
 ```
 
-so it should be treated as:
+Muốn trao đổi hai chiều bằng pipe thường cần:
 
 ```text
-unidirectional
+Pipe A: P1 -> P2
+Pipe B: P2 -> P1
 ```
 
-Unix sockets:
+Message Queue và Shared Memory có thể xây giao thức hai chiều ở mức ứng dụng, nhưng cách tổ chức khác nhau.
+
+---
+
+### 2.4 Có cần giữ ranh giới message không?
+
+Nếu giao thức tự nhiên là:
 
 ```text
-bidirectional
+Command A
+Command B
+Command C
 ```
 
-A bidirectional protocol over pipes generally needs:
+Message Queue có lợi thế vì message boundary là một phần của cơ chế.
+
+Nếu dùng Pipe/FIFO, ứng dụng phải tự tạo framing:
 
 ```text
-two pipes
+fixed-size
+length prefix
+delimiter
 ```
 
 ---
 
-### 2.4 Copy-based communication vs shared memory
+### 2.5 Dữ liệu lớn hay nhỏ?
 
-Stream/message IPC usually follows conceptual path:
-
-```text
-Sender userspace
-      |
-      v
-kernel-managed IPC buffer/state
-      |
-      v
-Receiver userspace
-```
-
-Shared memory:
+Dữ liệu nhỏ và rời rạc:
 
 ```text
-Process A mapping ----+
-                      |
-                      +--> same shared memory object/pages
-                      |
-Process B mapping ----+
+command
+event
+job descriptor
 ```
 
-After mapping, communication can occur by memory accesses rather than one kernel IPC transfer per message.
+thường phù hợp với message-oriented IPC.
 
-But synchronization responsibility becomes larger.
+Dữ liệu lớn:
+
+```text
+frame ảnh
+block audio
+buffer cảm biến lớn
+```
+
+có thể phù hợp Shared Memory hơn vì không cần đưa toàn bộ payload qua một hàng đợi byte/message cho mỗi lần trao đổi.
 
 ---
 
-### 2.5 Persistent name vs live communication state
+### 2.6 Ai chịu trách nhiệm đồng bộ?
 
-Names and communication data do not always have same lifetime.
+Pipe/MQ đã có các quy tắc chờ và hàng đợi do kernel quản lý.
 
-Example FIFO:
-
-```text
-filesystem FIFO entry persists
-```
-
-but:
+Shared Memory chỉ cung cấp:
 
 ```text
-pipe data only exists while FIFO is open/active
+cùng vùng nhớ
 ```
 
-The named filesystem entry is not a persistent data file.
+nên ứng dụng phải tự giải quyết:
+
+```text
+ai đang ghi?
+khi nào dữ liệu hợp lệ?
+buffer nào trống?
+buffer nào đã đầy?
+```
 
 ---
 
-### 2.6 Blocking and nonblocking semantics
+### 2.7 Đối tượng sống bao lâu?
 
-Many IPC operations can block because peer/resource is not ready.
-
-Examples:
+Cần hỏi:
 
 ```text
-empty pipe read
-full pipe write
-empty message queue receive
-full message queue send
-socket receive with no data
-FIFO open waiting for peer
+process chết thì IPC object còn không?
+tên còn không?
+dữ liệu còn không?
+bao giờ đối tượng thật sự bị xóa?
 ```
 
-Nonblocking mode changes:
-
-```text
-wait
-```
-
-into:
-
-```text
-return immediately with readiness-style error/state
-```
-
-where supported.
+Vòng đời khác nhau giữa pipe, FIFO, MQ và SHM.
 
 ---
 
-### 2.7 Backpressure
+## 3. Unnamed Pipe: luồng byte giữa các tiến trình có quan hệ
 
-Finite receiver capacity means producer sometimes must slow down.
+### 3.1 `pipe()` tạo gì?
 
-This is:
-
-```text
-backpressure
-```
-
-Mô hình tư duy:
-
-```text
-Producer
-   |
-   v
-finite IPC buffer
-   |
-   v
-Consumer
-
-consumer slower than producer
-      |
-buffer fills
-      |
-producer blocks/fails/queues elsewhere
-```
-
-Backpressure is a fundamental IPC design property.
-
----
-
-### 2.8 Lifetime and cleanup
-
-Each IPC mechanism has questions:
-
-```text
-When is object created?
-Who owns the name?
-What keeps it alive?
-When does peer observe EOF/disconnect?
-When is kernel state destroyed?
-What remains after process crashes?
-```
-
-Ignoring vòng đời creates many IPC bugs.
-
----
-
-## 3. Unnamed Pipe: byte stream giữa các Process liên quan
-
-> **Nói đơn giản:** Unnamed pipe là byte stream có read end và write end. Nó tự nhiên cho parent-child vì fd có thể được kế thừa qua fork.
-
-> **Hình dung:** Pipe giống ống nước một chiều: bên viết đẩy byte vào đầu write, bên đọc lấy byte ở đầu read. Ống không biết đâu là “message số 1”.
-
-
-### 3.1 Pipe abstraction
-
-POSIX `pipe()` creates an interprocess channel and returns two descriptors:
+`pipe()` tạo một pipe và trả về hai file descriptor:
 
 ```text
 fd[0]
-  read end
+  đầu đọc
 
 fd[1]
-  write end
+  đầu ghi
 ```
 
-Mô hình tư duy:
+Sơ đồ:
 
 ```text
 Writer
-   |
- write(fd[1])
-   |
-   v
-+----------------------+
-|      Pipe Buffer     |
-+----------------------+
-   |
- read(fd[0])
-   |
-   v
+  |
+write(fd[1])
+  |
+  v
++------------------+
+|  bộ đệm Pipe     |
+|  trong kernel    |
++------------------+
+  |
+read(fd[0])
+  |
+  v
 Reader
 ```
 
 ---
 
-### 3.2 Portable directionality
+### 3.2 Pipe thường đi cùng `fork()`
 
-POSIX defines pipe with read and write ends.
-
-Portable mô hình tư duy:
-
-```text
-write end ─────────────> read end
-```
-
-Linux uses this unidirectional model.
-
-Some historical systems may support bidirectional pipe behavior, but portable applications must not depend on it.
-
----
-
-### 3.3 Pipe creates file descriptors, not pathname
-
-Unnamed pipe has no pathname used for rendezvous.
-
-Therefore endpoints normally reach processes through:
-
-```text
-fork inheritance
-descriptor duplication
-descriptor passing
-existing process setup
-```
-
-Classic parent-child model:
+Một mô hình kinh điển:
 
 ```text
 Parent
-   |
- pipe()
-   |
- fork()
-  /   \
- /     \
-P       C
-
-both initially inherit references
-to both pipe ends
+  |
+pipe()
+  |
+fork()
+ /    \
+/      \
+Parent  Child
 ```
 
-Application then conceptually closes unneeded ends.
+Sau `fork()`, cả parent và child ban đầu đều có bản sao file descriptor trỏ tới cùng pipe object.
+
+Application sau đó thường đóng các đầu không cần dùng để tạo đúng topology.
 
 ---
 
-### 3.4 File descriptor inheritance is part of pipe topology
+### 3.3 File descriptor inheritance là một phần của giao thức Pipe
 
-Suppose:
+Nếu muốn:
 
 ```text
-Parent wants to write
-Child wants to read
+Parent -> Child
 ```
 
-Desired topology:
+thì mô hình mong muốn là:
 
 ```text
 Parent:
-  write end open
-  read end unused
+  giữ đầu ghi
+  đóng đầu đọc không dùng
 
 Child:
-  read end open
-  write end unused
+  giữ đầu đọc
+  đóng đầu ghi không dùng
 ```
 
-If unused duplicated write ends remain open, EOF detection can be delayed.
-
-Thus fd lifetime is part of communication semantics.
+Việc đóng các đầu thừa không chỉ “cho sạch code”; nó ảnh hưởng trực tiếp tới EOF và `SIGPIPE`.
 
 ---
 
-### 3.5 Pipe is a kernel communication object
+### 3.4 Pipe không phải regular file tạm
 
-Data written into pipe is held in kernel-managed pipe buffers.
+Pipe không lưu dữ liệu như một file trên storage.
 
-Pipe is not:
+Nó là một đối tượng truyền byte trong kernel:
 
 ```text
-temporary regular file
+write -> kernel pipe buffer -> read
 ```
 
-and cannot be treated as seekable storage.
+Vì vậy không có khái niệm seek tới vị trí bất kỳ.
 
 ---
 
-### 3.6 Pipe I/O Semantics
+## 4. Ngữ nghĩa I/O, EOF, `SIGPIPE` và `PIPE_BUF` của Pipe
 
-#### 3.6.1 Pipe is a byte stream
+### 4.1 Pipe là luồng byte
 
-Linux `pipe(7)` explicitly states:
+Đây là điều quan trọng nhất.
 
-```text
-there is no concept of message boundaries
-```
-
-Suppose writer conceptually does:
+Writer:
 
 ```text
-write "ABC"
-write "DEF"
+write("ABC")
+write("DEF")
 ```
 
-Reader might observe:
+Reader có thể nhận:
 
 ```text
 "ABCDEF"
 ```
 
-or consume:
+hoặc:
 
 ```text
 "AB"
-then
 "CDEF"
 ```
 
-depending read sizes/timing.
+Tùy kích thước `read()` và timing.
 
-Application must define framing if it needs logical messages.
+Pipe không lưu metadata:
+
+```text
+write #1 kết thúc ở đây
+write #2 bắt đầu ở đây
+```
 
 ---
 
-#### 3.6.2 FIFO order means byte order, not application records
+### 4.2 Thứ tự byte vẫn được giữ
 
-Bytes are consumed in order.
-
-Mô hình tư duy:
+Nếu stream được ghi:
 
 ```text
-written:
-
-A B C D E F
-
-read stream:
-
 A B C D E F
 ```
 
-But the pipe does not record:
+reader không tự nhiên nhận:
 
 ```text
-write #1 = ABC
-write #2 = DEF
+A C B D F E
 ```
 
-as permanent message metadata.
+Pipe giữ thứ tự stream, nhưng không giữ message boundary.
 
 ---
 
-#### 3.6.3 `read()` on pipe
+### 4.3 Pipe rỗng chưa chắc là EOF
 
-Concept:
+Nếu buffer đang rỗng nhưng vẫn còn writer:
 
 ```text
-pipe has data?
-   /      \
- yes       no
- |          |
-return      writers exist?
-bytes        /       \
-            yes       no
-            |          |
-          block       EOF
-          or EAGAIN   read returns 0
+read() blocking
+  -> chờ dữ liệu mới
 ```
 
-Blocking/nonblocking state changes exact result.
+Nếu **tất cả** đầu ghi đã được đóng:
+
+```text
+read()
+  -> trả 0 sau khi dữ liệu cũ đã đọc hết
+```
+
+Đó mới là EOF.
 
 ---
 
-#### 3.6.4 Empty pipe is not always EOF
+### 4.4 Vì sao descriptor rò rỉ làm reader chờ mãi?
 
-Important distinction:
-
-```text
-empty pipe
-```
-
-can mean:
-
-```text
-temporarily no data
-```
-
-or:
-
-```text
-no writers remain
-```
-
-If writer references still exist:
-
-```text
-blocking read waits
-```
-
-If all write-end references are closed:
-
-```text
-read returns 0
-```
-
-EOF is a **lifetime condition**, not merely buffer emptiness.
-
----
-
-#### 3.6.5 `lseek()` does not apply
-
-Pipe represents a flowing stream, not a random-access byte-addressable regular file.
-
-Therefore:
-
-```text
-lseek(pipe_fd, ...)
-```
-
-is not meaningful and fails.
-
----
-
-#### 3.6.6 Pipe is not a message protocol
-
-If application sends structured objects:
-
-```text
-header
-payload
-header
-payload
-```
-
-it must define framing using:
-
-```text
-fixed-size records
-length prefix
-delimiter
-state machine
-```
-
-The pipe only provides ordered bytes.
-
----
-
-### 3.7 Pipe Lifetime, EOF và `SIGPIPE`
-
-#### 3.7.1 Pipe lifetime depends on open references
-
-Kernel tracks references to both ends.
-
-Mô hình tư duy:
-
-```text
-Read-end references:  R
-Write-end references: W
-```
-
-Communication state depends on whether:
-
-```text
-R > 0
-W > 0
-```
-
----
-
-#### 3.7.2 EOF condition
-
-If:
-
-```text
-W == 0
-```
-
-and buffered data has been consumed:
-
-```text
-reader sees EOF
-read() returns 0
-```
-
-This is why leaked write descriptors can cause a reader to wait unexpectedly.
-
----
-
-#### 3.7.3 Broken pipe condition
-
-If:
-
-```text
-R == 0
-```
-
-and process writes:
-
-```text
-SIGPIPE is generated
-```
-
-Default SIGPIPE action is process termination.
-
-If SIGPIPE is ignored/handled as appropriate:
-
-```text
-write() fails with EPIPE
-```
-
-This connects Topic 3 and Topic 5.
-
----
-
-#### 3.7.4 Closing one descriptor is not enough if duplicates exist
-
-Because:
-
-```text
-dup()
-fork()
-```
-
-can create multiple descriptor references to same pipe end.
-
-Example:
+Ví dụ:
 
 ```text
 Parent write fd ----+
-                    +--> pipe write end
+                    +--> cùng đầu ghi Pipe
 Child write fd -----+
 ```
 
-Closing one still leaves writer reference alive.
+Parent đóng đầu ghi nhưng child vô tình vẫn giữ một bản sao.
 
-EOF only occurs after **all** write-end references disappear.
+Kernel vẫn thấy:
+
+```text
+còn writer reference
+```
+
+nên reader chưa nhận EOF.
 
 ---
 
-#### 3.7.5 Pipe vòng đời state machine
+### 4.5 Khi không còn reader
 
-```mermaid
-stateDiagram-v2
-    [*] --> Created
+Nếu mọi đầu đọc đã đóng mà writer vẫn ghi:
 
-    Created --> Active: read/write endpoint references exist
-    Active --> Active: bytes written/read
-
-    Active --> NoWriters: all write-end references closed
-    NoWriters --> EOFVisible: buffered bytes drained
-
-    Active --> NoReaders: all read-end references closed
-    NoReaders --> BrokenPipe: writer attempts write
-
-    EOFVisible --> Destroyable: no remaining references
-    BrokenPipe --> Destroyable: no remaining references
-    Destroyable --> [*]
+```text
+write()
+  |
+  +--> phát sinh SIGPIPE
+  |
+  +--> nếu không bị terminate bởi signal thì lỗi EPIPE
 ```
 
-This is a simplified vòng đời model; kernel reference details are more complex.
+Đây là liên hệ trực tiếp với Topic 5.
 
 ---
 
-### 3.8 Pipe Capacity, Backpressure và Atomic Write
-
-#### 3.8.1 Pipe has finite capacity
-
-A pipe is not infinite storage.
-
-Concept:
+### 4.6 Pipe có dung lượng hữu hạn
 
 ```text
-+--------------------------+
-| finite kernel pipe buffer|
-+--------------------------+
+Producer
+   |
+   v
++--------------------+
+| Pipe buffer hữu hạn|
++--------------------+
+   |
+   v
+Consumer
 ```
 
-If producer is faster:
+Nếu producer nhanh hơn consumer:
 
 ```text
-buffer fills
+buffer đầy
+  |
+writer blocking chờ chỗ trống
 ```
 
-then writer must:
+hoặc nếu nonblocking:
 
 ```text
-block
+trả trạng thái EAGAIN/EWOULDBLOCK phù hợp
 ```
 
-or under nonblocking mode:
-
-```text
-return readiness/error result
-```
+Topic 10 sẽ đi sâu vào nonblocking và readiness.
 
 ---
 
-#### 3.8.2 Capacity is implementation-specific
+### 4.7 `PIPE_BUF` không phải dung lượng tổng của Pipe
 
-Linux pipe capacity has changed across kernel versions and can be affected by resource limits/configuration.
-
-Therefore portable application should not treat:
+Hai khái niệm khác nhau:
 
 ```text
-"pipe holds exactly X bytes"
-```
+Pipe capacity
+  tổng lượng dữ liệu buffer có thể giữ
 
-as a protocol assumption.
-
----
-
-#### 3.8.3 `PIPE_BUF` is not pipe capacity
-
-Very important:
-
-```text
 PIPE_BUF
+  giới hạn liên quan tới bảo đảm atomic write giữa nhiều writer
 ```
 
-is related to **atomic write guarantees**.
-
-It is not:
-
-```text
-total pipe buffer capacity
-```
-
-These are different concepts.
+Không được đồng nhất chúng.
 
 ---
 
-#### 3.8.4 Atomic writes up to `PIPE_BUF`
+### 4.8 Write không lớn hơn `PIPE_BUF`
 
-POSIX requires writes up to the relevant `PIPE_BUF` limit to be atomic with respect to interleaving from other pipe writers.
+POSIX bảo đảm mức atomicity nhất định cho write đủ nhỏ không vượt `PIPE_BUF`.
 
-Concept:
+Với nhiều writer:
 
 ```text
-Writer A writes record A <= PIPE_BUF
-Writer B writes record B <= PIPE_BUF
-
-Reader sees:
-AAAA...BBBB...
-or
-BBBB...AAAA...
+Writer A ghi bản ghi A <= PIPE_BUF
+Writer B ghi bản ghi B <= PIPE_BUF
 ```
 
-not arbitrary byte interleaving inside those individual writes.
+các byte của từng write không bị trộn xen tùy ý vào nhau.
 
 ---
 
-#### 3.8.5 Writes larger than `PIPE_BUF`
+### 4.9 Write lớn hơn `PIPE_BUF`
 
-A larger write can be interleaved with data from another writer.
-
-Conceptually:
+Có thể bị xen kẽ với writer khác.
 
 ```text
-A chunk
-B chunk
-A chunk
-B chunk
+A-part
+B-part
+A-part
+B-part
 ```
 
-Therefore `PIPE_BUF` can be important for multi-writer record framing.
+Do đó nếu dùng pipe như record stream có nhiều writer, framing và kích thước write cần được thiết kế cẩn thận.
 
 ---
 
-#### 3.8.6 Linux value vs POSIX requirement
+### 4.10 `PIPE_BUF` cũng không biến Pipe thành Message Queue
 
-POSIX requires:
-
-```text
-PIPE_BUF >= 512 bytes
-```
-
-Linux commonly defines pipe `PIPE_BUF` as:
+Ngay cả khi từng write nhỏ được atomic:
 
 ```text
-4096 bytes
+Pipe vẫn là byte stream
 ```
 
-Application portability should rely on symbolic/system-defined value, not hard-coded Linux number.
+Reader vẫn phải biết cách chia record.
 
 ---
 
-#### 3.8.7 Atomic write does not mean atomic application transaction
+## 5. FIFO: Pipe có tên trong hệ thống tệp
 
-Even if one `write()` is atomic:
+> **Nói đơn giản:** FIFO có ngữ nghĩa I/O gần giống pipe, nhưng có một pathname trong hệ thống tệp để các tiến trình không cần quan hệ parent/child vẫn có thể cùng mở nó.
 
-```text
-multiple writes
-```
+### 5.1 FIFO là một loại file đặc biệt
 
-making one logical message are not automatically atomic together.
-
-Example:
+Ví dụ namespace:
 
 ```text
-write(header)
-write(payload)
+/run/myapp.fifo
 ```
 
-another writer can potentially insert data between operations.
+Đây là một FIFO special file, không phải regular file chứa nội dung lâu dài.
 
 ---
 
-#### 3.8.8 Backpressure is useful, not merely a limitation
-
-Blocking when buffer fills can naturally constrain producer:
+### 5.2 Pathname dùng làm điểm hẹn
 
 ```text
-fast producer
+Tiến trình A
    |
-pipe full
+open("/run/myapp.fifo")
    |
-producer sleeps
+   +--------------------+
+                        v
+                    FIFO name
+                        ^
+   +--------------------+
    |
-consumer catches up
+Tiến trình B
 ```
 
-This is implicit flow control.
-
-But it can also create deadlock if both sides wait on full/empty channels incorrectly.
+Hai bên biết cùng pathname là có thể tìm tới cùng FIFO theo quyền truy cập cho phép.
 
 ---
 
-## 4. FIFO: Pipe có tên trong Filesystem
+### 5.3 Dữ liệu không nằm “trong file FIFO” như regular file
 
-> **Nói đơn giản:** FIFO có pipe hành vi theo chuẩn nhưng có pathname để các process khởi động độc lập tìm thấy cùng kênh.
-
-
-### 4.1 FIFO is a pipe with filesystem rendezvous name
-
-FIFO means:
+Filesystem entry giữ:
 
 ```text
-First In First Out special file
+tên
+loại file
+quyền
+metadata
 ```
 
-Common term:
+Dữ liệu truyền thực tế chạy qua pipe object/buffer trong kernel khi FIFO đang được mở.
 
-```text
-named pipe
-```
+Không nên nghĩ:
 
-Mô hình tư duy:
-
-```text
-Filesystem namespace
-
-/tmp/service.fifo
-        |
-        v
-FIFO special file
-        |
-        v
-kernel pipe object while opened
-```
+> “Ghi vào FIFO rồi ngày mai mở file ra đọc lại dữ liệu cũ.”
 
 ---
 
-### 4.2 FIFO pathname does not store communication data
+### 5.4 Sau khi mở, I/O giống Pipe
 
-Linux `fifo(7)` emphasizes:
-
-```text
-data passes internally through kernel
-```
-
-The filesystem FIFO entry has no regular-file data contents.
-
-It acts as:
-
-```text
-reference/rendezvous point
-```
-
-for processes to open the same channel.
-
----
-
-### 4.3 FIFO allows unrelated processes to rendezvous
-
-Unlike an unnamed pipe, processes do not need to inherit pre-created descriptors.
-
-They can independently know:
-
-```text
-same FIFO pathname
-```
-
-and open it subject to permissions.
-
----
-
-### 4.4 FIFO permissions
-
-FIFO is a filesystem object with:
-
-```text
-owner
-group
-permission bits
-```
-
-and creation mode affected by:
-
-```text
-umask
-```
-
-This makes filesystem access policy part of IPC access control.
-
----
-
-### 4.5 FIFO and pipe share I/O semantics after open
-
-Linux `pipe(7)` states that after creation/opening differences are resolved:
-
-```text
-pipe and FIFO I/O semantics are the same
-```
-
-Therefore FIFO is also:
+FIFO cũng có:
 
 ```text
 byte stream
-no message boundaries
-finite capacity
-EOF based on writer references
-SIGPIPE/EPIPE based on reader references
-not seekable
+không có message boundary
+EOF theo writer reference
+SIGPIPE/EPIPE theo reader reference
+buffer hữu hạn
+không seek
 ```
 
 ---
 
-### 4.6 FIFO Open/Lifetime Semantics
+### 5.5 `open()` FIFO có thể chặn để chờ phía còn lại
 
-#### 4.6.1 Opening FIFO is itself synchronization
-
-In blocking mode, opening one side normally waits for peer side.
-
-Concept:
+Ở chế độ blocking thông thường:
 
 ```text
-Reader:
-open FIFO for read
-      |
-      | no writer yet
-      v
-     wait
+Reader mở đầu đọc
+  -> có thể chờ writer
 
-
-Writer:
-open FIFO for write
-      |
-      v
-rendezvous
+Writer mở đầu ghi
+  -> có thể chờ reader
 ```
 
-Opening the FIFO can therefore participate in process coordination.
+Do đó chính thao tác `open()` cũng là một điểm phối hợp giữa các tiến trình.
 
 ---
 
-#### 4.6.2 Blocking read-only open
+### 5.6 Nonblocking thay đổi hành vi mở
 
-POSIX semantics:
+Với `O_NONBLOCK`, các thao tác mở có thể không chờ và trả kết quả/lỗi ngay theo phía còn lại.
 
-```text
-open FIFO O_RDONLY
-without O_NONBLOCK
-```
-
-waits until a writer opens the FIFO.
-
----
-
-#### 4.6.3 Blocking write-only open
-
-Likewise:
-
-```text
-open FIFO O_WRONLY
-without O_NONBLOCK
-```
-
-waits until a reader opens the FIFO.
-
----
-
-#### 4.6.4 Nonblocking open
-
-With nonblocking mode:
-
-```text
-read-only open
-  can return without waiting for writer
-
-write-only open
-  fails if no reader exists
-```
-
-On Linux this write-side failure is:
+Ví dụ phía ghi không có reader trên Linux có thể nhận:
 
 ```text
 ENXIO
 ```
 
----
-
-#### 4.6.5 Linux read-write open is nonportable
-
-Linux allows opening a FIFO:
-
-```text
-O_RDWR
-```
-
-even without another process on peer side.
-
-POSIX leaves this behavior undefined.
-
-Therefore portable IPC design should not rely on self-opening FIFO as both ends.
+Chi tiết nonblocking thuộc Topic 10; ở đây chỉ cần hiểu rằng trạng thái cờ I/O thay đổi giao thức chờ.
 
 ---
 
-#### 4.6.6 FIFO name lifetime vs data lifetime
+### 5.7 Pathname sống khác dữ liệu truyền
 
-The pathname can remain after processes close it:
-
-```text
-FIFO special-file name persists
-```
-
-until explicitly removed.
-
-But kernel communication state/data is not a persistent regular-file log.
-
-Concept:
+FIFO pathname có thể còn:
 
 ```text
-pathname lifetime
-      !=
-buffered communication-data lifetime
+sau khi tất cả process đã close
 ```
+
+cho tới khi nó được xóa khỏi filesystem.
+
+Nhưng dữ liệu pipe không trở thành dữ liệu persistent của pathname đó.
 
 ---
 
-#### 4.6.7 Exactly one active pipe object per opened FIFO pathname on Linux
+### 5.8 Quyền truy cập
 
-Linux `fifo(7)` explains kernel maintains one pipe object for a FIFO special file while it is opened by at least one process.
+Vì FIFO là filesystem object nên chịu:
 
-Thus multiple openers rendezvous on same active FIFO channel.
+```text
+owner
+group
+r/w permission
+umask khi tạo
+```
+
+Đây là một lợi thế khi muốn dùng quyền filesystem làm lớp kiểm soát truy cập đơn giản.
 
 ---
 
-## 5. POSIX Message Queue: gửi từng Message riêng
+## 6. POSIX Message Queue: gửi từng thông điệp riêng
 
-> **Nói đơn giản:** POSIX message queue giữ từng message riêng và có priority. Nó phù hợp khi ranh giới message là một phần quan trọng của giao thức.
+> **Nói đơn giản:** khác với pipe là luồng byte, POSIX Message Queue lưu các message riêng biệt trong một hàng đợi kernel. Người nhận lấy từng message chứ không phải tự chia stream.
 
-> **Hình dung:** Message queue giống hộp thư có từng phong bì riêng; khác pipe ở chỗ ranh giới từng message được giữ lại.
-
-
-### 5.1 Why message queue differs from pipe
-
-Pipe:
-
-```text
-A B C D E F
-```
-
-Message queue:
-
-```text
-[message A]
-[message B]
-[message C]
-```
-
-Message boundaries are part of the abstraction.
-
----
-
-### 5.2 Message queue is kernel-managed discrete storage
-
-Concept:
+### 6.1 Mô hình
 
 ```text
 Sender
-  |
-  | send message
-  v
-+-----------------------+
-| Kernel Message Queue  |
-|-----------------------|
-| message 1             |
-| message 2             |
-| message 3             |
-+-----------------------+
-  |
-  | receive message
-  v
+   |
+ mq_send()
+   |
+   v
++-------------------------+
+| POSIX Message Queue     |
+|-------------------------|
+| Message A               |
+| Message B               |
+| Message C               |
++-------------------------+
+   |
+ mq_receive()
+   |
+   v
 Receiver
 ```
 
 ---
 
-### 5.3 Message-oriented communication simplifies framing
+### 6.2 Queue có tên
 
-With a queue, application does not need stream parser merely to recover message boundaries.
-
-Receiver gets:
+POSIX MQ dùng một tên chuẩn dạng khái niệm:
 
 ```text
-one selected message
+/my_queue
 ```
 
-per receive operation according to queue semantics.
+Các tiến trình biết tên này có thể dùng `mq_open()` để mở cùng queue nếu quyền cho phép.
 
 ---
 
-### 5.4 Message queue is not shared memory
+### 6.3 `mqd_t`
 
-Sender does not generally hand receiver direct access to sender buffer.
-
-Conceptually:
-
-```text
-send message into queue
-receive message from queue
-```
-
-Queue is an IPC object holding discrete messages.
-
----
-
-### 5.5 Message queue is bounded
-
-A queue has limits such as:
-
-```text
-maximum messages
-maximum message size
-resource/accounting limits
-```
-
-Thus it also implements backpressure.
-
----
-
-### 5.6 POSIX Message Queue
-
-#### 5.6.1 POSIX message queue naming
-
-POSIX message queue is identified by a name.
-
-Portable Linux/POSIX style:
-
-```text
-/name
-```
-
-Processes knowing same queue name can open same queue.
-
----
-
-#### 5.6.2 `mq_open()` returns `mqd_t`
-
-Message queue descriptor:
+`mq_open()` trả về một message queue descriptor:
 
 ```text
 mqd_t
 ```
 
-is the handle used by:
+Ứng dụng nên xem nó là handle POSIX của queue.
 
-```text
-mq_send()
-mq_receive()
-mq_getattr()
-mq_setattr()
-mq_close()
-```
-
-Application should treat `mqd_t` as POSIX abstraction.
+Linux có chi tiết triển khai fd-like, nhưng không nên dùng chi tiết đó làm giả định di động cho mọi POSIX system.
 
 ---
 
-#### 5.6.3 Linux implementation detail: `mqd_t` is fd-like
+### 6.4 Message boundary được giữ
 
-On Linux, message queue descriptors are implemented as file descriptors and can integrate with Linux fd readiness mechanisms.
-
-But:
-
-> POSIX does not require message queue descriptor to be a file descriptor.
-
-Therefore portable architecture must not equate:
+Nếu sender gửi:
 
 ```text
-mqd_t == ordinary fd
+[ABC]
+[DEF]
 ```
 
-as a universal rule.
+receiver nhận theo từng message, không phải tự hỏi byte nào thuộc message nào như Pipe.
+
+Đây là một trong những khác biệt lớn nhất.
 
 ---
 
-#### 5.6.4 Open message queue description
+### 6.5 Queue có giới hạn
 
-Linux `mq_overview(7)` explains message queue descriptors refer to:
-
-```text
-open message queue descriptions
-```
-
-After `fork()`:
-
-```text
-parent mqd
-child mqd
-```
-
-can refer to same open message queue description and share associated flags such as:
-
-```text
-mq_flags
-```
-
-This resembles Topic 3 open-file-description thinking.
-
----
-
-#### 5.6.5 Queue attributes
-
-Important attributes include concepts such as:
+Các thuộc tính quan trọng:
 
 ```text
 mq_maxmsg
-  maximum number of messages
+  số message tối đa
 
 mq_msgsize
-  maximum message size
+  kích thước message tối đa
 
 mq_curmsgs
-  current queued messages
-
-mq_flags
-  e.g. nonblocking state
+  số message hiện tại
 ```
 
-Exact limits are system/resource dependent.
+Queue không phải vùng chứa vô hạn.
 
 ---
 
-#### 5.6.6 Message priority
+### 6.6 Khi queue rỗng
 
-Each POSIX message has:
-
-```text
-priority
-```
-
-Receiver selects:
-
-```text
-oldest message among highest-priority available messages
-```
-
-Thus queue is not simply:
-
-```text
-global FIFO regardless of priority
-```
-
-FIFO ordering applies among messages at same selected priority level.
-
----
-
-#### 5.6.7 Priority is queue selection metadata
-
-Application may model:
-
-```text
-urgent control message
-normal telemetry
-background work
-```
-
-but priority semantics should be used carefully.
-
-High-priority traffic can potentially delay lower-priority traffic if continuously produced.
-
----
-
-### 5.7 Message Queue Blocking, Priority và Lifetime
-
-#### 5.7.1 Empty queue receive
-
-Default blocking behavior:
-
-```text
-queue empty
-   |
-mq_receive()
-   |
-   v
-wait until message arrives
-```
-
-unless interrupted or timeout/nonblocking rules apply.
-
----
-
-#### 5.7.2 Nonblocking receive
-
-If:
-
-```text
-O_NONBLOCK
-```
-
-is active and queue empty:
+Blocking receive:
 
 ```text
 mq_receive()
+  -> chờ tới khi có message
+```
+
+Nonblocking:
+
+```text
+queue rỗng
   -> EAGAIN
 ```
 
-No message is removed.
-
 ---
 
-#### 5.7.3 Full queue send
+### 6.7 Khi queue đầy
 
-If queue already contains maximum messages:
+Blocking send:
 
 ```text
 mq_send()
+  -> chờ tới khi có chỗ
 ```
 
-normally blocks until space becomes available.
-
-With:
+Nonblocking:
 
 ```text
-O_NONBLOCK
+queue đầy
+  -> EAGAIN
 ```
 
-send fails immediately with:
-
-```text
-EAGAIN
-```
+Đây là backpressure tự nhiên của hàng đợi hữu hạn.
 
 ---
 
-#### 5.7.4 Timed operations
+### 6.8 Priority của POSIX MQ
 
-POSIX message queues provide timed send/receive variants.
+Mỗi message có một priority.
 
-Concept:
+Receiver chọn:
 
 ```text
-wait for queue space/message
-        |
-        +--> condition becomes available
-        |
-        +--> deadline expires
+message có priority cao nhất
 ```
 
-This bounds blocking time.
+Nếu nhiều message cùng priority:
+
+```text
+message cũ hơn được lấy trước
+```
+
+Do đó POSIX MQ không phải FIFO toàn cục khi các priority khác nhau.
 
 ---
 
-#### 5.7.5 Queue persistence
+### 6.9 Vòng đời: `mq_close()` và `mq_unlink()`
 
-Linux POSIX message queues have kernel persistence.
-
-If not:
-
-```text
-mq_unlink()
-```
-
-queue can remain until system shutdown.
-
-Therefore:
-
-```text
-all processes close queue
-```
-
-does not necessarily destroy queue object/name.
-
-This differs from unnamed pipe.
-
----
-
-#### 5.7.6 `mq_close()` vs `mq_unlink()`
-
-Conceptual distinction:
+Hai thao tác khác nhau:
 
 ```text
 mq_close()
-  release this process's descriptor/reference
+  đóng handle của tiến trình này
 
 mq_unlink()
-  remove queue name
+  gỡ tên queue khỏi namespace
 ```
 
-The object can continue to exist while existing references remain according to unlink semantics.
+Giống tư duy unlink file:
 
-Naming and open-reference lifetime are separate.
+```text
+tên bị gỡ
+```
+
+không nhất thiết có nghĩa mọi handle đang mở lập tức mất hiệu lực.
 
 ---
 
-#### 5.7.7 Message queue vòng đời state machine
+### 6.10 Linux có tính persistent ở mức kernel
 
-```mermaid
-stateDiagram-v2
-    [*] --> Named
+Nếu queue chưa bị unlink, Linux có thể giữ nó tồn tại qua vòng đời của process cho tới khi được xóa hoặc hệ thống shutdown.
 
-    Named --> Open: process mq_open()
-    Open --> Active: send / receive
-    Active --> Open: queue remains usable
-
-    Open --> Named: one descriptor closes, name still exists
-    Active --> UnlinkedButOpen: mq_unlink while references remain
-
-    UnlinkedButOpen --> UnlinkedButOpen: existing descriptors continue
-    UnlinkedButOpen --> Destroyed: final reference gone
-
-    Named --> Destroyed: unlink with no remaining references
-    Destroyed --> [*]
-```
-
-This is a conceptual vòng đời; exact kernel reference management is implementation-specific.
+Do đó cleanup name/object là trách nhiệm thiết kế, không nên mặc định “process chết thì queue tự biến mất ngay”.
 
 ---
 
-#### 5.7.8 Linux `/dev/mqueue` is implementation detail
+## 7. POSIX Shared Memory: cùng nhìn một vùng nhớ
 
-Linux can expose POSIX queues through:
+> **Nói đơn giản:** thay vì gửi từng byte/message qua kernel queue, nhiều tiến trình ánh xạ cùng một đối tượng bộ nhớ vào không gian địa chỉ của mình. Sau đó cả hai đọc/ghi cùng dữ liệu.
 
-```text
-mqueue virtual filesystem
-```
-
-commonly mounted under:
+### 7.1 Mô hình
 
 ```text
-/dev/mqueue
-```
-
-This helps administration/observation.
-
-It is not a portable POSIX requirement that every implementation represents queues there.
-
----
-
-## 6. Shared Memory: nhiều Process cùng nhìn một vùng nhớ
-
-> **Nói đơn giản:** Shared bộ nhớ cho nhiều process map cùng pages. Nó tránh việc phải send/receive từng payload qua stream/queue, nhưng ứng dụng tự định nghĩa layout.
-
-> **Hình dung:** Shared bộ nhớ giống hai process cùng nhìn một bảng trắng. Viết lên bảng rất trực tiếp, nhưng phải thống nhất ai được viết lúc nào để không giẫm lên nhau.
-
-
-### 6.1 Shared memory changes the communication model
-
-Pipe/message queue:
-
-```text
-sender operation
-   |
-kernel communication object
-   |
-receiver operation
-```
-
-Shared memory:
-
-```text
-Process A virtual memory
-      |
-      +----> shared object/pages <----+
-                                      |
-                               Process B mapping
-```
-
-Processes directly access common mapped data.
-
----
-
-### 6.2 Shared memory removes message-transfer abstraction
-
-There is no inherent:
-
-```text
-send()
-receive()
-message boundary
-queue
-```
-
-Once mapped:
-
-```text
-load/store memory
-```
-
-becomes data access mechanism.
-
-Application defines structure.
-
----
-
-### 6.3 Shared memory can reduce copying/IPC transition overhead
-
-After setup, data can be accessed from shared mapped pages rather than copied into and out of a kernel message/stream buffer for each logical transfer.
-
-This can make shared memory attractive for:
-
-```text
-large data
-high throughput
-low-latency local sharing
-```
-
-But performance is workload/cache/synchronization dependent.
-
-Do not treat:
-
-```text
-shared memory = always fastest
-```
-
-as universal rule.
-
----
-
-### 6.4 Shared memory provides data sharing, not coordination
-
-If Process A writes:
-
-```text
-buffer
-```
-
-Process B still needs to know:
-
-```text
-when data is valid
-which slot is ready
-who owns it
-whether producer is finished
-whether buffer is full
-```
-
-Therefore shared memory commonly requires separate synchronization.
-
----
-
-### 6.5 Shared memory structure
-
-Concept:
-
-```text
-+------------------------------------+
-| Shared Memory Region               |
-|------------------------------------|
-| control metadata                   |
-| producer index                     |
-| consumer index                     |
-| state flags                        |
-| payload buffers                    |
-| optional synchronization objects   |
-+------------------------------------+
-```
-
-Application defines memory layout.
-
----
-
-### 6.6 POSIX Shared Memory Vòng đời
-
-#### 6.6.1 POSIX shared-memory object
-
-POSIX shared memory provides a named memory object.
-
-Core conceptual sequence:
-
-```text
-shm_open
-   |
-   v
-shared-memory object fd
-   |
-ftruncate
-   |
-set object size
-   |
-mmap(MAP_SHARED)
-   |
-process mapping
+Tiến trình A                     Tiến trình B
++--------------+                +--------------+
+| mapping A    |                | mapping B    |
++------+-------+                +------+-------+
+       |                               |
+       +------------+------------------+
+                    |
+                    v
+          +--------------------+
+          | Shared Memory      |
+          | cùng vùng backing  |
+          +--------------------+
 ```
 
 ---
 
-#### 6.6.2 New object starts with size zero
+### 7.2 POSIX Shared Memory có tên
 
-Linux/POSIX documentation states newly created shared-memory object initially has:
+Một đối tượng có thể được mở/tạo bằng:
 
 ```text
-length = 0
+shm_open()
 ```
 
-Object size is established using:
+Nó trả về một file descriptor đại diện cho shared-memory object.
+
+---
+
+### 7.3 Đối tượng mới có kích thước ban đầu bằng 0
+
+Theo POSIX/Linux:
+
+```text
+shm_open(O_CREAT...)
+```
+
+khi tạo đối tượng mới, kích thước ban đầu là 0.
+
+Ứng dụng thiết lập kích thước bằng:
 
 ```text
 ftruncate()
 ```
 
-before expected mapping/use.
+trước khi ánh xạ vùng cần dùng.
 
 ---
 
-#### 6.6.3 `shm_open()` resembles `open()`
+### 7.4 `mmap(..., MAP_SHARED, ...)`
 
-It returns a file descriptor referring to shared-memory object.
+`mmap()` tạo mapping vào không gian địa chỉ tiến trình.
 
-This fd is used for:
-
-```text
-size management
-mmap
-metadata operations
-```
+`MAP_SHARED` nói rằng các thay đổi qua mapping được chia sẻ với các mapping chung của cùng đối tượng theo ngữ nghĩa đồng bộ thích hợp.
 
 ---
 
-#### 6.6.4 Mapping and descriptor lifetime are separate
+### 7.5 File descriptor và mapping có vòng đời tách nhau
 
-After successful:
-
-```text
-mmap()
-```
-
-the shared-memory object fd can be closed without invalidating the mapping.
-
-Mô hình tư duy:
+Sau khi `mmap()` thành công:
 
 ```text
-fd
- |
- mmap
- |
- v
-mapping reference
-
+fd của SHM
+   |
 close(fd)
- |
-mapping remains
+   |
+   X
+mapping vẫn tồn tại
 ```
 
-This mirrors general mmap reference semantics from Topic 3/4 memory concepts.
+Mapping có vòng đời riêng và được bỏ bằng `munmap()` hoặc khi không gian địa chỉ tiến trình kết thúc.
 
 ---
 
-#### 6.6.5 `shm_unlink()` removes the name
+### 7.6 `shm_unlink()` xóa tên, không lập tức xóa mapping đang dùng
 
-Concept:
+Mental model:
 
 ```text
-shm_unlink(name)
+SHM name
+  |
+shm_unlink()
+  |
+  X
+
+existing mappings/references
+  vẫn có thể tồn tại
 ```
 
-removes namespace entry.
-
-Existing mappings/references can remain usable.
-
-Object is finally destroyed when unlink has occurred and remaining references/mappings are gone according to object lifetime semantics.
+Đối tượng thật sự được giải phóng khi điều kiện vòng đời cuối cùng thỏa mãn.
 
 ---
 
-#### 6.6.6 Linux persistence
+### 7.7 Linux thường biểu diễn POSIX SHM dưới `/dev/shm`
 
-Linux `shm_overview(7)` describes POSIX SHM objects as kernel-persistent until:
-
-```text
-system shutdown
-```
-
-or:
-
-```text
-object has been unlinked and all mappings/references are gone
-```
-
----
-
-#### 6.6.7 Linux `/dev/shm`
-
-Linux commonly implements POSIX shared-memory objects in:
-
-```text
-tmpfs
-```
-
-normally mounted under:
+Trên Linux, POSIX shared memory thường được hỗ trợ bằng `tmpfs`, thường thấy tại:
 
 ```text
 /dev/shm
 ```
 
-This is Linux implementation behavior, not reason to treat shared-memory object as ordinary persistent disk file.
+Đây là chi tiết Linux, không phải lý do để xem SHM như một regular file lưu trên đĩa.
 
 ---
 
-#### 6.6.8 Shared-memory vòng đời state machine
-
-```mermaid
-stateDiagram-v2
-    [*] --> CreatedZeroLength
-
-    CreatedZeroLength --> Sized: ftruncate()
-    Sized --> Mapped: mmap(MAP_SHARED)
-
-    Mapped --> Mapped: additional processes map object
-    Mapped --> UnlinkedButMapped: shm_unlink()
-
-    UnlinkedButMapped --> UnlinkedButMapped: mappings remain
-    UnlinkedButMapped --> Destroyed: final mapping/reference gone
-
-    Sized --> Unlinked: shm_unlink before mapping
-    Unlinked --> Destroyed: final reference gone
-
-    Destroyed --> [*]
-```
-
-The diagram focuses naming/mapping lifetime rather than every kernel reference.
-
----
-
-### 6.7 `mmap()` và `MAP_SHARED`
-
-#### 6.7.1 `mmap()` connects process address space to memory object
-
-POSIX:
-
-```text
-mmap()
-```
-
-establishes mapping between:
-
-```text
-process virtual address range
-```
-
-and:
-
-```text
-memory object
-```
-
----
-
-#### 6.7.2 `MAP_SHARED`
-
-With:
-
-```text
-MAP_SHARED
-```
-
-writes affect the shared underlying memory object and are visible through other shared mappings according to synchronization/memory semantics.
-
-Concept:
-
-```text
-Process A map
-  write X
-     |
-     v
-shared object
-     |
-     v
-Process B map
-  can observe X
-```
-
----
-
-#### 6.7.3 `MAP_PRIVATE` is not IPC shared-write mapping
-
-`MAP_PRIVATE` means modifications are private to calling process mapping and do not modify underlying object in shared fashion.
-
-Therefore it is not equivalent to:
-
-```text
-POSIX shared writable memory
-```
-
-for process communication.
-
----
-
-#### 6.7.4 Mapping addresses can differ between processes
-
-Important:
+### 7.8 Hai tiến trình có thể map cùng object ở địa chỉ ảo khác nhau
 
 ```text
 Process A:
-shared region mapped at VA 0xAAAA...
+  base = 0x70000000
 
 Process B:
-same object mapped at VA 0xBBBB...
+  base = 0x50000000
 ```
 
-Processes need not map it at same virtual address.
+Cùng underlying shared object, nhưng virtual address khác.
 
-Therefore raw process-local pointers stored inside shared-memory structures can be invalid in another process.
+Vì vậy lưu raw pointer của A vào vùng dùng chung rồi để B sử dụng là nguy hiểm:
+
+```text
+pointer 0x70001234
+```
+
+có thể không có ý nghĩa tương ứng trong B.
 
 ---
 
-#### 6.7.5 Prefer location-independent shared structures conceptually
+### 7.9 Cấu trúc dùng chung nên không phụ thuộc địa chỉ tuyệt đối khi cần chia sẻ qua process
 
-Shared structure should use concepts such as:
+Thay vì:
 
 ```text
-offsets
+node->next = absolute_pointer
+```
+
+có thể dùng khái niệm:
+
+```text
+offset tính từ base
+index trong vùng dùng chung
+```
+
+Tùy cấu trúc dữ liệu.
+
+---
+
+### 7.10 Shared Memory không tự có message boundary
+
+Vùng nhớ chỉ là bytes/pages.
+
+Ứng dụng tự định nghĩa:
+
+```text
+header
+ring buffer
+slots
 indices
-fixed layout
-relative positions
-```
-
-rather than assuming same virtual address in every process.
-
-Example:
-
-```text
-BAD conceptual shared field:
-pointer = 0x7f123456
-
-BETTER:
-offset = 4096 from region base
-```
-
-Exact data-structure design is application-specific.
-
----
-
-#### 6.7.6 Object size matters
-
-Mapping can extend beyond current object size, but accessing pages beyond valid object backing can result in:
-
-```text
-SIGBUS
-```
-
-on Linux/POSIX-relevant conditions.
-
-Therefore underlying shared object resizing is itself a synchronization/vòng đời concern.
-
----
-
-#### 6.7.7 `close()` does not unmap
-
-Once mapping exists:
-
-```text
-close(fd)
-```
-
-removes fd reference, not mapping.
-
-Mapping is removed by:
-
-```text
-munmap()
-```
-
-or process/address-space teardown.
-
----
-
-## 7. Shared Memory cần Synchronization như thế nào?
-
-> **Nói đơn giản:** Shared bộ nhớ chỉ chia sẻ bytes; nó không tự đồng bộ. Mutex/semaphore/condition process-shared hoặc giao thức khác phải bảo vệ ownership/readiness.
-
-
-### 7.1 Shared memory without synchronization is incomplete for mutable state
-
-Two processes can concurrently write same memory.
-
-Example:
-
-```text
-Process A            Process B
-
-read index = 5
-                     read index = 5
-write slot 5
-                     write slot 5
-increment
-                     increment
-```
-
-Shared memory does not prevent:
-
-```text
-race conditions
+flags
+payload
 ```
 
 ---
 
-### 7.2 Same synchronization principles as threads
+## 8. Vì sao Shared Memory cần đồng bộ?
 
-Topic 7 applies conceptually:
+### 8.1 Cùng thấy bộ nhớ không có nghĩa truy cập an toàn
+
+Ví dụ:
 
 ```text
-mutex
+Process A                Process B
+đọc write_index = 5      đọc write_index = 5
+ghi slot 5               ghi slot 5
+tăng index               tăng index
+```
+
+Có thể xảy ra race giống thread.
+
+---
+
+### 8.2 Shared Memory giải quyết “dữ liệu ở đâu”, không giải quyết “khi nào được dùng”
+
+```text
+Shared Memory
+  trả lời:
+  dữ liệu chung nằm ở đâu?
+
+Synchronization
+  trả lời:
+  ai được sửa?
+  khi nào dữ liệu sẵn sàng?
+  khi nào có buffer trống?
+```
+
+---
+
+### 8.3 Có thể đặt synchronization object trong shared memory
+
+POSIX cho phép một số synchronization object cấu hình ở chế độ process-shared.
+
+Ví dụ khái niệm:
+
+```text
++----------------------------------+
+| Shared Memory                    |
+|                                  |
+| pthread_mutex_t                  |
+|   PTHREAD_PROCESS_SHARED         |
+|                                  |
+| shared data                      |
++----------------------------------+
+```
+
+Cả hai process phải map cùng vùng chứa object đó.
+
+---
+
+### 8.4 Semaphore dùng chung giữa process
+
+Unnamed POSIX semaphore có thể được khởi tạo với `pshared` phù hợp và đặt trong vùng nhớ dùng chung.
+
+Mental model:
+
+```text
+Shared payload
+     +
+Shared semaphore
+```
+
+Semaphore có thể biểu diễn:
+
+```text
+số slot có dữ liệu
+số slot còn trống
+```
+
+---
+
+### 8.5 Data plane và control plane
+
+Một cách phân tách dễ hiểu:
+
+```text
+Dữ liệu lớn:
+  Shared Memory
+
+Thông tin trạng thái/chờ:
+  Semaphore / Mutex / Condition / cơ chế báo sự kiện
+```
+
+Ví dụ:
+
+```text
+Producer
+   |
+   | ghi frame lớn
+   v
+Shared Memory
+   |
+   | semaphore báo "đã có frame"
+   v
+Consumer
+```
+
+---
+
+### 8.6 Process chết giữa lúc cập nhật là bài toán khó hơn
+
+Nếu process chết trong lúc:
+
+```text
+đang sở hữu lock
+đang cập nhật metadata
+```
+
+shared state có thể không nhất quán.
+
+Topic 7 đã giới thiệu synchronization; recovery sau crash là vấn đề kiến trúc nâng cao hơn và không được Shared Memory tự xử lý.
+
+---
+
+## 9. Hành vi chặn, Backpressure và giới hạn tài nguyên
+
+### 9.1 Vì sao IPC có thể chặn?
+
+Vì phía bên kia hoặc bộ đệm chưa sẵn sàng.
+
+Ví dụ:
+
+```text
+Pipe rỗng        -> read chờ
+Pipe đầy         -> write chờ
+FIFO open        -> chờ peer
+MQ rỗng          -> receive chờ
+MQ đầy           -> send chờ
+```
+
+---
+
+### 9.2 Backpressure là gì?
+
+> **Nói đơn giản:** nếu bên sản xuất dữ liệu nhanh hơn bên tiêu thụ, một hệ thống hữu hạn phải có cách buộc producer chậm lại hoặc quyết định làm gì với dữ liệu dư.
+
+```text
+Producer nhanh
+    |
+    v
++-----------------+
+| buffer hữu hạn  |
++-----------------+
+    |
+    v
+Consumer chậm
+```
+
+Khi buffer đầy:
+
+```text
+block producer
+hoặc
+trả trạng thái không sẵn sàng
+hoặc
+ứng dụng tự drop/buffer nơi khác
+```
+
+---
+
+### 9.3 Pipe/FIFO có backpressure nội tại
+
+Buffer trong kernel hữu hạn.
+
+```text
+đầy
+  -> blocking writer ngủ
+```
+
+Đây có thể là hành vi tốt vì producer không chiếm RAM vô hạn.
+
+---
+
+### 9.4 Message Queue cũng hữu hạn
+
+Các giới hạn:
+
+```text
+số message
+kích thước mỗi message
+resource limit của hệ thống
+```
+
+Queue đầy thì sender phải chờ hoặc xử lý `EAGAIN` nếu nonblocking.
+
+---
+
+### 9.5 Shared Memory không tự cung cấp backpressure
+
+Nếu có 4 slot nhưng producer cứ ghi tiếp:
+
+```text
+slot cũ có thể bị ghi đè
+```
+
+trừ khi ứng dụng có protocol:
+
+```text
+free_count
+used_count
+read_index
+write_index
 semaphore
-condition variable
-atomic protocol
-ownership
-barrier
 ```
-
-But synchronization objects must be configured appropriately for:
-
-```text
-process-shared use
-```
-
-when stored in shared mappings.
 
 ---
 
-### 7.3 `PTHREAD_PROCESS_SHARED`
+### 9.6 Nonblocking không làm mất bài toán backpressure
 
-POSIX synchronization objects such as mutex/condition/rwlock can be configured for process-shared use where supported.
-
-Concept:
+Nonblocking chỉ đổi:
 
 ```text
-Shared memory
-  |
-  +--> pthread mutex [PROCESS_SHARED]
-  +--> condition variable [PROCESS_SHARED]
-  +--> application data
+"chờ ở đây"
 ```
 
-Both processes map same synchronization object storage.
+thành:
+
+```text
+"hiện giờ chưa thể làm, trả về"
+```
+
+Application vẫn phải quyết định:
+
+```text
+retry lúc nào?
+drop dữ liệu không?
+buffer ở đâu?
+chờ readiness bằng cách nào?
+```
+
+Chi tiết cuối cùng thuộc Topic 10.
 
 ---
 
-### 7.4 POSIX semaphore
+## 10. So sánh và lựa chọn cơ chế IPC
 
-A process-shared unnamed semaphore can also live in shared memory.
+### 10.1 Bảng tổng quan
 
-This is a common conceptual pair:
+| Cơ chế | Mô hình dữ liệu | Có tên? | Giữ message boundary? | Điểm mạnh chính |
+|---|---|---:|---:|---|
+| Pipe | luồng byte | Không | Không | đơn giản, hợp parent–child |
+| FIFO | luồng byte | Pathname | Không | tiến trình độc lập có thể tìm nhau |
+| POSIX MQ | message | Có | Có | message riêng, priority, kernel queue |
+| POSIX SHM | vùng nhớ | Có | Ứng dụng tự định nghĩa | dữ liệu lớn, truy cập trực tiếp |
+
+---
+
+### 10.2 Chọn Pipe khi nào?
+
+Phù hợp khi:
 
 ```text
-shared memory
+process có quan hệ
+luồng dữ liệu một chiều
+ordered byte stream là đủ
+EOF theo fd lifetime hữu ích
+```
+
+Ví dụ khái niệm:
+
+```text
+parent -> child worker
+```
+
+---
+
+### 10.3 Chọn FIFO khi nào?
+
+Phù hợp khi muốn:
+
+```text
+pipe semantics
 +
-semaphore
+pathname để các process độc lập rendezvous
+```
+
+Nhưng vẫn phải tự framing nếu cần message.
+
+---
+
+### 10.4 Chọn Message Queue khi nào?
+
+Phù hợp khi dữ liệu tự nhiên là:
+
+```text
+command
+event
+job
+control message
+```
+
+và cần:
+
+```text
+message boundary
+priority
+kernel-managed queue
 ```
 
 ---
 
-### 7.5 Data plane vs synchronization plane
+### 10.5 Chọn Shared Memory khi nào?
 
-Useful architecture distinction:
+Phù hợp khi:
 
 ```text
-Data plane:
-  shared memory payload
-
-Control/synchronization plane:
-  mutex / semaphore / condition / event mechanism
+payload lớn
+truy cập lặp lại nhiều
+muốn giảm copy qua channel cho mỗi message
 ```
 
-Shared memory answers:
+Đổi lại phải chịu trách nhiệm cao hơn về:
 
 ```text
-where is data?
-```
-
-Synchronization answers:
-
-```text
-when and by whom may it be read/written?
-```
-
----
-
-### 7.6 Crash recovery
-
-If process dies while owning shared synchronization/resource state:
-
-```text
-other processes may block
-shared invariant may be inconsistent
-```
-
-Nếu một process chết giữa state transition, application vẫn phải có policy để phát hiện và phục hồi shared invariant khi cần.
-
----
-
-### 7.7 Shared memory does not provide event notification by itself
-
-If producer changes memory:
-
-```text
-consumer sleeping somewhere else
-```
-
-nothing inherently wakes consumer.
-
-Application may use:
-
-```text
-condition variable
-semaphore
-eventfd
-socket/pipe control channel
-```
-
-depending architecture.
-
-Topic 8 stays focused on core IPC mechanisms, so these are conceptual complements.
-
----
-
-## 8. Blocking, Backpressure và Flow Control
-
-> **Nói đơn giản:** Mọi buffered IPC đều có giới hạn. Khi producer nhanh hơn consumer, hệ thống cần block, drop, reject hoặc một backpressure policy khác.
-
-
-### 8.1 All buffered IPC channels face producer/consumer imbalance
-
-General model:
-
-```text
-Producer rate > Consumer rate
-        |
-        v
-buffer/queue grows
-        |
-finite capacity reached
-        |
-        v
-backpressure required
-```
-
-Different mechanisms implement this differently.
-
----
-
-### 8.2 Pipe/FIFO
-
-Finite kernel pipe capacity.
-
-Full:
-
-```text
-writer blocks
-```
-
-or nonblocking:
-
-```text
-EAGAIN / partial semantics
-```
-
-depending request size/mode.
-
----
-
-### 8.3 POSIX Message Queue
-
-Finite:
-
-```text
-mq_maxmsg
-```
-
-Full queue:
-
-```text
-send blocks
-```
-
-or:
-
-```text
-EAGAIN
-```
-
-in nonblocking mode.
-
----
-
-### 8.4 Shared memory has no automatic backpressure
-
-A shared-memory buffer can be overwritten unless application protocol tracks:
-
-```text
-free slots
-used slots
-producer index
-consumer index
-ownership
-```
-
-Backpressure must be explicitly implemented.
-
-This is both power and risk.
-
----
-
-### 8.5 Blocking is not always bad
-
-Blocking can simplify control:
-
-```text
-nothing useful to do
-   |
-sleep
-   |
-resource ready
-   |
-wake
-```
-
-This avoids busy waiting.
-
-But blocking graph can deadlock if processes wait cyclically.
-
----
-
-### 8.6 Nonblocking does not eliminate flow-control responsibility
-
-Nonblocking simply changes:
-
-```text
-sleep
-```
-
-to:
-
-```text
-return "not ready"
-```
-
-Application must decide:
-
-```text
-retry?
-wait for readiness?
-drop data?
-buffer elsewhere?
-apply backpressure upstream?
-```
-
----
-
-### 8.7 IPC protocol should define overload behavior
-
-A robust architecture must answer:
-
-```text
-What if producer is permanently faster?
-
-Block?
-Drop newest?
-Drop oldest?
-Reject request?
-Bound queue?
-Backpressure source?
-```
-
-No IPC primitive can choose correct application policy automatically.
-
----
-
-## 9. So sánh và chọn IPC Mechanism
-
-> **Nói đơn giản:** Không có IPC nào tốt nhất. Pipe đơn giản, FIFO có tên, MQ giữ message, SHM phù hợp dữ liệu lớn nhưng phức tạp synchronization hơn.
-
-
-### 9.1 High-level comparison
-
-| Mechanism | Data model | Named? | Direction | Message boundaries | Typical kernel persistence |
-|---|---|---:|---|---:|---|
-| Pipe | byte stream | No | one-way portable model | No | endpoint/reference lifetime |
-| FIFO | byte stream | Yes, filesystem | one-way stream model | No | pathname persists until unlink |
-| POSIX MQ | messages | Yes | sender/receiver queue | Yes | kernel-persistent until unlink/shutdown on Linux |
-| POSIX SHM | shared memory | Yes | common region | Application-defined | object persists by name/reference rules |
-| Unix stream socket | byte stream | pathname/abstract/unnamed | bidirectional | No | endpoint lifetime; pathname may persist |
-| Unix datagram socket | messages | pathname/abstract/unnamed | bidirectional | Yes | endpoint/name rules |
-| Unix seqpacket socket | records | pathname/abstract/unnamed | bidirectional | Yes | endpoint/name rules |
-
----
-
-### 9.2 Pipe — natural strengths
-
-Good conceptual fit when:
-
-```text
-simple ordered byte stream
-related processes
-shell-like pipeline
-one-direction data flow
-EOF lifecycle useful
-```
-
-Limitations:
-
-```text
-no message boundaries
-portable one-way model
-rendezvous usually via inherited fd
-```
-
----
-
-### 9.3 FIFO — natural strengths
-
-Good when:
-
-```text
-pipe semantics desired
-but unrelated processes need filesystem name
-```
-
-Tradeoffs:
-
-```text
-pathname lifecycle
-open rendezvous semantics
-filesystem permissions
-still no message boundaries
-```
-
----
-
-### 9.4 Message queue — natural strengths
-
-Good when:
-
-```text
-discrete messages
-priority matters
-kernel should hold queued messages
-producer and consumer lifetimes may differ
-```
-
-Tradeoffs:
-
-```text
-bounded message size/count
-copying/queue overhead
-kernel resource limits
-persistence cleanup
-```
-
----
-
-### 9.5 Shared memory — natural strengths
-
-Good when:
-
-```text
-large data
-high throughput
-many accesses to same data
-copying should be minimized
-```
-
-Tradeoffs:
-
-```text
-synchronization required
-data structure/lifetime complexity
+synchronization
+layout
+lifetime
 crash recovery
-no inherent message framing
-no inherent wakeup
 ```
 
 ---
 
-### 9.6 Related vs unrelated processes
+### 10.6 Không nên chọn chỉ vì “cái nào nhanh nhất”
 
-A useful first decision:
-
-```text
-Related processes?
-   |
-   +--> unnamed pipe can be natural
-
-Unrelated independently started services?
-   |
-   +--> named FIFO
-   +--> named MQ
-   +--> named SHM
-   +--> pathname Unix socket
-```
-
-This is not an absolute rule, but a useful design heuristic.
-
----
-
-### 9.7 Data size and communication pattern
-
-Conceptual guide:
+Một thiết kế IPC tốt cần cân bằng:
 
 ```text
-small discrete control messages
-  -> message queue / datagram-style socket
-
-continuous byte stream
-  -> pipe/FIFO/stream socket
-
-large shared datasets
-  -> shared memory
-```
-
-Actual choice must include vòng đời/security/backpressure requirements.
-
----
-
-### 9.8 Do not choose solely by benchmark speed
-
-The “fastest” mechanism is not always the best architecture.
-
-Correct choice considers:
-
-```text
-complexity
-fault isolation
-message semantics
-security
-resource limits
-debuggability
-recovery
-throughput
+độ phức tạp
+kích thước dữ liệu
 latency
+throughput
+security/permission
+restart behavior
+cleanup
 portability
+khả năng gỡ lỗi
+```
+
+Shared Memory có thể nhanh về copy nhưng khó đúng hơn Message Queue rất nhiều.
+
+---
+
+## 11. Tư duy gỡ lỗi IPC
+
+### 11.1 Kiểm tra theo tầng
+
+```text
+Hai bên có đang nói tới cùng IPC object không?
+        |
+Tên/path có đúng không?
+        |
+Permission có đúng không?
+        |
+Peer có tồn tại và giữ endpoint không?
+        |
+Blocking hay nonblocking?
+        |
+Buffer/queue đang rỗng hay đầy?
+        |
+Framing/message semantics có đúng không?
+        |
+Lifetime/unlink có đúng không?
+        |
+Shared memory có synchronization không?
 ```
 
 ---
 
-## 10. Tư duy Debugging IPC
+### 11.2 Reader Pipe chờ mãi
 
-> **Nói đơn giản:** Debug IPC theo lớp: cùng đối tượng/name chưa? fd/quyền truy cập đúng? peer còn sống? buffer full/empty? framing/sync/lifetime đúng?
-
-
-### 10.1 Debug by layers
+Hãy nghĩ tới:
 
 ```text
-1. Same IPC object/name?
-      ↓
-2. Permissions correct?
-      ↓
-3. Endpoint/reference alive?
-      ↓
-4. Blocking or nonblocking?
-      ↓
-5. Peer exists?
-      ↓
-6. Buffer/queue full or empty?
-      ↓
-7. Message/stream framing correct?
-      ↓
-8. Lifetime/unlink correct?
-      ↓
-9. Synchronization correct?
-      ↓
-10. Namespace/container boundary?
+writer thật sự chưa đóng
+một process khác còn giữ write fd
+fd bị kế thừa qua fork/exec
+protocol chưa ghi dữ liệu
+```
+
+EOF phụ thuộc **mọi** writer reference, không chỉ writer bạn đang nhìn.
+
+---
+
+### 11.3 Pipe nhận message bị gộp/tách
+
+Nếu ứng dụng mong:
+
+```text
+mỗi write = một message
+```
+
+thì giả định sai.
+
+Pipe là byte stream.
+
+---
+
+### 11.4 FIFO pathname có nhưng open/communication vẫn lỗi
+
+Path tồn tại chỉ chứng minh:
+
+```text
+FIFO entry tồn tại
+```
+
+không chứng minh:
+
+```text
+reader đang mở
+writer đang mở
+permission đúng
+process peer còn sống
 ```
 
 ---
 
-### 10.2 Pipe reader waits forever
+### 11.5 MQ send chờ
 
-Possible:
+Có thể queue đã đầy.
 
-```text
-writer genuinely still active
-unused write-end descriptor leaked
-another process inherited write end
-protocol never writes expected bytes
-```
-
-EOF needs all writer references closed.
-
----
-
-### 10.3 Pipe writer gets `EPIPE` / `SIGPIPE`
-
-Interpret:
+Cần phân biệt với:
 
 ```text
-no readers remain
-```
-
-not:
-
-```text
-pipe buffer full
-```
-
-Full buffer has different blocking/EAGAIN behavior.
-
----
-
-### 10.4 Pipe messages appear merged
-
-Expected if application assumed:
-
-```text
-one write = one message
-```
-
-Pipe is byte stream.
-
-Need application framing.
-
----
-
-### 10.5 FIFO open blocks unexpectedly
-
-Check:
-
-```text
-read side waiting for writer?
-write side waiting for reader?
-O_NONBLOCK?
-peer process reached open?
-```
-
-Opening FIFO is part of synchronization.
-
----
-
-### 10.6 FIFO pathname exists but communication fails
-
-Path existence only means:
-
-```text
-FIFO special-file rendezvous object exists
-```
-
-It does not prove:
-
-```text
-reader exists
-writer exists
-data flowing
-permissions correct
-```
-
-Same lesson as device-node existence from Topic 2.
-
----
-
-### 10.7 POSIX MQ send blocks
-
-Likely:
-
-```text
-queue full
-```
-
-Need distinguish from:
-
-```text
-permission failure
-invalid descriptor
-message too large
-resource limits
+message quá lớn
+permission sai
+mqd không hợp lệ
+resource limit
 ```
 
 ---
 
-### 10.8 MQ receive blocks
+### 11.6 MQ receive chờ
 
-Likely:
+Blocking queue rỗng thì chờ là đúng ngữ nghĩa.
 
-```text
-queue empty
-```
-
-under blocking mode.
-
-Nonblocking equivalent:
+Nonblocking rỗng trả:
 
 ```text
 EAGAIN
@@ -2679,70 +1506,46 @@ EAGAIN
 
 ---
 
-### 10.9 Message priority surprises ordering
+### 11.7 MQ “không FIFO như mong đợi”
 
-Receiver selects:
+Kiểm tra priority.
+
+POSIX MQ ưu tiên:
 
 ```text
-highest priority first
+priority cao hơn trước
 ```
 
-not strict arrival order across all priorities.
-
-Check message priority before assuming queue corruption.
+sau đó mới xét thời gian trong cùng priority.
 
 ---
 
-### 10.10 Shared-memory changes not coherent logically
+### 11.8 Shared Memory thấy dữ liệu lúc đúng lúc sai
 
-Possible causes:
+Các hướng nghi ngờ:
 
 ```text
-missing synchronization
-wrong MAP_PRIVATE vs MAP_SHARED
-process mapped different object/name
-stale ownership protocol
-data race
-wrong offsets/layout
+thiếu synchronization
+MAP_PRIVATE thay vì MAP_SHARED
+hai process mở khác object name
+layout không thống nhất
+raw pointer không hợp lệ giữa process
+object bị resize/truncate
 ```
 
 ---
 
-### 10.11 Shared-memory process gets `SIGBUS`
+### 11.9 `SIGBUS` khi truy cập mapping
 
-Possible conceptual cause:
+Một nguyên nhân quan trọng là truy cập vùng mapping vượt phần backing hợp lệ của object, ví dụ object bị truncate hoặc chưa được đặt kích thước đúng.
 
-```text
-mapping accesses beyond valid backing object size
-object truncated/resized unexpectedly
-```
-
-Object size vòng đời must be coordinated.
+Kích thước SHM cũng là một phần của giao thức vòng đời.
 
 ---
 
-### 10.12 Shared-memory raw pointer works in one process but not another
+## 12. Liên hệ với Embedded Linux
 
-Likely because:
-
-```text
-same object mapped at different virtual addresses
-```
-
-Process-local pointer values are not portable shared-memory addresses.
-
-Use relative/offset-based data structures when appropriate.
-
----
-
-## 11. Liên hệ với Embedded Linux
-
-> **Nói đơn giản:** Embedded system thường dùng IPC để tách sensor, logger, network, supervisor thành process có fault boundary riêng.
-
-
-### 11.1 Multi-service embedded architecture
-
-An embedded product may split:
+### 12.1 Một sản phẩm thường có nhiều process
 
 ```text
 sensor-service
@@ -2750,69 +1553,54 @@ control-service
 network-service
 logger
 UI
-update-agent
 supervisor
 ```
 
-IPC forms the internal communication fabric.
+IPC nối các service này lại mà vẫn giữ biên process.
 
 ---
 
-### 11.2 Pipe for parent-child worker topology
+### 12.2 Pipe cho parent/child worker
 
-Supervisor can create workers and connect simple streams:
+Ví dụ:
 
 ```text
 Supervisor
     |
-   pipe
+   Pipe
     |
   Worker
 ```
 
-Useful for:
+Có thể dùng cho:
 
 ```text
-log collection
-one-way command/data flow
-child output capture
+log
+command đơn giản
+stdout/stderr capture
 ```
 
 ---
 
-### 11.3 FIFO for simple named endpoint
+### 12.3 FIFO cho endpoint đơn giản có tên
 
-A minimal embedded system can use FIFO when:
+Một hệ thống nhỏ có thể dùng FIFO nếu chỉ cần:
 
 ```text
-processes start independently
-filesystem name is convenient
-byte-stream semantics are sufficient
+byte stream
+pathname cố định
+ít peer
+protocol đơn giản
 ```
 
-But FIFO is usually less expressive than Unix socket for complex local services.
+Khi service cần nhiều client hoặc giao thức hai chiều rõ ràng, Unix Domain Socket ở Topic 9 thường linh hoạt hơn.
 
 ---
 
-### 11.4 Message queue for control messages
-
-POSIX MQ can naturally represent:
-
-```text
-commands
-events
-job descriptors
-priority notifications
-```
-
-when preserving message boundaries matters.
-
-Example architecture:
+### 12.4 Message Queue cho command/event
 
 ```text
 Control Service
-      |
-    message
       |
       v
 +----------------+
@@ -2820,205 +1608,180 @@ Control Service
 +----------------+
       |
       v
-Worker Service
+Worker
+```
+
+Message boundary giúp command không phải tự chia từ byte stream.
+
+---
+
+### 12.5 Shared Memory cho audio/camera/buffer lớn
+
+Ví dụ:
+
+```text
+Camera Process
+    |
+ ghi frame
+    v
+Shared Memory
+    |
+ đọc frame
+    v
+AI Process
+```
+
+Payload lớn nằm trong SHM; control có thể dùng semaphore hoặc cơ chế đồng bộ khác.
+
+---
+
+### 12.6 Bounded resource quan trọng trên board nhúng
+
+RAM và kernel memory hữu hạn.
+
+Cần đặt câu hỏi:
+
+```text
+Pipe buffer đầy thì sao?
+MQ đầy thì sao?
+SHM có bao nhiêu slot?
+Producer nhanh hơn consumer thì sao?
+```
+
+Backpressure là một phần của độ ổn định hệ thống.
+
+---
+
+### 12.7 Restart và cleanup
+
+Service crash có thể để lại:
+
+```text
+FIFO pathname
+POSIX MQ name/object
+POSIX SHM name/object
+```
+
+khác với unnamed pipe vốn gắn mạnh với descriptor reference.
+
+Supervisor/startup design cần biết cơ chế nào cần cleanup.
+
+---
+
+## 13. Tổng kết
+
+### 13.1 Bản đồ IPC
+
+```text
+                    IPC
+                     |
+       +-------------+-------------+
+       |             |             |
+       v             v             v
+   Luồng byte      Message      Vùng nhớ chung
+       |             |             |
+   +---+---+         |             |
+   |       |         |             |
+ Pipe    FIFO    POSIX MQ      POSIX SHM
 ```
 
 ---
 
-### 11.5 Shared memory for large sensor/audio/video data
-
-Large buffers can be expensive to copy repeatedly through message channels.
-
-Shared memory may suit:
+### 13.2 Luồng byte và message
 
 ```text
-camera frames
-audio blocks
-sensor arrays
-telemetry ring buffer
-large inference tensors
-```
-
-Control metadata can be exchanged separately.
-
----
-
-### 11.6 Shared-memory data plane + control channel
-
-Common conceptual architecture:
-
-```text
-            Shared Memory
-       +--------------------+
-       | large payload      |
-       | ring/buffer slots  |
-       +--------------------+
-          ^              |
-          |              v
-     Producer          Consumer
-
-Control:
- semaphore / condition /
- small socket messages
-```
-
-This separates:
-
-```text
-bulk data
-```
-
-from:
-
-```text
-availability/control notification
-```
-
----
-
-### 11.7 Reliability and restart
-
-IPC mechanism affects service restart behavior.
-
-Examples:
-
-```text
-Pipe:
-  dies with endpoint topology
-
-FIFO:
-  pathname may remain
+Pipe/FIFO:
+A B C D E F...
 
 POSIX MQ:
-  queue may remain after process exit
-
-POSIX SHM:
-  object may remain
-
-pathname Unix socket:
-  stale path may remain after crash
-```
-
-Supervisor/restart architecture needs cleanup policy.
-
----
-
-### 11.8 Memory budget
-
-Embedded targets have limited:
-
-```text
-kernel memory
-RAM
-queue capacity
-pipe buffers
-socket buffers
-shared-memory region
-```
-
-IPC resource sizing should be bounded.
-
-Unbounded producer design eventually becomes:
-
-```text
-memory-pressure problem
-```
-
-regardless of API.
-
----
-
-### 11.9 Backpressure is part of system stability
-
-A telemetry producer faster than uplink must have a policy.
-
-```text
-Sensor
-  1000 samples/s
-       |
-       v
-Network
-  100 samples/s
-```
-
-Without backpressure/drop/buffer policy:
-
-```text
-queue eventually fills
-```
-
-IPC mechanism exposes this mismatch but cannot solve product policy automatically.
-
----
-
-### 11.10 Fault isolation vs throughput
-
-Shared memory gives tight coupling:
-
-```text
-high-performance shared data
-```
-
-but increases complexity.
-
-Socket/message queue gives clearer transfer boundaries.
-
-An embedded architecture should choose according to:
-
-```text
-safety
-maintainability
-throughput
-latency
-restart behavior
-security
+[ABC] [DEF] [GHI]
 ```
 
 ---
 
-## 12. Tổng kết và Mô hình tư duy
-
-> **Nói đơn giản:** Mô hình tư duy: process A ↔ IPC đối tượng/channel ↔ process B; điều quan trọng là hành vi theo chuẩn và vòng đời của kênh.
-
+### 13.3 Shared Memory
 
 ```text
-Process A
-   |
-   +--> Pipe/FIFO -------- bytes --------> Process B
-   |
-   +--> Message Queue ---- messages -----> Process B
-   |
-   +--> Shared Memory <--- shared pages --> Process B
-                              |
-                         synchronization
-```
+Process A mapping ----+
+                      |
+                      v
+                  SHM object
+                      ^
+                      |
+Process B mapping ----+
 
-Các điểm cần giữ:
-- Pipe là unnamed ordered byte stream; portable model là one-way.
-- EOF của pipe phụ thuộc việc tất cả writer references đã đóng; write không còn reader có thể gây `SIGPIPE`/`EPIPE`.
-- FIFO giữ pipe I/O semantics nhưng có filesystem pathname để unrelated processes rendezvous.
-- POSIX message queue giữ message boundaries và có bounded queue semantics.
-- POSIX shared memory cho nhiều process map cùng memory object; nó không tự cung cấp synchronization hoặc event notification.
-- Shared-memory mutable state cần semaphore/mutex/condition hoặc ownership protocol phù hợp.
-- IPC choice phải dựa vào data model, lifetime, blocking/backpressure và synchronization cost.
++ synchronization riêng
+```
 
 ---
 
-## 13. Tài liệu tham khảo
+### 13.4 Những điểm phải nhớ
 
-> **Nói đơn giản:** Nguồn tham khảo để kiểm chứng POSIX/Linux IPC behavior.
+1. IPC dùng để giao tiếp/phối hợp giữa các tiến trình tách biệt.
+2. Pipe là luồng byte, không phải message queue.
+3. Portable pipe là kênh một chiều với đầu đọc và đầu ghi.
+4. EOF của pipe chỉ xuất hiện khi mọi writer reference đã biến mất và dữ liệu cũ đã đọc hết.
+5. Ghi khi không còn reader có thể tạo `SIGPIPE`/`EPIPE`.
+6. Pipe có dung lượng hữu hạn và tạo backpressure.
+7. `PIPE_BUF` liên quan atomic write, không phải tổng pipe capacity.
+8. FIFO có I/O semantics như pipe nhưng có pathname làm điểm hẹn.
+9. FIFO pathname không lưu dữ liệu như regular file.
+10. POSIX MQ giữ message boundary.
+11. POSIX MQ hỗ trợ priority và có giới hạn số/kích thước message.
+12. `mq_close()` và `mq_unlink()` có ý nghĩa vòng đời khác nhau.
+13. POSIX Shared Memory cho nhiều tiến trình map cùng backing object.
+14. SHM mới có kích thước 0 và thường cần `ftruncate()` trước khi dùng.
+15. `MAP_SHARED` là cơ sở cho mapping dùng chung.
+16. Đóng fd sau `mmap()` không tự hủy mapping.
+17. `shm_unlink()` xóa tên nhưng mapping đang tồn tại có vòng đời riêng.
+18. Raw pointer không nên được coi là địa chỉ dùng chung giữa các process nếu mapping base khác nhau.
+19. Shared Memory không tự cung cấp mutual exclusion hoặc notification.
+20. Shared Memory cần synchronization/ownership protocol riêng.
+21. Nonblocking không loại bỏ bài toán backpressure.
+22. Chọn IPC theo mô hình dữ liệu, vòng đời và độ phức tạp, không chỉ theo tốc độ.
 
+---
 
-- POSIX.1-2024 IPC interfaces: https://pubs.opengroup.org/onlinepubs/9799919799/
+## 14. Tài liệu tham khảo
+
+### POSIX.1-2024 / The Open Group
+
+- https://pubs.opengroup.org/onlinepubs/9799919799/
+- `pipe()`: https://pubs.opengroup.org/onlinepubs/9799919799/functions/pipe.html
+- `mmap()`: https://pubs.opengroup.org/onlinepubs/9799919799/functions/mmap.html
+- `sem_init()`: https://pubs.opengroup.org/onlinepubs/9799919799/functions/sem_init.html
+
+Nguồn chuẩn cho ngữ nghĩa di động của IPC và memory mapping.
+
+### Linux man-pages — Pipe/FIFO
+
 - `pipe(7)`: https://man7.org/linux/man-pages/man7/pipe.7.html
 - `fifo(7)`: https://man7.org/linux/man-pages/man7/fifo.7.html
+- `mkfifo(3)`: https://man7.org/linux/man-pages/man3/mkfifo.3.html
+
+### Linux man-pages — POSIX Message Queue
+
 - `mq_overview(7)`: https://man7.org/linux/man-pages/man7/mq_overview.7.html
+- `mq_open(3)`: https://man7.org/linux/man-pages/man3/mq_open.3.html
+- `mq_send(3)`: https://man7.org/linux/man-pages/man3/mq_send.3.html
+- `mq_receive(3)`: https://man7.org/linux/man-pages/man3/mq_receive.3.html
+
+### Linux man-pages — POSIX Shared Memory
+
 - `shm_overview(7)`: https://man7.org/linux/man-pages/man7/shm_overview.7.html
 - `shm_open(3)`: https://man7.org/linux/man-pages/man3/shm_open.3.html
 - `mmap(2)`: https://man7.org/linux/man-pages/man2/mmap.2.html
 - `sem_overview(7)`: https://man7.org/linux/man-pages/man7/sem_overview.7.html
+
+### Tài liệu bổ sung
+
 - The Linux Programming Interface: https://man7.org/tlpi/
+- Bootlin Embedded Linux: https://bootlin.com/doc/training/embedded-linux/
+- Unix & Linux Stack Exchange: https://unix.stackexchange.com/
+- Stack Overflow: https://stackoverflow.com/
+
+Nguồn cộng đồng hữu ích để tìm lỗi rò descriptor, FIFO open bị chặn, MQ priority hoặc raw pointer trong SHM, nhưng ngữ nghĩa chuẩn phải đối chiếu lại với POSIX/Linux man-pages.
 
 ---
 
-> **Điều hướng:** [← Chủ đề 7 — Thread Synchronization](README-topic-07.md) · [Chủ đề 9 — Socket Programming →](README-topic-09.md)
+> **Điều hướng:** [← Chủ đề 7 — Đồng bộ luồng](README-topic-07.md) · [Chủ đề 9 — Socket Programming →](README-topic-09.md)
