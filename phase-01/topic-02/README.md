@@ -45,7 +45,7 @@ symbolic link
 
 ## Đề bài
 
-Trong `~/topic02_lab`, tạo:
+Trong `topic-02`, tạo:
 
 ```text
 file_types/
@@ -666,7 +666,7 @@ Khôi phục:
 
 ```bash
 umask "$OLD_UMASK"
-cd ~/topic02_lab
+cd topic-02
 ```
 
 ---
@@ -682,7 +682,7 @@ Hiểu `filesystem`, `mount point`, `mount`, `findmnt`, `df`, `umount` mà khôn
 Tạo:
 
 ```text
-~/topic02_lab/tmpfs_mount
+topic-02/tmpfs_mount
 ```
 
 Sau đó:
@@ -700,49 +700,49 @@ Sau đó:
 Tạo mount point:
 
 ```bash
-mkdir -p ~/topic02_lab/tmpfs_mount
+mkdir -p topic-02/tmpfs_mount
 ```
 
 Mount:
 
 ```bash
-sudo mount -t tmpfs -o size=16M tmpfs ~/topic02_lab/tmpfs_mount
+sudo mount -t tmpfs -o size=16M tmpfs topic-02/tmpfs_mount
 ```
 
 Kiểm tra:
 
 ```bash
-findmnt ~/topic02_lab/tmpfs_mount
+findmnt topic-02/tmpfs_mount
 ```
 
 Xem dung lượng:
 
 ```bash
-df -h ~/topic02_lab/tmpfs_mount
+df -h topic-02/tmpfs_mount
 ```
 
 Tạo file:
 
 ```bash
-echo "This file lives in tmpfs" > ~/topic02_lab/tmpfs_mount/data.txt
+echo "This file lives in tmpfs" > topic-02/tmpfs_mount/data.txt
 ```
 
 Kiểm tra:
 
 ```bash
-ls -l ~/topic02_lab/tmpfs_mount
+ls -l topic-02/tmpfs_mount
 ```
 
 Unmount:
 
 ```bash
-sudo umount ~/topic02_lab/tmpfs_mount
+sudo umount topic-02/tmpfs_mount
 ```
 
 Kiểm tra lại:
 
 ```bash
-ls -la ~/topic02_lab/tmpfs_mount
+ls -la topic-02/tmpfs_mount
 ```
 
 `data.txt` không còn xuất hiện.
@@ -756,7 +756,7 @@ tmpfs filesystem
 mount point
       |
       v
-~/topic02_lab/tmpfs_mount
+topic-02/tmpfs_mount
 ```
 
 Sai:
@@ -802,21 +802,21 @@ Sau đó:
 ## Lời giải
 
 ```bash
-mkdir -p ~/topic02_lab/mount_cover
-echo "original file" > ~/topic02_lab/mount_cover/original.txt
-ls -l ~/topic02_lab/mount_cover
+mkdir -p topic-02/mount_cover
+echo "original file" > topic-02/mount_cover/original.txt
+ls -l topic-02/mount_cover
 ```
 
 Mount:
 
 ```bash
-sudo mount -t tmpfs -o size=16M tmpfs ~/topic02_lab/mount_cover
+sudo mount -t tmpfs -o size=16M tmpfs topic-02/mount_cover
 ```
 
 Kiểm tra:
 
 ```bash
-ls -la ~/topic02_lab/mount_cover
+ls -la topic-02/mount_cover
 ```
 
 `original.txt` không còn nhìn thấy qua mount point.
@@ -824,25 +824,25 @@ ls -la ~/topic02_lab/mount_cover
 Tạo file mới trên `tmpfs`:
 
 ```bash
-echo "tmpfs file" > ~/topic02_lab/mount_cover/inside_tmpfs.txt
+echo "tmpfs file" > topic-02/mount_cover/inside_tmpfs.txt
 ```
 
 Kiểm tra:
 
 ```bash
-ls -l ~/topic02_lab/mount_cover
+ls -l topic-02/mount_cover
 ```
 
 Unmount:
 
 ```bash
-sudo umount ~/topic02_lab/mount_cover
+sudo umount topic-02/mount_cover
 ```
 
 Kiểm tra:
 
 ```bash
-ls -l ~/topic02_lab/mount_cover
+ls -l topic-02/mount_cover
 ```
 
 `original.txt` xuất hiện trở lại.
@@ -951,7 +951,7 @@ Yêu cầu:
 ## Lời giải
 
 ```bash
-cat > ~/topic02_lab/filesystem_report.sh <<'EOF'
+cat > topic-02/filesystem_report.sh <<'EOF'
 #!/usr/bin/env bash
 
 if [ "$#" -ne 1 ]; then
@@ -1009,13 +1009,13 @@ EOF
 Cho phép thực thi:
 
 ```bash
-chmod +x ~/topic02_lab/filesystem_report.sh
+chmod +x topic-02/filesystem_report.sh
 ```
 
 Chạy:
 
 ```bash
-~/topic02_lab/filesystem_report.sh     ~/topic02_lab/file_types/regular.txt
+topic-02/filesystem_report.sh     topic-02/file_types/regular.txt
 ```
 
 ### Giải thích các format của `stat`
