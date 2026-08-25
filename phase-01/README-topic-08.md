@@ -50,10 +50,10 @@ Hai địa chỉ ảo giống nhau không có nghĩa chúng trỏ tới cùng b�
 Mỗi tiến trình bình thường có không gian địa chỉ riêng:
 
 ```text
-+----------------------+       +----------------------+
-| Tiến trình A         |       | Tiến trình B         |
++-------------------------+       +-------------------------+
+| Process A               |       | Process B               |
 | virtual address space A |       | virtual address space B |
-+----------------------+       +----------------------+
++-------------------------+       +-------------------------+
 ```
 
 IPC tạo một đường hoặc một đối tượng mà cả hai phía cùng có thể truy cập theo quy tắc của nó.
@@ -76,16 +76,16 @@ Không phải cơ chế nào cũng phù hợp như nhau cho cả hai.
 IPC
  |
  +--> Pipe
- |      byte stream, không có tên pathname
+ |      byte stream, không có pathname
  |
  +--> FIFO
- |      byte stream, có tên trong filesystem
+ |      byte stream, có pathname trong filesystem
  |
  +--> POSIX Message Queue
  |      discrete messages
  |
  +--> POSIX Shared Memory
-        nhiều tiến trình map cùng shared region
+        multiple processes map the same shared region
 ```
 
 ---
@@ -99,13 +99,13 @@ Ví dụ:
 Cần phân biệt:
 
 ```text
-đối tượng IPC
+IPC object
 ```
 
 với:
 
 ```text
-handle mà tiến trình dùng để tham chiếu và truy cập đối tượng đó
+process handle/reference to that IPC object
 ```
 
 ---
@@ -418,7 +418,7 @@ write()
   +--> kernel generates SIGPIPE
   |
   +--> nếu SIGPIPE không terminate process
-          -> write() fails với EPIPE
+          -> write() fails with EPIPE
 ```
 
 Đây là liên hệ trực tiếp với Topic 5.
@@ -432,7 +432,7 @@ Producer
    |
    v
 +--------------------+
-| pipe buffer hữu hạn|
+| finite pipe buffer |
 +--------------------+
    |
    v
@@ -1065,15 +1065,15 @@ MQ full          -> mq_send() blocks
 > **Nói đơn giản:** nếu bên sản xuất dữ liệu nhanh hơn bên tiêu thụ, một hệ thống hữu hạn phải có cách buộc producer chậm lại hoặc quyết định làm gì với dữ liệu dư.
 
 ```text
-Producer nhanh
+Fast producer
     |
     v
 +-----------------+
-| buffer hữu hạn  |
+| bounded buffer  |
 +-----------------+
     |
     v
-Consumer chậm
+Slow consumer
 ```
 
 Khi bộ đệm đầy:
@@ -1366,7 +1366,7 @@ Supervisor
     |
    Pipe
     |
-  Thread xử lý
+  Worker thread
 ```
 
 Có thể dùng cho:
@@ -1398,7 +1398,7 @@ Control Service
 +----------------+
       |
       v
-Thread xử lý
+Worker thread
 ```
 
 Message boundary giúp command không phải tự chia từ `byte stream`.
@@ -1441,8 +1441,8 @@ Service crash có thể để lại:
 
 ```text
 FIFO pathname
-POSIX MQ name/đối tượng
-POSIX SHM name/đối tượng
+POSIX MQ name/object
+POSIX SHM name/object
 ```
 
 khác với unnamed pipe vốn gắn mạnh với file descriptor tham chiếu.
@@ -1495,7 +1495,7 @@ Process A mapping ----+
                       |
 Process B mapping ----+
 
-Synchronization phải được thiết kế riêng.
+Synchronization is a separate design concern.
 ```
 
 ---

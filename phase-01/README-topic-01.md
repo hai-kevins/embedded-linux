@@ -204,13 +204,20 @@ Có thể hình dung quá trình xử lý theo chuỗi sau:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> ReadLine: đọc dòng lệnh
-    ReadLine --> Parse: nhận dạng cú pháp
-    Parse --> Expand: mở rộng biến / thay thế lệnh / glob
-    Expand --> Redirect: chuẩn bị pipe và chuyển hướng
-    Redirect --> Execute: chạy builtin hoặc executable
-    Execute --> WaitOrContinue: chờ hoặc tiếp tục
-    WaitOrContinue --> [*]
+    state "Read line" as ReadLine
+    state "Parse" as Parse
+    state "Expansion" as Expansion
+    state "Redirection / pipeline setup" as Redirection
+    state "Execute" as Execute
+    state "Wait / continue" as WaitContinue
+
+    [*] --> ReadLine: Shell nhận command line
+    ReadLine --> Parse: phân tích cú pháp và tokenize
+    Parse --> Expansion: parameter/command expansion và glob
+    Expansion --> Redirection: chuẩn bị pipe và redirection
+    Redirection --> Execute: chạy builtin hoặc executable
+    Execute --> WaitContinue: foreground chờ, background tiếp tục
+    WaitContinue --> [*]
 ```
 
 Điểm quan trọng là **chương trình được chạy sau khi Shell đã xử lý phần cú pháp thuộc về Shell**. Với ví dụ trên, Shell mở rộng `$HOME`, tạo pipe nối `stdout` của `echo` với `stdin` của `grep`, mở `result.txt` và nối `stdout` của `grep` vào tệp đó. Sau các bước chuẩn bị này, hai chương trình mới thực sự chạy và đọc/ghi qua những file descriptor mà Shell đã sắp xếp.

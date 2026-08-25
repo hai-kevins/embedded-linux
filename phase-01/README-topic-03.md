@@ -396,7 +396,7 @@ Nghĩa là chỉ `M` byte đầu đã được chấp nhận/ghi theo ngữ ngh�
 Có thể do:
 
 ```text
-pipe/bộ đệm socket chỉ còn một phần chỗ
+pipe buffer / socket buffer chỉ còn một phần dung lượng
 resource limit
 signal
 thiết bị/driver
@@ -705,7 +705,7 @@ Hãy nhớ:
 ```text
 fd lớp đúng
 không đồng nghĩa
-driver/hardware/lớp giao thức đúng
+driver / hardware / protocol layer đúng
 ```
 
 ---

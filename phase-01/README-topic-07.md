@@ -52,7 +52,7 @@ Vì vậy chương này không học từng API riêng lẻ. Nó đi từ `race 
 Thread A --------+
                 |
                 v
-        trạng thái dùng chung
+        shared state
                 ^
                 |
 Thread B --------+
@@ -92,7 +92,7 @@ chứ không phải chỉ một biến đơn lẻ.
 ```text
 1. Dữ liệu/trạng thái nào được dùng chung?
 2. Những thao tác nào không được phép chồng lên nhau?
-3. Luồng phải chờ điều kiện nào mới được tiếp tục?
+3. Thread phải chờ condition/predicate nào mới được tiếp tục?
 ```
 
 Sau đó mới lựa chọn: mutex, condition variable, semaphore và barrier.
@@ -112,7 +112,7 @@ Ví dụ:
 ```text
 balance = 100
 
-Luồng A                  Luồng B
+Thread A                  Thread B
 đọc 100                  đọc 100
 cộng 10                  trừ 20
 ghi 110                  ghi 80
@@ -161,7 +161,7 @@ không nguyên vẹn.
 ```text
 Thread A
    |
-mutex lock
+lock(mutex)
    |
    v
 +---------------------------+
@@ -169,7 +169,7 @@ mutex lock
 | cập nhật shared state     |
 +---------------------------+
    |
-mutex unlock
+unlock(mutex)
 ```
 
 ---
@@ -233,7 +233,7 @@ API đồng bộ có ngữ nghĩa bộ nhớ mạnh hơn cách hiểu đó.
 Một thao tác “nguyên tử” theo nghĩa giao thức là:
 
 ```text
-các luồng khác không quan sát thấy trạng thái trung gian không hợp lệ
+các Thread khác không quan sát thấy invalid intermediate state
 ```
 
 Mutex có thể làm cho một nhóm thao tác trở thành `critical section` nguyên vẹn **theo giao thức khóa**.
@@ -269,9 +269,12 @@ Các luồng khác muốn lấy cùng mutex phải chờ hoặc nhận trạng t
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Mo
-    Mo --> BiKhoa: một luồng lock thành công
-    BiKhoa --> Mo: luồng sở hữu unlock
+    state "Unlocked" as Unlocked
+    state "Locked" as Locked
+
+    [*] --> Unlocked
+    Unlocked --> Locked: pthread_mutex_lock() thành công
+    Locked --> Unlocked: owner gọi pthread_mutex_unlock()
 ```
 
 Khi đang bị khóa:
@@ -424,7 +427,7 @@ Các hàm Pthreads thường trả `0` khi thành công và trả trực tiếp 
 Một câu hỏi khó là:
 
 ```text
-Nếu Luồng A đã giữ M rồi lại lock M lần nữa thì sao?
+Nếu Thread A đã giữ M rồi lại lock M lần nữa thì sao?
 ```
 
 POSIX có các loại mutex để định nghĩa hành vi khác nhau.
@@ -453,7 +456,7 @@ Cho phép cùng một luồng khóa nhiều lần.
 A lock   -> recursion count = 1
 A lock   -> recursion count = 2
 A unlock -> recursion count = 1
-A unlock -> recursion count = 0 -> mutex unlocked
+A unlock -> recursion count = 0 -> mutex becomes unlocked
 ```
 
 Cần số lần `unlock` tương ứng với số lần `lock`.
@@ -558,16 +561,16 @@ sequenceDiagram
     participant V as Condition Variable
     participant P as Producer
 
-    C->>M: giữ mutex
-    C->>C: kiểm tra predicate = sai
+    C->>M: pthread_mutex_lock()
+    C->>C: kiểm tra predicate == false
     C->>V: pthread_cond_wait()
-    V->>M: nhả mutex và chờ
-    P->>M: lấy mutex
-    P->>P: thay đổi trạng thái
-    P->>V: signal/broadcast
-    P->>M: mở mutex
-    V-->>C: được đánh thức
-    C->>M: lấy lại mutex
+    V->>M: atomically unlock mutex rồi wait
+    P->>M: pthread_mutex_lock()
+    P->>P: cập nhật shared state và predicate
+    P->>V: pthread_cond_signal()/pthread_cond_broadcast()
+    P->>M: pthread_mutex_unlock()
+    V-->>C: wakeup
+    C->>M: reacquire mutex trước khi return
     C->>C: kiểm tra lại predicate
 ```
 
@@ -624,16 +627,16 @@ predicate chắc chắn đúng
 Mental pattern:
 
 ```text
-khóa mutex
+lock(mutex)
 
-while predicate sai:
-    chờ condition variable
+while predicate == false:
+    wait(condition variable)
 
-// tới đây đã lấy lại mutex
-// kiểm tra cho thấy predicate đúng
+// pthread_cond_wait() đã reacquire mutex trước khi return
+// kiểm tra lại predicate
 
 thực hiện thao tác
-mở mutex
+unlock(mutex)
 ```
 
 `while` bắt buộc luồng kiểm tra lại predicate sau mỗi lần thức.
@@ -678,7 +681,7 @@ Dùng để đánh thức ít nhất một luồng đang chờ thích hợp.
 Không nên phụ thuộc vào việc:
 
 ```text
-luồng nào cụ thể sẽ được chọn
+Thread nào cụ thể sẽ được chọn
 ```
 
 nếu chuẩn/triển khai không cam kết.
@@ -690,13 +693,11 @@ nếu chuẩn/triển khai không cam kết.
 Đánh thức tất cả các luồng đang chờ condition variable đó.
 
 ```text
-              broadcast
-                  |
-         +--------+--------+
-         |        |        |
-       Chờ A    Chờ B    Chờ C
-         |        |        |
-         +--- cùng tranh lấy mutex ---+
+broadcast
+   |
+   +--> Waiter A --+
+   +--> Waiter B --+--> cạnh tranh để reacquire mutex
+   +--> Waiter C --+
 ```
 
 Mỗi luồng vẫn phải kiểm tra lại predicate sau khi lấy mutex.
@@ -804,7 +805,7 @@ Dùng khi cần: loại trừ lẫn nhau và bảo vệ `invariant` dữ liệu.
 Câu hỏi:
 
 ```text
-Khi nào luồng này nên ngủ và thức để kiểm tra lại trạng thái?
+Khi nào Thread này nên wait/wakeup để kiểm tra lại state?
 ```
 
 Nó thường đi với mutex và predicate.
@@ -874,16 +875,16 @@ Các trường liên hệ nhau nên cần một giao thức nhất quán.
 
 ```text
 Producer:
-  khóa
+  lock(mutex)
   thêm phần tử
   cập nhật count/tail
-  mở khóa
+  unlock(mutex)
 
 Consumer:
-  khóa
+  lock(mutex)
   lấy phần tử
   cập nhật count/head
-  mở khóa
+  unlock(mutex)
 ```
 
 ---
@@ -940,7 +941,7 @@ Không luồng nào được sang Phase 2 trước khi cả ba hoàn thành Phas
 
 ```text
 Thread A --------> barrier --\
-Thread B ------> barrier -----+--> tất cả đã tới --> Giai đoạn 2
+Thread B ------> barrier -----+--> all participants arrived --> Phase 2
 Thread C ----------> barrier -/
 ```
 
@@ -950,11 +951,15 @@ Thread C ----------> barrier -/
 
 ```mermaid
 stateDiagram-v2
-    [*] --> DangThuThap
-    DangThuThap --> DangThuThap: một thành viên tới, chưa đủ
-    DangThuThap --> MoHangRao: thành viên cuối cùng tới
-    MoHangRao --> TheHeMoi: các luồng được tiếp tục
-    TheHeMoi --> DangThuThap: barrier sẵn sàng cho vòng tiếp theo
+    state "Collecting" as Collecting
+    state "Release" as Release
+    state "Next generation" as NextGeneration
+
+    [*] --> Collecting
+    Collecting --> Collecting: Thread tới barrier, chưa đủ participants
+    Collecting --> Release: Thread cuối cùng tới barrier
+    Release --> NextGeneration: các waiting threads được release
+    NextGeneration --> Collecting: barrier bắt đầu generation tiếp theo
 ```
 
 ---
@@ -974,9 +979,9 @@ Một luồng nhận giá trị `PTHREAD_BARRIER_SERIAL_THREAD`, còn các luồ
 Nếu barrier cần 4 luồng nhưng chỉ 3 luồng tới:
 
 ```text
-A -> chờ
-B -> chờ
-C -> chờ
+A -> waiting
+B -> waiting
+C -> waiting
 D -> never reaches barrier
 ```
 
@@ -993,20 +998,20 @@ Vòng đời thành viên phải được thiết kế đồng bộ với barrie
 ### 14.1 Ví dụ hai mutex
 
 ```text
-Luồng A giữ M1
-Luồng B giữ M2
+Thread A owns M1
+Thread B owns M2
 
-A chờ M2
-B chờ M1
+A waits for M2
+B waits for M1
 ```
 
 Wait-for graph:
 
 ```text
-A --chờ--> B
-^          |
-|          |
-+---chờ----+
+A --waits for--> B
+^               |
+|               |
++---waits for---+
 ```
 
 ---
@@ -1195,9 +1200,9 @@ trong vùng khóa.
 Giả sử:
 
 ```text
-H = luồng ưu tiên cao
-M = luồng ưu tiên trung bình
-L = luồng ưu tiên thấp
+H = high-priority thread
+M = medium-priority thread
+L = low-priority thread
 ```
 
 L đang giữ mutex mà H cần.
@@ -1348,7 +1353,7 @@ mutex đang bị giữ
 ### 19.1 Hàng đợi sensor
 
 ```text
-Thread cảm biến
+Sensor thread
      |
      v
 +-----------------+
@@ -1356,7 +1361,7 @@ Thread cảm biến
 +-----------------+
      |
      v
-Thread xử lý
+Processing thread
 ```
 
 Có thể cần:

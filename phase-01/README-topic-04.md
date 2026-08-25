@@ -663,14 +663,14 @@ Khi không có GUI, `/proc` là công cụ quan trọng để trả lời: tiế
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Running: tiến trình được tạo
-    Running --> Sleeping: chờ I/O/sự kiện
-    Sleeping --> Runnable: sự kiện sẵn sàng
-    Runnable --> Running: scheduler cấp CPU
-    Running --> Stopped: stop/tracing
+    [*] --> Running: process bắt đầu thực thi
+    Running --> Sleeping: block khi chờ I/O hoặc event
+    Sleeping --> Runnable: wakeup khi event sẵn sàng
+    Runnable --> Running: scheduler dispatch lên CPU
+    Running --> Stopped: stop signal hoặc tracing
     Stopped --> Runnable: continue
-    Running --> Zombie: exit/termination
-    Zombie --> [*]: parent wait/reap
+    Running --> Zombie: process exit
+    Zombie --> [*]: parent gọi wait()/reap
 ```
 
 Mô hình `fork` + `exec`:

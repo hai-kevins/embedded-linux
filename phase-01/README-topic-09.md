@@ -898,10 +898,10 @@ cổng dịch vụ
 
 ### 10.3 Bước 3 — `listen()`
 
-Chuyển socket luồng sang vai trò thụ động:
+Chuyển `SOCK_STREAM` socket sang trạng thái lắng nghe:
 
 ```text
-socket lắng nghe
+listening socket
 ```
 
 Nó nhận yêu cầu kết nối chứ không phải là socket dữ liệu riêng của một `client`.
@@ -919,11 +919,11 @@ accept()
 fd mới
 ```
 
-fd mới là **socket đã kết nối** cho một đầu bên kia cụ thể.
+fd mới là **`connected socket`** gắn với một `peer` cụ thể.
 
 ---
 
-### 10.5 socket lắng nghe và socket đã kết nối phải tách nhau trong đầu
+### 10.5 Phân biệt `listening socket` và `connected socket`
 
 ```text
                   listening socket
@@ -958,18 +958,18 @@ Trên Linux hiện đại, `listen(2)` mô tả backlog theo hàng đợi kết 
 
 ```mermaid
 sequenceDiagram
-    participant S as Server
-    participant K as Linux TCP
-    participant C as Client
+    participant S as Server application
+    participant K as Linux TCP/IP stack
+    participant C as Client application
 
     S->>K: socket()
     S->>K: bind()
     S->>K: listen()
-    C->>K: bắt đầu kết nối TCP
-    K->>K: bắt tay
+    C->>K: connect()
+    K->>K: TCP three-way handshake
     S->>K: accept()
-    K-->>S: connected fd mới
-    S<<->>C: byte stream TCP
+    K-->>S: connected socket fd
+    S<<->>C: TCP byte stream
     S->>K: shutdown()/close()
 ```
 
@@ -1109,18 +1109,18 @@ Kết nối hai phía đã được thiết lập ở mức TCP và có thể tr
 ```mermaid
 stateDiagram-v2
     [*] --> CLOSED
-    CLOSED --> LISTEN: server listen
-    CLOSED --> SYN_SENT: client connect
+    CLOSED --> LISTEN: listen()
+    CLOSED --> SYN_SENT: connect()
     LISTEN --> SYN_RECEIVED: nhận SYN
-    SYN_SENT --> ESTABLISHED: bắt tay hoàn tất
+    SYN_SENT --> ESTABLISHED: nhận SYN+ACK rồi gửi ACK
     SYN_RECEIVED --> ESTABLISHED: nhận ACK cuối
-    ESTABLISHED --> FIN_WAIT_1: cục bộ chủ động đóng
-    ESTABLISHED --> CLOSE_WAIT: nhận FIN từ đầu bên kia
-    FIN_WAIT_1 --> FIN_WAIT_2: FIN cục bộ được ACK
-    FIN_WAIT_2 --> TIME_WAIT: nhận FIN đầu bên kia
-    CLOSE_WAIT --> LAST_ACK: cục bộ đóng phần còn lại
-    LAST_ACK --> CLOSED: FIN được ACK
-    TIME_WAIT --> CLOSED: hết thời gian bảo vệ
+    ESTABLISHED --> FIN_WAIT_1: local endpoint thực hiện active close
+    ESTABLISHED --> CLOSE_WAIT: nhận FIN từ peer
+    FIN_WAIT_1 --> FIN_WAIT_2: local FIN được ACK
+    FIN_WAIT_2 --> TIME_WAIT: nhận FIN từ peer
+    CLOSE_WAIT --> LAST_ACK: local application close
+    LAST_ACK --> CLOSED: local FIN được ACK
+    TIME_WAIT --> CLOSED: hết thời gian 2MSL
 ```
 
 RFC 9293 có `state machine` đầy đủ hơn; sơ đồ trên phục vụ nhập môn.
@@ -1261,11 +1261,11 @@ recv()
 
 ---
 
-### 14.2 `send()` thành công không có nghĩa đầu bên kia đã xử lý
+### 14.2 `send()` thành công không có nghĩa `peer` đã xử lý
 
 Nếu `send()` trả số byte dương, TCP stack cục bộ đã chấp nhận tiến triển tương ứng.
 
-Nó không chứng minh: đầu bên kia ứng dụng đã `recv()`, đã parse, đã ghi flash và giao dịch đã thành công.
+Nó không chứng minh ứng dụng phía `peer` đã `recv()`, đã parse, đã ghi flash hoặc giao dịch đã thành công.
 
 ---
 
@@ -1297,7 +1297,7 @@ không cần chờ đủ 4096 trong ngữ nghĩa thông thường.
 
 ### 14.5 `recv() == 0` trên TCP
 
-Khi mọi byte trước đó đã được đọc và đầu bên kia đã đóng phía gửi theo kiểu `orderly shutdown`:
+Khi mọi byte trước đó đã được đọc và `peer` đã đóng chiều gửi theo kiểu `orderly shutdown`:
 
 ```text
 recv() -> 0
@@ -1315,7 +1315,7 @@ Không phải:
 
 ### 14.6 Bộ đệm hữu hạn tạo `backpressure`
 
-Nếu ứng dụng gửi nhanh hơn mạng/đầu bên kia đọc:
+Nếu ứng dụng gửi nhanh hơn khả năng mạng/`peer` tiêu thụ dữ liệu:
 
 ```text
 TCP send buffer dần đầy
@@ -1332,7 +1332,7 @@ hoặc nonblocking sẽ báo chưa sẵn sàng.
 
 Hai khái niệm khác nhau:
 
-**`flow control`**: tránh gửi quá khả năng nhận của đầu bên kia; **`congestion control`**: điều chỉnh theo khả năng đường mạng.
+**`flow control`**: tránh gửi vượt quá khả năng nhận của `peer`; **`congestion control`**: điều chỉnh theo khả năng đường mạng.
 
 Ứng dụng-level hàng đợi/`backpressure` vẫn là lớp khác phía trên.
 
@@ -1429,8 +1429,8 @@ FIN và ACK có thể được kết hợp tùy thời điểm (`timing`) và tr
 Đầu bên kia đã gửi FIN, cục bộ TCP đã nhận.
 
 ```text
-đầu bên kia: không gửi thêm
-cục bộ ứng dụng: vẫn chưa đóng phía của mình
+peer: không gửi thêm data
+local application: chưa close phía của mình
 ```
 
 Nếu `CLOSE_WAIT` tồn tại lâu bất thường, thường nên kiểm tra ứng dụng có quên hoàn tất vòng đời socket hay không.
@@ -1520,10 +1520,10 @@ Nếu ứng dụng cần độ tin cậy (`reliability`), nó phải chọn giao
 Socket vẫn có thể có:
 
 ```text
-địa chỉ cục bộ/cổng
-connected đầu bên kia mặc định
+local address / port
+default peer (sau connect())
 receive queue
-trạng thái lỗi
+error state
 socket options
 ```
 
@@ -1614,7 +1614,7 @@ sender địa chỉ
 
 Đây là điểm rất dễ nhầm.
 
-UDP `connect()` chủ yếu gắn socket với một đầu bên kia mặc định và thay đổi cách Linux kernel lọc/liên kết gửi nhận/lỗi.
+UDP `connect()` chủ yếu gắn socket với một `default peer` và thay đổi cách Linux kernel lọc/liên kết gửi nhận/lỗi.
 
 Không có: TCP bắt tay, retransmission guarantee và đúng thứ tự `byte stream`.
 
@@ -1651,7 +1651,7 @@ send()
 sendto()
 ```
 
-`send()` phù hợp khi socket đã biết đầu bên kia, ví dụ TCP socket đã kết nối hoặc UDP socket đã gọi `connect()`.
+`send()` phù hợp khi socket đã biết `peer`, ví dụ TCP `connected socket` hoặc UDP socket đã gọi `connect()`.
 
 `sendto()` cho phép chỉ rõ địa chỉ đích cho từng lần gửi, nên rất tự nhiên với UDP chưa kết nối.
 
@@ -1748,9 +1748,9 @@ UDP giữ ranh giới datagram. Nếu bộ đệm ứng dụng nhỏ hơn datagr
 
 ---
 
-### 18.8 `send()` thành công không bảo đảm đầu bên kia đã nhận/xử lý dữ liệu
+### 18.8 `send()` thành công không bảo đảm `peer` đã nhận/xử lý dữ liệu
 
-Linux `send(2)` phân biệt rõ việc dữ liệu được socket cục bộ chấp nhận với việc dữ liệu đã được ứng dụng ở đầu bên kia xử lý.
+Linux `send(2)` phân biệt rõ việc dữ liệu được local socket chấp nhận với việc dữ liệu đã được ứng dụng phía `peer` xử lý.
 
 Mô hình:
 
@@ -1885,13 +1885,13 @@ Cùng biểu hiện “không nhận được dữ liệu” có thể xuất ph
 
 ### 20.2 Mô hình gỡ lỗi theo lớp
 
-Thứ tự kiểm tra nên đi từ thấp lên cao: bảng định tuyến (`route`)/giao diện mạng → địa chỉ và cổng cục bộ → trạng thái TCP/UDP → trạng thái socket → khả năng kết nối tới peer → dịch vụ ở đầu bên kia → giao thức ứng dụng.
+Thứ tự kiểm tra nên đi từ thấp lên cao: bảng định tuyến (`route`)/giao diện mạng → địa chỉ và cổng cục bộ → trạng thái TCP/UDP → trạng thái socket → khả năng kết nối tới peer → dịch vụ phía `peer` → giao thức ứng dụng.
 
 ---
 
 ### 20.3 Lỗi tại `socket()`
 
-Nếu `socket()` thất bại, vấn đề còn xảy ra **trước khi** xét khả năng kết nối tới đầu bên kia.
+Nếu `socket()` thất bại, vấn đề còn xảy ra **trước khi** xét khả năng kết nối tới `peer`.
 
 Các nhóm nguyên nhân có thể gồm:
 
@@ -1993,7 +1993,7 @@ Trên TCP, sau khi các byte đã nhận trước đó được đọc hết:
 recv() == 0
 ```
 
-có nghĩa đầu bên kia đã thực hiện `orderly shutdown` ở chiều gửi của nó.
+có nghĩa `peer` đã thực hiện `orderly shutdown` ở chiều gửi của nó.
 
 Không nên hiểu đây là:
 
@@ -2123,7 +2123,7 @@ Không nên coi mọi `TIME_WAIT` là rò rỉ socket.
 
 ### 20.21 Có nhiều `CLOSE_WAIT`
 
-`CLOSE_WAIT` thường cho thấy: đầu bên kia đã gửi FIN nhưng ứng dụng cục bộ chưa hoàn tất việc đóng phía mình.
+`CLOSE_WAIT` thường cho thấy: `peer` đã gửi FIN nhưng ứng dụng cục bộ chưa hoàn tất việc đóng phía mình.
 
 Nếu trạng thái này tồn tại lâu với số lượng lớn, cần xem lại vòng đời file descriptor/kết nối trong ứng dụng.
 
@@ -2170,7 +2170,7 @@ Topic 9 cung cấp nền ngữ nghĩa socket; kiến trúc timer/`event loop` s�
 TCP phù hợp khi ứng dụng cần:
 
 ```text
-luồng lệnh đáng tin cậy và đúng thứ tự
+reliable ordered command stream
 trao đổi cấu hình
 yêu cầu/phản hồi
 điều khiển hoặc metadata firmware
@@ -2188,7 +2188,7 @@ UDP có thể phù hợp với:
 các datagram telemetry độc lập
 discovery
 multicast/broadcast
-luồng ưu tiên độ trễ thấp
+low-latency traffic
 ```
 
 khi giao thức ứng dụng đã tính tới: mất gói, đảo thứ tự, trùng dữ liệu, tắc nghẽn và kích thước datagram.
@@ -2326,9 +2326,9 @@ accept()
 Điểm phải nhớ:
 
 ```text
-socket lắng nghe
+listening socket
 !=
-socket đã kết nối trả về từ accept()
+connected socket returned by accept()
 ```
 
 ---
@@ -2353,9 +2353,9 @@ TCP connection
 ### 22.4 TCP
 
 ```text
-hướng kết nối
-đáng tin cậy
-đúng thứ tự
+connection-oriented
+reliable
+ordered
 full-duplex
 byte stream
 ```

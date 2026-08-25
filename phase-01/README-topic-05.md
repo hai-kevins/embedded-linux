@@ -147,14 +147,22 @@ Khi signal đủ điều kiện được delivery, Linux kernel áp dụng cách
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Generated: sự kiện tạo signal
-    Generated --> Pending: signal bị block hoặc chưa delivery
-    Generated --> Deliverable: có thể delivery ngay
-    Pending --> Deliverable: signal được unblock
-    Deliverable --> Ignored: disposition = ignore
-    Deliverable --> Handler: disposition = handler
-    Deliverable --> DefaultAction: disposition = default
-    Handler --> Resume: handler kết thúc bình thường
+    state "Generated" as Generated
+    state "Pending" as Pending
+    state "Delivery" as Delivery
+    state "Handler" as Handler
+    state "Resume" as Resume
+    state "Ignored" as Ignored
+    state "Default action" as DefaultAction
+
+    [*] --> Generated: signal được tạo
+    Generated --> Pending: signal bị block hoặc chưa thể delivery
+    Generated --> Delivery: có thể delivery ngay
+    Pending --> Delivery: signal được unblock
+    Delivery --> Ignored: disposition = ignore
+    Delivery --> Handler: disposition = handler
+    Delivery --> DefaultAction: disposition = default
+    Handler --> Resume: handler return bình thường
     Resume --> [*]
     Ignored --> [*]
     DefaultAction --> [*]
@@ -616,7 +624,7 @@ Kiểm tra:
 
 ```text
 signal có thực sự phát sinh?
-đúng tiến trình/luồng đích?
+đúng process/thread đích?
 bị block?
 disposition đúng?
 tiến trình còn sống?

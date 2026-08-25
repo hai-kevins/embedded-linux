@@ -214,23 +214,23 @@ Tra cứu bắt đầu từ thư mục làm việc hiện tại của tiến tr�
 
 ```mermaid
 sequenceDiagram
-    participant P as Tiến trình
+    participant P as Process
     participant V as VFS
     participant D as Dentry cache
     participant F as Filesystem
 
     P->>V: pathname /a/b/c
-    V->>D: tìm a
-    D-->>V: dentry a
-    V->>D: tìm b trong a
-    D-->>V: dentry b
-    V->>D: tìm c trong b
-    D-->>V: hit hoặc miss
+    V->>D: lookup component "a"
+    D-->>V: dentry "a"
+    V->>D: lookup component "b"
+    D-->>V: dentry "b"
+    V->>D: lookup component "c"
+    D-->>V: cache hit hoặc cache miss
     alt cache miss
-        V->>F: yêu cầu filesystem tra cứu
-        F-->>V: object/inode tương ứng
+        V->>F: lookup component trong filesystem
+        F-->>V: dentry/inode tương ứng
     end
-    V-->>P: kết quả hoặc lỗi
+    V-->>P: resolved object hoặc error
 ```
 
 Đây là mô hình tư duy. Chi tiết cache và filesystem cụ thể phức tạp hơn.
@@ -701,7 +701,7 @@ Filesystem vẫn giữ block cho file đó, nên `df` vẫn tính dung lượng;
 ### 13.1 Tên và đối tượng là hai thứ khác nhau
 
 ```text
-pathname -> directory entry -> inode/đối tượng
+pathname -> directory entry -> inode/object
 ```
 
 Xóa pathname không nhất thiết xóa đối tượng ngay.

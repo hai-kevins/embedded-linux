@@ -84,9 +84,9 @@ các công việc sau chưa thể chạy
 Với nhiều luồng:
 
 ```text
-Thread đọc thiết bị  ---> đang chờ I/O
-Thread xử lý         ---> vẫn có thể chạy
-Thread mạng          ---> vẫn có thể chạy
+Device I/O thread  ---> blocked on I/O
+Processing thread  ---> vẫn có thể chạy
+Network thread     ---> vẫn có thể chạy
 ```
 
 Đây là một lý do phổ biến để dùng đa luồng trong chương trình Linux.
@@ -319,13 +319,13 @@ Ví dụ:
 ```text
 Tiến trình PID = 4200
 
-Luồng chính:
+Main thread:
   TID = 4200
 
-Luồng phụ 1:
+Worker thread 1:
   TID = 4201
 
-Luồng phụ 2:
+Worker thread 2:
   TID = 4202
 ```
 
@@ -368,16 +368,16 @@ Chúng có liên hệ tới cùng một luồng nhưng không phải cùng một
 Các luồng cùng tiến trình dùng chung nhiều tài nguyên:
 
 ```text
-không gian địa chỉ
-mã chương trình
-dữ liệu toàn cục/static
+virtual address space
+code / text
+global/static data
 heap
-các vùng mmap
-bảng file descriptor
-thư mục làm việc hiện tại
+mmap regions
+file descriptor table
+cwd
 umask
-cách xử lý signal của tiến trình
-nhiều thông tin định danh/tài nguyên tiến trình
+process-wide signal disposition
+other process-wide attributes/resources
 ```
 
 Ví dụ:
@@ -523,13 +523,13 @@ Cơ chế đồng bộ cụ thể thuộc Chủ đề 7.
 Sau khi `pthread_create()` thành công:
 
 ```text
-luồng tạo
+creator thread
 ```
 
 và:
 
 ```text
-luồng mới
+new thread
 ```
 
 đều có thể được `scheduler` chọn.
@@ -570,14 +570,20 @@ Nhiều hàm Pthreads trả `0` khi thành công và trả trực tiếp một m
 
 ```mermaid
 stateDiagram-v2
-    [*] --> DaTao
-    DaTao --> SanSang: được scheduler quản lý
-    SanSang --> DangChay: được cấp CPU
-    DangChay --> SanSang: bị nhường / bị ngắt lịch
-    DangChay --> DangCho: chờ I/O hoặc sự kiện
-    DangCho --> SanSang: điều kiện chờ hoàn tất
-    DangChay --> KetThuc: return hoặc pthread_exit()
-    KetThuc --> [*]: tài nguyên vòng đời được thu hồi theo trạng thái join/detach
+    state "Created" as Created
+    state "Runnable" as Runnable
+    state "Running" as Running
+    state "Waiting / blocked" as Waiting
+    state "Terminated" as Terminated
+
+    [*] --> Created
+    Created --> Runnable: thread trở thành schedulable
+    Runnable --> Running: scheduler cấp CPU
+    Running --> Runnable: preempt hoặc yield
+    Running --> Waiting: block khi chờ I/O hoặc event
+    Waiting --> Runnable: wakeup khi điều kiện chờ hoàn tất
+    Running --> Terminated: start routine return hoặc pthread_exit()
+    Terminated --> [*]: join/detach quyết định việc thu hồi resource vòng đời
 ```
 
 Đây là mô hình học tập, không phải toàn bộ trạng thái nội bộ của `scheduler` Linux.
@@ -589,13 +595,13 @@ stateDiagram-v2
 Nếu hàm bắt đầu của luồng trả về:
 
 ```text
-return giá_trị;
+return retval;
 ```
 
 thì về mặt POSIX, luồng kết thúc như thể gọi:
 
 ```text
-pthread_exit(giá_trị)
+pthread_exit(retval)
 ```
 
 Giá trị này có thể được một luồng khác thu nhận bằng `pthread_join()` nếu luồng ở trạng thái phù hợp.
@@ -756,13 +762,13 @@ Nó không nói rằng luồng: có ưu tiên thấp hơn, không chiếm CPU, k
 Thiết kế nên trả lời:
 
 ```text
-Ai sẽ join luồng này?
+Thread này sẽ được join bởi ai?
 ```
 
 hoặc:
 
 ```text
-Luồng này có chủ ý detached không?
+Thread này có chủ ý detached không?
 ```
 
 Nếu một luồng joinable kết thúc nhưng không bao giờ được join, một số tài nguyên liên quan tới vòng đời của nó có thể không được thu hồi đúng lúc.
@@ -855,7 +861,7 @@ Mỗi luồng có chi phí: ngăn xếp, trạng thái trong nhân, thông tin l
 Vì vậy:
 
 ```text
-càng nhiều luồng càng tốt
+more threads = always better
 ```
 
 là một kết luận sai.
@@ -1026,7 +1032,7 @@ PID 4200
 Linux cung cấp đường dẫn đại diện cho luồng đang truy cập:
 
 ```text
-/proc/luồng-self
+/proc/thread-self
 ```
 
 Nó cho phép biểu diễn “luồng hiện tại” trong `procfs`.
@@ -1038,13 +1044,13 @@ Nó cho phép biểu diễn “luồng hiện tại” trong `procfs`.
 Các công cụ quan sát có thể hiển thị:
 
 ```text
-một dòng cho tiến trình
+one row per process
 ```
 
 hoặc chế độ chi tiết theo:
 
 ```text
-luồng / TID
+thread / TID
 ```
 
 Do `scheduler` làm việc với các thực thể luồng/tác vụ, mức sử dụng CPU có thể tập trung ở một luồng thay vì chia đều cho cả tiến trình.
@@ -1094,8 +1100,8 @@ Có thể do:
 ```text
 pthread_create() thất bại
 main kết thúc quá sớm
-luồng mới vừa vào đã chờ I/O
-luồng mới kết thúc rất nhanh
+new thread vừa vào đã chờ I/O
+new thread kết thúc rất nhanh
 thứ tự lập lịch khác dự đoán
 ```
 
@@ -1139,10 +1145,10 @@ Thay đổi thời điểm thực thi (`timing`) do thêm log có thể làm l�
 +----------------------------------+
 | Ứng dụng Embedded Linux          |
 |                                  |
-| Thread cảm biến                   |
-| Thread xử lý                      |
-| Thread mạng                       |
-| Thread ghi log                    |
+| Sensor thread                    |
+| Processing thread                |
+| Network thread                   |
+| Logging thread                   |
 +----------------------------------+
 ```
 
@@ -1176,7 +1182,7 @@ Mỗi luồng thêm một ngăn xếp và trạng thái quản lý.
 Vì vậy kiến trúc:
 
 ```text
-1 chức năng = 1 luồng
+1 function/role = 1 thread
 ```
 
 không nên được dùng máy móc.
