@@ -168,10 +168,10 @@ Mỗi tiến trình (bao gồm cả tiến trình Shell) đều duy trì một t
 Các biến định nghĩa thông thường (`VAR=123`) là trạng thái nội bộ của phiên Shell đó. Các tiến trình con không thể truy cập biến này.
 
 ### 7.2 Environment Variable (Biến môi trường)
-Khi sử dụng `export VAR=123`, biến được đánh dấu để sao chép vào bộ nhớ môi trường của tiến trình con. Khi tạo tiến trình mới, hệ điều hành tuân theo luồng một chiều: cha truyền môi trường cho con; con có thể sửa môi trường của nó, nhưng không tự dội ngược lại lên cha. Nếu tiến trình con đổi VAR=456, chỉ có biến của con thay đổi. Tiến trình cha vẫn giữ nguyên giá trị VAR=123.
+Khi sử dụng `export VAR=123`, biến này sẽ được đánh dấu để sao chép vào bộ nhớ môi trường của tiến trình con. Khi một tiến trình con được tạo ra, hệ điều hành tuân theo luồng một chiều từ cha sang con: Cha sẽ sao chép toàn bộ các biến môi trường của mình vào bộ nhớ môi trường của con. Tiến trình con có quyền tự do chỉnh sửa các biến đó trong bộ nhớ môi trường của nó, nhưng mọi thay đổi đó hoàn toàn không ảnh hưởng hay dội ngược lại về tiến trình cha.
 
 ### 7.3 Mảng `argv`
-Sau khi Shell hoàn tất việc mở rộng biến và phân tách cú pháp (word splitting), dữ liệu được đóng gói thành một cấu trúc danh sách đối số (`argv`). Khoảng trắng không còn là một chuỗi liền mạch, ranh giới giữa các đối số đã được xác lập rõ ràng và truyền cho chương trình thông qua họ hàm `exec*()` (cuối cùng sử dụng system call `execve()`).
+Khi bạn gõ lệnh, Shell sẽ kiểm tra và chia các từ vào từng 'chiếc hộp' riêng biệt (gọi là danh sách đối số argv). Lúc này, các từ đã được phân chia rõ ràng và khóa chặt ranh giới. Dù bên trong một chiếc hộp có khoảng trắng, nó cũng không bị tách làm đôi nữa. Cuối cùng, Shell sẽ trao toàn bộ các hộp này cho hệ điều hành thông qua họ hàm exec*() (chính xác là lệnh execve()) để chạy chương trình.
 
 ---
 
