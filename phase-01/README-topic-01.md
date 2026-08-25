@@ -125,7 +125,7 @@ Ký tự nháy quyết định phần văn bản nào được Shell giữ nguy�
 
 *   **4.1 Nháy đơn (`' '`):** Ngăn chặn hoàn toàn mọi phép mở rộng. Chuỗi `'$HOME'` sẽ được truyền nguyên vẹn thành `$HOME` cho chương trình.
 *   **4.2 Nháy kép (`" "`):** Ngăn chặn việc tách từ bằng khoảng trắng (word splitting), nhưng vẫn cho phép Shell dịch biến (Parameter expansion) và thay thế lệnh (Command substitution). Chuỗi `"$HOME"` sẽ được dịch thành `/home/user`.
-*   **4.3 Command substitution (`$(cmd)`):** Chạy lệnh bên trong, thu thập kết quả (stdout) và chèn ngược lại vào dòng lệnh cha trước khi thực thi. Ví dụ: `echo "Xin chào $(whoami)"` ra output `echo "Xin chào ngocchien"`.
+*   **4.3 Command substitution (`$(cmd)`):** Chạy lệnh bên trong, thu thập kết quả (stdout) và chèn ngược lại vào dòng lệnh cha trước khi thực thi. Ví dụ: `echo "Xin chao $(whoami)"` ra output `echo "Xin chao ngocchien"`.
 *   **4.4 Globbing (`*`, `?`):** Cơ chế khớp tên file của Shell. Ký tự `*.c` sẽ được Shell tự động mở rộng thành một danh sách các file C hiện có trong thư mục. Khác với Regular Expression (biểu thức chính quy) của lệnh `grep` thường dùng để so khớp luồng văn bản, Globbing chỉ dành cho việc phân giải đường dẫn (pathname).
 
 ---
