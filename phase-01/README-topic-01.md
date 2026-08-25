@@ -278,6 +278,8 @@ chuỗi ký tự $HOME
 
 Dấu nháy kép vẫn cho phép một số mở rộng, đặc biệt là mở rộng biến và thay thế lệnh.
 
+Mô hình:
+
 ```text
 "$HOME"
    |
