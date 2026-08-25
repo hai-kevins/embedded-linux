@@ -232,7 +232,7 @@ Sơ đồ trên là mô hình học tập, không phải toàn bộ chi tiết t
 
 ### 3.3 Builtin (Tích hợp sẵn) và chương trình ngoài
 
-Sau khi phân tích dòng lệnh, Shell phải quyết định lệnh cần chạy là **builtin** hay một executable bên ngoài. Builtin là chức năng nằm ngay trong Shell. `cd` là ví dụ quan trọng: nếu `cd` là một chương trình nằm ở `/bin/cd`, khi bạn gõ lệnh, Shell sẽ phải tạo ra một tiến trình con (fork) để chạy tệp `/bin/cd` đó; vì vậy việc đổi thư mục phải được Shell tự thực hiện.
+Sau khi phân tích dòng lệnh, Shell phải quyết định lệnh cần chạy là **builtin** hay một executable bên ngoài. Builtin là chức năng (lệnh và các tính năng) nằm ngay trong Shell. `cd` là ví dụ quan trọng: nếu `cd` là một chương trình nằm ở `/bin/cd`, khi bạn gõ lệnh, Shell sẽ phải tạo ra một tiến trình con (fork) để chạy tệp `/bin/cd` đó; vì vậy việc đổi thư mục phải được Shell tự thực hiện.
 
 Ngược lại, các lệnh như `/bin/ls`, `/usr/bin/grep` hay `/usr/bin/find` thường là chương trình riêng. Shell tìm executable, tạo môi trường thực thi thích hợp rồi chạy nó trong một tiến trình. Vì vậy cần nhớ sự khác nhau: **builtin thay đổi hoặc sử dụng trực tiếp trạng thái của Shell; executable ngoài thường chạy như một tiến trình riêng**.
 
