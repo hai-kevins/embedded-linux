@@ -12,7 +12,7 @@ Trước khi đi vào từng lệnh, hãy giữ một mô hình duy nhất trong
 
 Vì vậy chương này đi từ bên ngoài vào bên trong. Ta bắt đầu bằng terminal/TTY/Shell, sau đó xem Shell xử lý một dòng lệnh ra sao, rồi mới đến cách chương trình nhận đối số, dữ liệu vào/ra và trạng thái kết thúc. Khi đã hiểu luồng này, các lệnh Linux cơ bản sẽ dễ nhớ hơn vì bạn biết **vì sao** chúng hoạt động như vậy.
 
-**Cách đọc nếu bạn mới bắt đầu.** Trước hết hãy đọc phần **Nói đơn giản** ở đầu mỗi mục lớn để nắm câu hỏi mà mục đó đang giải quyết. Sau đó xem sơ đồ và ví dụ để hình thành mô hình trong đầu; chưa cần nhớ mọi cờ, mã lỗi hay trường hợp đặc biệt. Khi ý chính đã rõ, hãy đọc các mục `###` theo thứ tự và quay lại phần giải thích trước đó nếu gặp một thuật ngữ chưa quen.
+Nếu bạn mới bắt đầu, hãy đọc theo thứ tự từ mục lớn tới mục nhỏ và xem sơ đồ trước khi đi vào các chi tiết API. Mỗi sơ đồ chỉ giữ những thành phần cần thiết để tạo mô hình trong đầu; đoạn văn ngay bên dưới sẽ giải thích luồng dữ liệu, trạng thái hoặc quan hệ giữa các object. Sau khi đã hiểu mô hình, hãy quay lại tên API, flag và mã lỗi để gắn chúng vào đúng vị trí thay vì học thuộc rời rạc.
 
 ---
 
@@ -41,7 +41,7 @@ Vì vậy chương này đi từ bên ngoài vào bên trong. Ta bắt đầu b�
 
 ## 1. Dòng lệnh Linux thực chất là gì?
 
-> **Nói đơn giản:** Dòng lệnh là cách bạn yêu cầu Linux làm việc bằng chữ. Bạn gõ lệnh, Shell phân tích lệnh đó rồi chạy chương trình tương ứng.
+Dòng lệnh là cách bạn yêu cầu Linux làm việc bằng chữ. Bạn gõ lệnh, Shell phân tích lệnh đó rồi chạy chương trình tương ứng.
 
 ### 1.1 CLI và GUI khác nhau ở đâu?
 
@@ -118,11 +118,13 @@ Shell tìm executable rồi tạo process
 Chương trình ls gọi các API / system call cần thiết
 ```
 
+Điểm cần giữ lại từ sơ đồ là ranh giới trách nhiệm. Shell hiểu cú pháp của dòng lệnh và biến nó thành tên executable cùng danh sách `argv`; chương trình `ls` sau khi được chạy mới dùng libc/API và các system call để yêu cầu kernel đọc directory, metadata và ghi kết quả ra `stdout`. Vì vậy kernel không có một system call tên là “chạy chuỗi `ls -l /etc`”; chuỗi này chỉ có ý nghĩa đối với Shell.
+
 ---
 
 ## 2. Terminal, TTY, PTY và Shell
 
-> **Nói đơn giản:** Terminal là cửa sổ nhập/xuất, còn Shell là chương trình đọc và hiểu lệnh. TTY/PTY là lớp trung gian giúp terminal và chương trình trao đổi dữ liệu.
+Terminal là cửa sổ nhập/xuất, còn Shell là chương trình đọc và hiểu lệnh. TTY/PTY là lớp trung gian giúp terminal và chương trình trao đổi dữ liệu.
 
 ### 2.1 Terminal
 
@@ -174,11 +176,13 @@ Chương trình
 Linux kernel
 ```
 
+Luồng dữ liệu đi từ bàn phím qua terminal/TTY/PTY tới Shell. Shell chỉ là một process đang đọc ký tự từ terminal; khi chạy một chương trình khác, nó chuẩn bị môi trường và các file descriptor để chương trình đó tiếp tục giao tiếp qua cùng terminal hoặc qua redirection/pipe khác. Linux kernel nằm ở lớp dưới cùng, cung cấp process, TTY, file descriptor và system call cho toàn bộ chuỗi này.
+
 ---
 
 ## 3. Shell hiểu một dòng lệnh như thế nào?
 
-> **Nói đơn giản:** Shell không đưa nguyên dòng bạn gõ cho một chương trình duy nhất. Nó phải đọc cú pháp, nhận ra đâu là tên lệnh, đâu là đối số, đâu là pipe/chuyển hướng, thực hiện các phép mở rộng cần thiết rồi mới chạy chương trình.
+Shell không đưa nguyên dòng bạn gõ cho một chương trình duy nhất. Nó phải đọc cú pháp, nhận ra đâu là tên lệnh, đâu là đối số, đâu là pipe/chuyển hướng, thực hiện các phép mở rộng cần thiết rồi mới chạy chương trình.
 
 ### 3.1 Shell là một ngôn ngữ nhỏ
 
@@ -220,6 +224,8 @@ stateDiagram-v2
     WaitContinue --> [*]
 ```
 
+Sơ đồ này nên được đọc từ trên xuống dưới như vòng đời của **một dòng lệnh**. Dòng người dùng gõ chưa được chuyển thẳng cho Linux kernel; trước tiên Shell đọc và phân tích cú pháp, sau đó thực hiện các phép expansion, chuẩn bị redirection hoặc pipe, rồi mới tạo/chạy chương trình. Bởi vậy, nếu một lỗi xảy ra ở quoting, biến, `PATH`, pipe hay redirection thì lỗi đó có thể xuất hiện **trước khi executable đích bắt đầu chạy**. Đây là mô hình quan trọng nhất để hiểu vì sao Shell có thể thay đổi hoàn toàn `stdin`, `stdout`, `stderr` và `argv` mà chương trình bên dưới chỉ nhìn thấy kết quả cuối cùng.
+
 Điểm quan trọng là **chương trình được chạy sau khi Shell đã xử lý phần cú pháp thuộc về Shell**. Với ví dụ trên, Shell mở rộng `$HOME`, tạo pipe nối `stdout` của `echo` với `stdin` của `grep`, mở `result.txt` và nối `stdout` của `grep` vào tệp đó. Sau các bước chuẩn bị này, hai chương trình mới thực sự chạy và đọc/ghi qua những file descriptor mà Shell đã sắp xếp.
 
 Sơ đồ trên là mô hình học tập, không phải toàn bộ chi tiết triển khai của Bash hay một Shell cụ thể. Tuy nhiên, nó đủ để giải thích phần lớn hiện tượng mà người mới gặp khi dùng dấu nháy, biến, pipe và chuyển hướng.
@@ -233,7 +239,7 @@ Ngược lại, các lệnh như `/bin/ls`, `/usr/bin/grep` hay `/usr/bin/find` 
 ---
 ## 4. Quoting và Shell expansion
 
-> **Nói đơn giản:** Dấu nháy quyết định phần nào của dòng lệnh được Shell giữ nguyên và phần nào được thay thế trước khi chạy chương trình.
+Dấu nháy quyết định phần nào của dòng lệnh được Shell giữ nguyên và phần nào được thay thế trước khi chạy chương trình.
 
 ### 4.1 Vì sao phải dùng dấu nháy?
 
@@ -320,7 +326,7 @@ chèn kết quả vào dòng lệnh cha
 
 ## 5. Shell tìm chương trình bằng `PATH` như thế nào?
 
-> **Nói đơn giản:** Khi bạn chỉ gõ tên như `ls`, Shell phải tìm xem chương trình `ls` nằm ở đâu. Biến `PATH` cho Shell biết những thư mục cần tìm theo thứ tự.
+Khi bạn chỉ gõ tên như `ls`, Shell phải tìm xem chương trình `ls` nằm ở đâu. Biến `PATH` cho Shell biết những thư mục cần tìm theo thứ tự.
 
 ### 5.1 `PATH`
 
@@ -337,6 +343,8 @@ command: tool
    +--> /usr/bin/tool ?
    +--> /bin/tool ?
 ```
+
+Trong ví dụ này Shell lần lượt ghép tên `tool` với từng directory trong `PATH` cho tới khi tìm được executable phù hợp. Thứ tự directory vì thế có ý nghĩa: hai file cùng tên ở hai vị trí khác nhau có thể dẫn tới hai chương trình khác nhau được chạy. Khi debug lỗi “command not found” hoặc chạy nhầm binary, cần kiểm tra cả giá trị `PATH` lẫn lệnh `type`, `command -v` hoặc pathname tuyệt đối.
 
 ### 5.2 Khi tên lệnh có `/`
 
@@ -364,7 +372,7 @@ Nếu thư mục hiện tại luôn được ưu tiên tìm kiếm, một execut
 
 ## 6. Thư mục làm việc và đường dẫn
 
-> **Nói đơn giản:** Mỗi tiến trình có một thư mục làm việc hiện tại. Đường dẫn tương đối được hiểu từ thư mục đó, còn đường dẫn tuyệt đối bắt đầu từ `/`.
+Mỗi tiến trình có một thư mục làm việc hiện tại. Đường dẫn tương đối được hiểu từ thư mục đó, còn đường dẫn tuyệt đối bắt đầu từ `/`.
 
 ### 6.1 `current working directory`
 
@@ -397,7 +405,7 @@ Khi có symbolic link, đường dẫn người dùng nhìn thấy có thể kh�
 
 ## 7. Shell variable, environment variable và `argv`
 
-> **Nói đơn giản:** Shell variable giúp lưu giá trị trong Shell; biến môi trường có thể được truyền sang chương trình con; `argv` là danh sách đối số chương trình nhận được.
+Shell variable giúp lưu giá trị trong Shell; biến môi trường có thể được truyền sang chương trình con; `argv` là danh sách đối số chương trình nhận được.
 
 ### 7.1 Shell variable
 
@@ -427,7 +435,9 @@ child process
 parent process -> child process: environment inheritance
 ```
 
-không có nghĩa:
+Mũi tên chỉ đi từ parent sang child: khi Shell tạo tiến trình con, child nhận một bản môi trường khởi tạo từ parent theo quy tắc của `exec`/process creation. Sau thời điểm đó, hai process có state riêng; child thay đổi environment của chính nó không tự quay ngược lại sửa environment của Shell cha. Vì thế `export` chuẩn bị dữ liệu **để truyền xuống tiến trình con**, chứ không tạo một vùng biến dùng chung hai chiều.
+
+Điều đó không có nghĩa:
 
 ```text
 child thay environment của parent trực tiếp
@@ -452,7 +462,7 @@ Khoảng trắng sau xử lý của `shell` không còn là một chuỗi đơn;
 
 ## 8. `stdin`, `stdout`, `stderr` và redirection
 
-> **Nói đơn giản:** Một chương trình thường có ba luồng chuẩn: nhập vào, xuất bình thường và xuất lỗi. Chuyển hướng chỉ là đổi nơi các luồng này đọc hoặc ghi dữ liệu.
+Một chương trình thường có ba luồng chuẩn: nhập vào, xuất bình thường và xuất lỗi. Chuyển hướng chỉ là đổi nơi các luồng này đọc hoặc ghi dữ liệu.
 
 ### 8.1 Ba luồng chuẩn
 
@@ -509,7 +519,7 @@ Chuyển hướng được xử lý theo thứ tự, vì việc sao chép một 
 
 ## 9. Pipe và Pipeline
 
-> **Nói đơn giản:** Pipe nối đầu ra của lệnh trước với đầu vào của lệnh sau. Nhờ vậy bạn có thể ghép nhiều lệnh nhỏ thành một chuỗi xử lý dữ liệu.
+Pipe nối đầu ra của lệnh trước với đầu vào của lệnh sau. Nhờ vậy bạn có thể ghép nhiều lệnh nhỏ thành một chuỗi xử lý dữ liệu.
 
 ### 9.1 Pipe
 
@@ -526,6 +536,8 @@ writer
    v
 reader
 ```
+
+Pipe nên được hình dung như một buffer nằm trong kernel với hai đầu file descriptor. Writer ghi byte vào write end; reader lấy byte từ read end. Hai process không gọi trực tiếp lẫn nhau và cũng không chia sẻ một buffer userspace chung. Chính kernel quản lý dữ liệu đang nằm trong pipe, trạng thái còn writer/reader và hành vi block/EOF.
 
 ### 9.2 Pipeline của Shell
 
@@ -567,7 +579,7 @@ Muốn đưa `stderr` vào cùng kênh cần chuyển hướng rõ ràng.
 
 ## 10. `exit status` và toán tử điều khiển Shell
 
-> **Nói đơn giản:** Mỗi lệnh kết thúc với một mã trạng thái. Shell dùng mã này để biết lệnh thành công hay thất bại và quyết định có chạy lệnh tiếp theo hay không.
+Mỗi lệnh kết thúc với một mã trạng thái. Shell dùng mã này để biết lệnh thành công hay thất bại và quyết định có chạy lệnh tiếp theo hay không.
 
 ### 10.1 `exit status`
 
@@ -614,7 +626,7 @@ B được xét chạy sau A mà không phụ thuộc trực tiếp vào `exit s
 
 ## 11. `foreground`, `background` và `job control`
 
-> **Nói đơn giản:** Tiến trình chạy ở tiền cảnh thường nhận bàn phím trực tiếp; tiến trình nền tiếp tục chạy mà không chiếm phiên nhập lệnh hiện tại.
+Tiến trình chạy ở tiền cảnh thường nhận bàn phím trực tiếp; tiến trình nền tiếp tục chạy mà không chiếm phiên nhập lệnh hiện tại.
 
 ### 11.1 `foreground process`
 
@@ -638,7 +650,7 @@ Topic 4 và Topic 5 sẽ làm rõ các lớp này hơn.
 
 ## 12. Các nhóm lệnh Linux cơ bản
 
-> **Nói đơn giản:** Bạn không cần thuộc hàng trăm lệnh. Điều quan trọng là biết mỗi nhóm lệnh giải quyết việc gì: di chuyển, xem tệp, tìm kiếm, xử lý văn bản hay quan sát hệ thống.
+Bạn không cần thuộc hàng trăm lệnh. Điều quan trọng là biết mỗi nhóm lệnh giải quyết việc gì: di chuyển, xem tệp, tìm kiếm, xử lý văn bản hay quan sát hệ thống.
 
 Mục đích của phần này không phải học thuộc cú pháp, mà hiểu **mỗi lệnh quan sát hoặc thay đổi lớp nào**.
 
@@ -688,7 +700,7 @@ stdin -> xử lý -> stdout
 
 ## 13. `grep` và `find`: tìm kiếm theo hai mô hình khác nhau
 
-> **Nói đơn giản:** `grep` tìm nội dung bên trong dữ liệu văn bản, còn `find` tìm đối tượng trong cây thư mục dựa trên tên và thuộc tính.
+`grep` tìm nội dung bên trong dữ liệu văn bản, còn `find` tìm đối tượng trong cây thư mục dựa trên tên và thuộc tính.
 
 ### 13.1 `grep`
 
@@ -726,11 +738,13 @@ grep -> tìm trong nội dung
 find -> tìm trong cây namespace/metadata
 ```
 
+Hai công cụ đang tìm ở hai lớp khác nhau. `grep` nhận một stream hoặc file content rồi so khớp **nội dung**, trong khi `find` duyệt cây pathname và kiểm tra **tên/metadata** của từng đối tượng. Vì vậy một bài toán như “tìm mọi file `.conf` có chứa chuỗi `debug=true`” thường cần ghép cả hai ý: `find` chọn file, `grep` kiểm tra nội dung.
+
 ---
 
 ## 14. `ps`, `top`, `mount`, `df`, `du` đang quan sát điều gì?
 
-> **Nói đơn giản:** `ps` và `top` quan sát tiến trình; `mount` quan sát/gắn hệ thống tệp; `df` nhìn dung lượng theo hệ thống tệp; `du` nhìn dung lượng theo tệp và thư mục.
+`ps` và `top` quan sát tiến trình; `mount` quan sát/gắn hệ thống tệp; `df` nhìn dung lượng theo hệ thống tệp; `du` nhìn dung lượng theo tệp và thư mục.
 
 ### 14.1 `ps`
 
@@ -778,7 +792,7 @@ Hai số có thể khác nhau mà không có lỗi.
 
 ## 15. Tư duy gỡ lỗi khi một lệnh không hoạt động
 
-> **Nói đơn giản:** Khi lệnh lỗi, đừng thử ngẫu nhiên. Hãy kiểm tra lần lượt: lệnh có tồn tại không, đường dẫn đúng không, quyền đủ không, đầu vào có đúng không và mã lỗi nói gì.
+Khi lệnh lỗi, đừng thử ngẫu nhiên. Hãy kiểm tra lần lượt: lệnh có tồn tại không, đường dẫn đúng không, quyền đủ không, đầu vào có đúng không và mã lỗi nói gì.
 
 ### 15.1 “Không tìm thấy lệnh”
 
@@ -796,6 +810,8 @@ quyền thực thi?
 interpreter / dynamic loader tồn tại?
 ```
 
+Sơ đồ là thứ tự kiểm tra nên đi từ nguyên nhân rẻ và phổ biến nhất tới nguyên nhân sâu hơn. Trước hết xác nhận chính tả và `PATH`; nếu executable tồn tại, kiểm tra quyền execute và interpreter của script. Cách làm theo tầng như vậy tốt hơn việc cài lại package hoặc đổi quyền ngẫu nhiên, vì thông báo giống “không chạy được” có thể xuất phát từ nhiều lớp khác nhau.
+
 ### 15.2 “Permission denied”
 
 Có thể liên quan: quyền trên file, quyền search của thư mục cha, mount option, credential của tiến trình và security policy khác.
@@ -812,7 +828,7 @@ Hãy tách từng lớp: A có tạo đúng `stdout` không? B có đọc đúng
 
 ## 16. Liên hệ với Embedded Linux
 
-> **Nói đơn giản:** Trên Embedded Linux, terminal là công cụ chính để cấu hình, kiểm tra log, chạy chương trình và chẩn đoán thiết bị khi không có giao diện đồ họa.
+Trên Embedded Linux, terminal là công cụ chính để cấu hình, kiểm tra log, chạy chương trình và chẩn đoán thiết bị khi không có giao diện đồ họa.
 
 ### 16.1 Board thường không có GUI đầy đủ
 
@@ -856,7 +872,7 @@ Do đó Topic 1 là nền cho hầu hết các chủ đề tiếp theo.
 
 ## 17. Tổng kết
 
-> **Nói đơn giản:** Topic 01 cần để lại một mô hình đơn giản: Shell nhận lệnh, thiết lập đầu vào/đầu ra, chạy chương trình và nhận `exit status`.
+Topic 01 cần để lại một mô hình đơn giản: Shell nhận lệnh, thiết lập đầu vào/đầu ra, chạy chương trình và nhận `exit status`.
 
 ```text
 Người dùng nhập dòng lệnh
@@ -880,6 +896,8 @@ process / shell builtin
 Linux kernel
 ```
 
+Hãy dùng sơ đồ này như bản đồ cho toàn Topic 01. Terminal/TTY/PTY là kênh I/O mà người dùng tương tác; Shell là process đọc dòng lệnh và diễn giải cú pháp. Shell hoàn thành quoting, expansion, tìm executable, thiết lập file descriptor cho redirection/pipeline rồi mới chạy shell builtin hoặc tạo process cho chương trình ngoài. Chương trình sau đó gọi libc/system call để làm việc với kernel. Vì vậy khi một command “không chạy đúng”, cần xác định lỗi nằm ở **terminal**, **Shell parsing/setup**, **program** hay **kernel/resource** thay vì coi toàn bộ là một lớp duy nhất.
+
 Các ý cần nhớ:
 
 1. `terminal` và `shell` là hai lớp khác nhau.
@@ -899,7 +917,7 @@ Các ý cần nhớ:
 
 ## 18. Tài liệu tham khảo
 
-> **Nói đơn giản:** Phần này liệt kê các nguồn chính thống để bạn tra cứu khi cần kiểm chứng hoặc học sâu hơn.
+Phần này liệt kê các nguồn chính thống để bạn tra cứu khi cần kiểm chứng hoặc học sâu hơn.
 
 Nguồn ưu tiên cho chủ đề này:
 

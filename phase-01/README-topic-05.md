@@ -12,7 +12,7 @@ Signal nên được hiểu là **một cơ chế thông báo do kernel chuyển
 
 Điểm khó nhất của signal không nằm ở tên `SIGINT` hay `SIGTERM`, mà ở thời điểm `signal delivery` và những giới hạn khi handler chen vào luồng thực thi hiện tại. Vì vậy chương này đi từ vòng đời signal tới `sigaction()`, `signal mask`, `EINTR` và quy tắc async-signal-safe.
 
-**Cách đọc nếu bạn mới bắt đầu.** Trước hết hãy đọc phần **Nói đơn giản** ở đầu mỗi mục lớn để nắm câu hỏi mà mục đó đang giải quyết. Sau đó xem sơ đồ và ví dụ để hình thành mô hình trong đầu; chưa cần nhớ mọi cờ, mã lỗi hay trường hợp đặc biệt. Khi ý chính đã rõ, hãy đọc các mục `###` theo thứ tự và quay lại phần giải thích trước đó nếu gặp một thuật ngữ chưa quen.
+Nếu bạn mới bắt đầu, hãy đọc theo thứ tự từ mục lớn tới mục nhỏ và xem sơ đồ trước khi đi vào các chi tiết API. Mỗi sơ đồ chỉ giữ những thành phần cần thiết để tạo mô hình trong đầu; đoạn văn ngay bên dưới sẽ giải thích luồng dữ liệu, trạng thái hoặc quan hệ giữa các object. Sau khi đã hiểu mô hình, hãy quay lại tên API, flag và mã lỗi để gắn chúng vào đúng vị trí thay vì học thuộc rời rạc.
 
 ---
 
@@ -38,7 +38,7 @@ Signal nên được hiểu là **một cơ chế thông báo do kernel chuyển
 
 ## 1. `signal` là gì?
 
-> **Nói đơn giản:** `signal` là một thông báo bất đồng bộ mà Linux kernel hoặc tiến trình khác gửi tới tiến trình để báo một sự kiện như yêu cầu kết thúc, lỗi hay timer hết hạn.
+`signal` là một thông báo bất đồng bộ mà Linux kernel hoặc tiến trình khác gửi tới tiến trình để báo một sự kiện như yêu cầu kết thúc, lỗi hay timer hết hạn.
 
 ### 1.1 `signal` không phải lời gọi hàm thông thường
 
@@ -56,7 +56,9 @@ trả về
 code A tiếp tục
 ```
 
-`signal`:
+Ở lời gọi hàm bình thường, control flow là **đồng bộ và explicit**: code hiện tại chủ động gọi hàm, biết vị trí quay về và tiếp tục ngay sau lời gọi. Signal khác ở chỗ handler có thể được kernel sắp xếp chạy tại một điểm delivery phù hợp mà code đang chạy không thực hiện một lời gọi hàm tới handler ngay trước đó. Sự khác biệt này là nguồn gốc của các quy tắc về signal mask và async-signal-safety.
+
+Với `signal`:
 
 ```text
 code đang chạy
@@ -87,6 +89,8 @@ CPU/memory fault -> SIGSEGV / SIGILL / SIGFPE ...
 Linux kernel / subsystem tạo signal
 ```
 
+Các mũi tên nhấn mạnh signal là **cơ chế thông báo chung** được tạo từ nhiều nguồn: process khác, terminal, kernel hoặc kết quả của một thao tác I/O. Điều đó giải thích vì sao không nên đồng nhất signal với `kill()`: `kill()` chỉ là một API có thể yêu cầu tạo signal, còn rất nhiều signal phát sinh mà không có process nào gọi `kill()` trực tiếp.
+
 ### 1.3 “Bất đồng bộ” không phải lúc nào cũng có nghĩa ngẫu nhiên
 
 Một số signal gắn chặt với instruction đang thực thi, ví dụ fault như `SIGSEGV`.
@@ -99,7 +103,7 @@ Do đó nên phân biệt lỗi đồng bộ phát sinh từ chính luồng th�
 
 ## 2. Vòng đời của một `signal`
 
-> **Nói đơn giản:** Một `signal` đi qua các bước: `signal generation`, có thể ở trạng thái `pending` nếu đang bị block, sau đó `signal delivery` xảy ra để hệ thống áp dụng cách xử lý tương ứng.
+Một `signal` đi qua các bước: `signal generation`, có thể ở trạng thái `pending` nếu đang bị block, sau đó `signal delivery` xảy ra để hệ thống áp dụng cách xử lý tương ứng.
 
 Ba khái niệm nền tảng:
 
@@ -113,17 +117,26 @@ signal generation
 signal delivery
 ```
 
-Trong tài liệu này:
+Trong tài liệu này, cần tách ba khái niệm: **generation**, **pending** và **delivery**. Một signal được generated không có nghĩa nó bắt buộc phải nằm ở trạng thái pending. Nếu signal có thể được delivery ngay, kernel có thể xử lý delivery trực tiếp; trạng thái pending đặc biệt quan trọng khi signal chưa thể được delivery, chẳng hạn vì signal đó đang bị block bởi `signal mask`.
 
 ```text
-signal generated
-      |
-      v
-   pending
-      |
-      v
-signal delivery / handling
+signal generation
+       |
+       v
+deliverable now?
+   /         \
+ yes          no
+  |            |
+  v            v
+delivery      pending
+                 |
+              unblock / eligible
+                 |
+                 v
+              delivery
 ```
+
+Nhìn sơ đồ từ trên xuống: một sự kiện trước hết **generate** signal. Kernel sau đó xét signal có thể được delivery tới thread/process đích ngay hay không. Nếu có, nó đi thẳng tới delivery. Nếu chưa, signal được giữ ở trạng thái `pending`; khi điều kiện cản trở biến mất, ví dụ thread bỏ block signal tương ứng, signal mới trở thành deliverable. Mô hình này giúp tránh nhầm lẫn phổ biến rằng “gửi signal” đồng nghĩa với “handler chạy ngay”.
 
 ### 2.1 `signal generation`
 
@@ -162,11 +175,13 @@ flowchart TD
     DefaultAction --> End
 ```
 
+Sơ đồ tách ba thời điểm thường bị người mới gộp thành một: **signal được generated**, **signal có thể pending**, và **signal được delivered**. Khi một signal được tạo, kernel trước hết xác định nó có đủ điều kiện delivery tới thread/process đích hay không. Nếu signal đang bị block thì nó có thể nằm ở trạng thái `Pending`; khi được unblock và trở nên deliverable, kernel mới áp dụng disposition tương ứng: bỏ qua, chạy handler hoặc thực hiện default action. Vì vậy “đã gửi signal” không đồng nghĩa “handler đã chạy ngay lập tức”.
+
 ---
 
 ## 3. Tiến trình làm gì khi nhận `signal`?
 
-> **Nói đơn giản:** Khi `signal delivery` xảy ra, tiến trình có thể dùng hành vi mặc định, bỏ qua hoặc chạy handler nếu signal cho phép cấu hình.
+Khi `signal delivery` xảy ra, tiến trình có thể dùng hành vi mặc định, bỏ qua hoặc chạy handler nếu signal cho phép cấu hình.
 
 ### 3.1 `signal disposition`
 
@@ -217,7 +232,7 @@ Chúng dành cho cơ chế điều khiển bắt buộc của Linux kernel.
 
 ## 4. Các signal thường gặp
 
-> **Nói đơn giản:** Bạn không cần nhớ tất cả signal. Hãy hiểu trước vài signal thường gặp như `SIGINT`, `SIGTERM`, `SIGKILL`, `SIGSEGV`, `SIGCHLD`.
+Bạn không cần nhớ tất cả signal. Hãy hiểu trước vài signal thường gặp như `SIGINT`, `SIGTERM`, `SIGKILL`, `SIGSEGV`, `SIGCHLD`.
 
 ### 4.1 Không `hard-code` số signal
 
@@ -291,7 +306,7 @@ Liên quan lớp `arithmetic exception`; tên lịch sử không có nghĩa nó 
 
 ## 5. `disposition`, `signal mask` và trạng thái `pending`
 
-> **Nói đơn giản:** `signal mask` quyết định signal nào tạm thời bị chặn; đang chờ nghĩa là signal đã tới nhưng chưa được giao xử lý.
+`signal mask` quyết định signal nào tạm thời bị chặn; đang chờ nghĩa là signal đã tới nhưng chưa được giao xử lý.
 
 Ba trạng thái dễ nhầm:
 
@@ -321,6 +336,8 @@ unblock
 signal delivery
 ```
 
+Khi một signal bị block, mask không làm signal “biến mất”. Nếu signal được tạo trong thời gian đó, nó có thể trở thành pending và chờ tới khi thread/process cho phép delivery. Đây là khác biệt quan trọng giữa **block** và **ignore**: block trì hoãn delivery, còn ignore là một disposition nói rằng khi signal được xử lý theo disposition đó thì không cần chạy handler/default action tương ứng.
+
 ### 5.3 `signal mask` là riêng từng thread
 
 Trong tiến trình đa luồng, mỗi luồng có signal mask riêng.
@@ -337,7 +354,7 @@ Hai cơ chế có ý nghĩa khác nhau.
 
 ## 6. `sigaction()`: cấu hình `signal disposition`
 
-> **Nói đơn giản:** `sigaction()` là API chuẩn để cấu hình handler và các cờ liên quan. Nó rõ ràng và kiểm soát tốt hơn cách dùng `signal()` cũ.
+`sigaction()` là API chuẩn để cấu hình handler và các cờ liên quan. Nó rõ ràng và kiểm soát tốt hơn cách dùng `signal()` cũ.
 
 ### 6.1 Vì sao ưu tiên `sigaction()`?
 
@@ -383,7 +400,7 @@ Chi tiết trường nào hợp lệ phụ thuộc loại signal và nguồn ph�
 
 ## 7. `signal set` và `sigprocmask()`
 
-> **Nói đơn giản:** `sigprocmask()` thay đổi tập signal đang bị chặn của tiến trình/luồng theo quy tắc POSIX tương ứng.
+`sigprocmask()` thay đổi tập signal đang bị chặn của tiến trình/luồng theo quy tắc POSIX tương ứng.
 
 ### 7.1 `sigset_t`
 
@@ -411,7 +428,7 @@ Tập signal `pending` không phải một hàng đợi thông điệp tổng qu
 
 ## 8. Gửi signal bằng `kill()` và `raise()`
 
-> **Nói đơn giản:** `kill()` gửi signal tới tiến trình hoặc nhóm tiến trình; `raise()` gửi signal cho chính tiến trình hiện tại.
+`kill()` gửi signal tới tiến trình hoặc nhóm tiến trình; `raise()` gửi signal cho chính tiến trình hiện tại.
 
 ### 8.1 `kill()` không có nghĩa chỉ là “kết thúc tiến trình”
 
@@ -454,7 +471,7 @@ Nó hữu ích để kích hoạt luồng xử lý signal từ chính ứng dụ
 
 ## 9. `signal handler` chen vào luồng chạy như thế nào?
 
-> **Nói đơn giản:** Handler có thể chen vào lúc chương trình đang chạy một đoạn code khác, vì vậy mã trong handler phải giả định rằng trạng thái chương trình đang dang dở.
+Handler có thể chen vào lúc chương trình đang chạy một đoạn code khác, vì vậy mã trong handler phải giả định rằng trạng thái chương trình đang dang dở.
 
 ### 9.1 Chuyển luồng điều khiển (`control transfer`) do kernel sắp xếp
 
@@ -478,6 +495,8 @@ sigreturn mechanism
 thread tiếp tục
 ```
 
+Sơ đồ cho thấy signal handler **chen vào execution context của thread nhận signal**, chứ kernel không tạo một worker thread riêng để chạy handler. Kernel chuẩn bị context để userspace chuyển sang hàm handler; khi handler kết thúc bình thường, cơ chế `sigreturn` khôi phục ngữ cảnh thích hợp để thread có thể tiếp tục. Vì handler có thể xuất hiện giữa lúc code bình thường đang cập nhật state, nó phải được thiết kế với các ràng buộc async-signal-safety.
+
 Ứng dụng không nên tự gọi `sigreturn()`.
 
 ### 9.2 `handler` không phải một thread riêng
@@ -496,7 +515,7 @@ Nếu các signal khác vẫn đủ điều kiện để `signal delivery` xảy
 
 ## 10. Vì sao hàm xử lý signal phải rất hạn chế?
 
-> **Nói đơn giản:** Không phải hàm nào cũng an toàn khi gọi trong hàm xử lý signal. Vì vậy handler nên làm rất ít việc và chuyển xử lý phức tạp ra luồng bình thường.
+Không phải hàm nào cũng an toàn khi gọi trong hàm xử lý signal. Vì vậy handler nên làm rất ít việc và chuyển xử lý phức tạp ra luồng bình thường.
 
 ### 10.1 `async-signal-safe`
 
@@ -521,6 +540,8 @@ handler gọi lại hàm cần cùng mutex
 deadlock
 ```
 
+Tình huống này cho thấy handler có thể xen vào đúng lúc code bình thường đang giữ một internal lock của libc. Nếu handler gọi lại một hàm không async-signal-safe và hàm đó cần cùng lock, thread có thể tự chờ chính mình vô thời hạn. Do đó nguyên tắc an toàn không phải “handler ngắn là đủ”; handler còn phải giới hạn thao tác vào những API và kiểu dữ liệu phù hợp với async-signal context.
+
 ### 10.3 Thiết kế handler
 
 Nguyên tắc tốt:
@@ -533,6 +554,8 @@ handler làm tối thiểu
   |
 main loop / worker thread xử lý logic phức tạp
 ```
+
+Mô hình an toàn là để handler chỉ **ghi nhận sự kiện** bằng một cơ chế tối thiểu, sau đó để main loop hoặc thread bình thường làm công việc phức tạp. Như vậy parsing, logging, cấp phát bộ nhớ, khóa mutex hay shutdown nhiều bước đều diễn ra ngoài signal context. Cách tách này vừa giảm rủi ro async-signal-safety vừa làm luồng điều khiển của chương trình dễ kiểm chứng hơn.
 
 ### 10.4 `volatile sig_atomic_t`
 
@@ -550,7 +573,7 @@ Một handler cần bảo toàn `errno` nếu chương trình bị gián đoạn
 
 ## 11. Signal và `system call`: `EINTR`, `SA_RESTART`
 
-> **Nói đơn giản:** Signal có thể làm `system call` đang chờ bị gián đoạn và trả `EINTR`; một số trường hợp `SA_RESTART` khiến Linux kernel/libc tự khởi động lại lời gọi.
+Signal có thể làm `system call` đang chờ bị gián đoạn và trả `EINTR`; một số trường hợp `SA_RESTART` khiến Linux kernel/libc tự khởi động lại lời gọi.
 
 ### 11.1 Signal có thể làm gián đoạn `system call` đang blocking
 
@@ -567,6 +590,8 @@ handler chạy
 system call được restart hoặc trả EINTR tùy API, flags và trạng thái
 ```
 
+Nếu thread đang ngủ trong một blocking system call khi signal được delivered, kernel phải quyết định điều gì xảy ra với lời gọi đang chờ. Với một số API và cấu hình, lời gọi có thể được restart; ở trường hợp khác nó trở về userspace với `-1` và `errno == EINTR`. Nếu đã có partial I/O, giá trị trả về còn có thể là số byte đã xử lý. Vì vậy code đúng phải đọc semantics của từng API thay vì áp dụng một quy tắc retry chung cho mọi system call.
+
 ### 11.2 `EINTR`
 
 `EINTR` nghĩa lời gọi bị gián đoạn bởi signal trước khi hoàn tất theo ngữ nghĩa của API.
@@ -576,6 +601,8 @@ Không nên mặc định:
 ```text
 EINTR -> retry vô điều kiện (không phải lúc nào cũng đúng)
 ```
+
+Sơ đồ phủ định một thói quen dễ gây lỗi: nhận `EINTR` rồi lặp lại system call mà không xem operation đang ở trạng thái nào. Một số API có thể đã xử lý một phần dữ liệu, deadline có thể đã thay đổi, hoặc signal vừa yêu cầu application chuyển sang shutdown. Vì vậy retry phải dựa trên **semantics của API và state của ứng dụng**, không chỉ dựa trên mã `errno`.
 
 Hãy xét:
 
@@ -610,7 +637,7 @@ giá trị trả về
 
 ## 12. Tư duy gỡ lỗi signal
 
-> **Nói đơn giản:** Debug signal cần hỏi: signal nào được gửi, có bị block không, disposition là gì, handler có chạy không và `system call` có bị `EINTR` không.
+Debug signal cần hỏi: signal nào được gửi, có bị block không, disposition là gì, handler có chạy không và `system call` có bị `EINTR` không.
 
 ### 12.1 “Handler không chạy”
 
@@ -661,7 +688,7 @@ Nếu task đang ở trạng thái của Linux kernel đặc biệt như uninter
 
 ## 13. Liên hệ với Embedded Linux
 
-> **Nói đơn giản:** Embedded Linux dùng signal để dừng service, reload cấu hình, nhận thông báo tiến trình con và xử lý timer/sự kiện hệ thống.
+Embedded Linux dùng signal để dừng service, reload cấu hình, nhận thông báo tiến trình con và xử lý timer/sự kiện hệ thống.
 
 ### 13.1 `graceful shutdown` của service
 
@@ -680,6 +707,8 @@ controlled cleanup
    v
 EXIT
 ```
+
+Signal như `SIGTERM` nên được xem là **yêu cầu thay đổi trạng thái ứng dụng**, không nhất thiết là lệnh “thoát ngay trong handler”. Handler có thể đặt cờ hoặc đánh thức event loop; main flow sau đó ngừng nhận công việc mới, hoàn tất hoặc hủy công việc đang chạy theo policy, đóng fd và giải phóng tài nguyên. Nhờ vậy shutdown vẫn tuân theo lifetime bình thường của chương trình.
 
 ### 13.2 Reload cấu hình
 
@@ -709,7 +738,7 @@ Tuy nhiên signal name chỉ mô tả lớp sự kiện; root cause vẫn cần 
 
 ## 14. Tổng kết
 
-> **Nói đơn giản:** Topic 05 cần để lại mô hình: `signal generation` → `pending`/blocked → `signal delivery` → mặc định/ignore/handler.
+Topic 05 cần để lại mô hình: `signal generation` → `pending`/blocked → `signal delivery` → mặc định/ignore/handler.
 
 ```text
 Event / API
@@ -731,6 +760,8 @@ signal delivery
     +--> signal handler
 ```
 
+Bản đồ này nhắc lại rằng **generation không phải delivery**. Một event hoặc API làm signal được generated; nếu signal chưa thể được delivered, ví dụ do mask đang block nó, signal có thể ở trạng thái pending. Khi đủ điều kiện delivery, kernel áp dụng disposition hiện tại: default action, ignore hoặc chạy handler. Với handler, control flow chen vào thread nhận signal nên code handler phải tuân theo async-signal-safety. Từ đây có thể hiểu tự nhiên các hiện tượng như signal bị chậm, `EINTR`, `SA_RESTART` và việc standard signal pending không hoạt động như message queue.
+
 Các ý cần nhớ:
 
 1. Signal là cơ chế thông báo/control, không phải lời gọi hàm thông thường.
@@ -751,7 +782,7 @@ Các ý cần nhớ:
 
 ## 15. Tài liệu tham khảo
 
-> **Nói đơn giản:** Phần này liệt kê nguồn chuẩn về signal và các API POSIX liên quan.
+Phần này liệt kê nguồn chuẩn về signal và các API POSIX liên quan.
 
 - `signal(7)`: https://man7.org/linux/man-pages/man7/signal.7.html
 - `sigaction(2)`: https://man7.org/linux/man-pages/man2/sigaction.2.html

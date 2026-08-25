@@ -12,7 +12,7 @@
 
 Vì vậy chương này không học từng API riêng lẻ. Nó đi từ `race condition` và `critical section` đến `mutex`, `condition variable`, `semaphore`, `producer–consumer`, rồi mới phân tích `deadlock`, `starvation`, `livelock` và `priority inversion`.
 
-**Cách đọc nếu bạn mới bắt đầu.** Trước hết hãy đọc phần **Nói đơn giản** ở đầu mỗi mục lớn để nắm câu hỏi mà mục đó đang giải quyết. Sau đó xem sơ đồ và ví dụ để hình thành mô hình trong đầu; chưa cần nhớ mọi cờ, mã lỗi hay trường hợp đặc biệt. Khi ý chính đã rõ, hãy đọc các mục `###` theo thứ tự và quay lại phần giải thích trước đó nếu gặp một thuật ngữ chưa quen.
+Nếu bạn mới bắt đầu, hãy đọc theo thứ tự từ mục lớn tới mục nhỏ và xem sơ đồ trước khi đi vào các chi tiết API. Mỗi sơ đồ chỉ giữ những thành phần cần thiết để tạo mô hình trong đầu; đoạn văn ngay bên dưới sẽ giải thích luồng dữ liệu, trạng thái hoặc quan hệ giữa các object. Sau khi đã hiểu mô hình, hãy quay lại tên API, flag và mã lỗi để gắn chúng vào đúng vị trí thay vì học thuộc rời rạc.
 
 ---
 
@@ -44,7 +44,7 @@ Vì vậy chương này không học từng API riêng lẻ. Nó đi từ `race 
 
 ## 1. Vì sao cần đồng bộ luồng?
 
-> **Nói đơn giản:** Khi nhiều luồng cùng dùng dữ liệu, kết quả có thể sai nếu chúng truy cập không đúng thứ tự. Đồng bộ (`synchronization`) tạo ra quy tắc để các luồng phối hợp an toàn.
+Khi nhiều luồng cùng dùng dữ liệu, kết quả có thể sai nếu chúng truy cập không đúng thứ tự. Đồng bộ (`synchronization`) tạo ra quy tắc để các luồng phối hợp an toàn.
 
 ### 1.1 Vấn đề bắt đầu từ dữ liệu dùng chung có thể thay đổi
 
@@ -101,7 +101,7 @@ Sau đó mới lựa chọn: mutex, condition variable, semaphore và barrier.
 
 ## 2. `race condition`, `data race` và `critical section`
 
-> **Nói đơn giản:** `race condition` là kết quả phụ thuộc thời điểm thực thi; `data race` là một dạng truy cập bộ nhớ không được đồng bộ đúng; `critical section` là đoạn mã cần được bảo vệ.
+`race condition` là kết quả phụ thuộc thời điểm thực thi; `data race` là một dạng truy cập bộ nhớ không được đồng bộ đúng; `critical section` là đoạn mã cần được bảo vệ.
 
 ### 2.1 `race condition`
 
@@ -150,7 +150,7 @@ Từng lần đọc/ghi có thể được bảo vệ, nhưng toàn bộ logic n
 kiểm tra -> hành động
 ```
 
-không nguyên vẹn.
+Hai bước này phải được xem như **một quyết định logic thống nhất** nếu hành động chỉ còn đúng khi kết quả kiểm tra vẫn đúng. Nếu nhả lock ở giữa, thread khác có thể thay đổi state và làm kết quả kiểm tra cũ mất hiệu lực. Đây là kiểu race ở mức protocol: từng access riêng lẻ có thể đã được lock, nhưng phạm vi transaction logic vẫn quá nhỏ.
 
 ---
 
@@ -172,6 +172,8 @@ lock(mutex)
 unlock(mutex)
 ```
 
+Trong sơ đồ, `lock(mutex)` và `unlock(mutex)` tạo biên cho đoạn code mà các thread cạnh tranh không được thực hiện đồng thời. Tuy nhiên mutex không tự biết `shared state` nào cần bảo vệ; **protocol của chương trình** mới quy định mọi access liên quan phải dùng cùng mutex. Nếu một đường code đọc/ghi shared state mà bỏ qua protocol, critical section còn lại không thể bảo đảm tính đúng đắn.
+
 ---
 
 ### 2.5 `critical section` nên bao quanh `invariant` cần giữ đúng
@@ -190,7 +192,7 @@ Ví dụ với một hàng đợi, thao tác ghi phần tử, cập nhật `tail
 
 ## 3. Đồng bộ còn liên quan tới `memory visibility`
 
-> **Nói đơn giản:** Đồng bộ không chỉ ngăn hai luồng sửa cùng lúc. Nó còn giúp đảm bảo một luồng nhìn thấy thay đổi dữ liệu mà luồng khác đã công bố đúng cách.
+Đồng bộ không chỉ ngăn hai luồng sửa cùng lúc. Nó còn giúp đảm bảo một luồng nhìn thấy thay đổi dữ liệu mà luồng khác đã công bố đúng cách.
 
 ### 3.1 Vì sao “A ghi trước, B đọc sau” chưa đủ nếu không có đồng bộ?
 
@@ -244,7 +246,7 @@ Mutex có thể làm cho một nhóm thao tác trở thành `critical section` n
 
 ## 4. Mutex: chỉ một luồng được sở hữu vùng bảo vệ
 
-> **Nói đơn giản:** Mutex giống một chìa khóa: tại một thời điểm chỉ một luồng giữ khóa và đi vào vùng dữ liệu được bảo vệ.
+Mutex giống một chìa khóa: tại một thời điểm chỉ một luồng giữ khóa và đi vào vùng dữ liệu được bảo vệ.
 
 ### 4.1 Mutex là gì?
 
@@ -254,12 +256,14 @@ Mutex có thể làm cho một nhóm thao tác trở thành `critical section` n
 mutual exclusion
 ```
 
-Nói đơn giản:
+Có thể hình dung quy tắc sở hữu của mutex bằng mô hình ngắn sau:
 
 ```text
 mutex ở trạng thái locked
   -> chỉ một thread là owner tại một thời điểm
 ```
+
+Khi mutex đang `Locked`, thread đang giữ mutex là owner. Các thread khác không được đi vào critical section được bảo vệ bởi cùng mutex cho tới khi ownership kết thúc bằng `unlock()`.
 
 Các luồng khác muốn lấy cùng mutex phải chờ hoặc nhận trạng thái “đang bận”, tùy API.
 
@@ -277,6 +281,8 @@ stateDiagram-v2
     Locked --> Unlocked: unlock()
 ```
 
+Sơ đồ cố ý chỉ giữ hai trạng thái để nhấn mạnh bản chất của mutex: tại một thời điểm mutex hoặc **không có owner** (`Unlocked`) hoặc **đang thuộc quyền sở hữu của một thread** (`Locked`). `lock()` không đơn thuần đổi một biến cờ; nếu mutex đã bị thread khác sở hữu, caller có thể phải chờ theo semantics của loại mutex đó. Tương tự, `unlock()` là hành động kết thúc quyền sở hữu và có thể làm một waiter khác trở nên runnable. Dữ liệu được bảo vệ nằm **ngoài mutex**; mutex chỉ là cơ chế để các thread tuân theo cùng một protocol truy cập.
+
 Trong sơ đồ, `lock()` tương ứng với thao tác lấy mutex bằng `pthread_mutex_lock()`, còn `unlock()` tương ứng với `pthread_mutex_unlock()` do owner thực hiện.
 
 Khi đang bị khóa:
@@ -286,6 +292,8 @@ Thread A owns M
 Thread B lock(M) -> wait
 Thread C lock(M) -> wait
 ```
+
+Hai trạng thái `Unlocked` và `Locked` mô tả ownership chứ không mô tả giá trị dữ liệu. Khi một thread lock thành công, nó có quyền vào vùng bảo vệ; thread khác phải tuân theo cùng mutex trước khi thao tác trên invariant đó. Chỉ khi owner unlock, quyền sở hữu mới có thể được chuyển cho waiter khác. Vì vậy câu hỏi đúng luôn là “mutex này bảo vệ invariant nào?”, không phải “mutex đang khóa biến nào?”.
 
 ---
 
@@ -303,7 +311,7 @@ A becomes owner of M
 Thread A: unlock(M)
 ```
 
-Không nên thiết kế theo kiểu luồng A khóa mutex rồi luồng B mở khóa thay. Mutex có ownership; vi phạm quy tắc sở hữu thường là lỗi giao thức và có thể dẫn tới hành vi không xác định tùy loại mutex.
+Không nên thiết kế theo kiểu Thread A khóa mutex rồi Thread B mở khóa thay. Mutex có ownership; vi phạm quy tắc sở hữu thường là lỗi giao thức và có thể dẫn tới hành vi không xác định tùy loại mutex.
 
 ---
 
@@ -317,7 +325,7 @@ mutex M bảo vệ biến X
 
 Đó là quy ước của chương trình.
 
-Nếu luồng A đọc `X` dưới mutex `M` nhưng luồng B lại ghi `X` mà không dùng cùng mutex, thì `M` không thể bảo vệ truy cập của B. Tất cả phía truy cập trạng thái được bảo vệ phải tuân theo cùng giao thức.
+Nếu Thread A đọc `X` dưới mutex `M` nhưng Thread B lại ghi `X` mà không dùng cùng mutex, thì `M` không thể bảo vệ truy cập của B. Tất cả phía truy cập trạng thái được bảo vệ phải tuân theo cùng giao thức.
 
 Mọi bên phải tuân thủ cùng một giao thức.
 
@@ -325,7 +333,7 @@ Mọi bên phải tuân thủ cùng một giao thức.
 
 ## 5. Vòng đời và thao tác của Mutex
 
-> **Nói đơn giản:** Mutex phải được khởi tạo, lock, unlock và hủy đúng vòng đời. Quên unlock có thể làm luồng khác chờ mãi.
+Mutex phải được khởi tạo, lock, unlock và hủy đúng vòng đời. Quên unlock có thể làm luồng khác chờ mãi.
 
 ### 5.1 Khởi tạo
 
@@ -422,7 +430,7 @@ Các hàm Pthreads thường trả `0` khi thành công và trả trực tiếp 
 
 ## 6. Các loại Mutex cơ bản
 
-> **Nói đơn giản:** Một số loại mutex khác nhau ở cách phản ứng khi lock lặp hoặc phát hiện lỗi. Fresher chỉ cần hiểu mặc định mutex trước, sau đó mới đọc loại đặc biệt.
+Một số loại mutex khác nhau ở cách phản ứng khi lock lặp hoặc phát hiện lỗi. Fresher chỉ cần hiểu mặc định mutex trước, sau đó mới đọc loại đặc biệt.
 
 ### 6.1 Vì sao có nhiều loại?
 
@@ -477,7 +485,7 @@ Khi chương trình phụ thuộc vào hành vi đặc biệt, nên dùng loại
 
 ## 7. `Condition variable`: ngủ để chờ trạng thái thay đổi
 
-> **Nói đơn giản:** Condition Variable cho luồng ngủ khi điều kiện chưa đúng và được đánh thức khi trạng thái có thể đã thay đổi. Nó luôn đi cùng một điều kiện dữ liệu cụ thể.
+Condition Variable cho luồng ngủ khi điều kiện chưa đúng và được đánh thức khi trạng thái có thể đã thay đổi. Nó luôn đi cùng một điều kiện dữ liệu cụ thể.
 
 ### 7.1 Vấn đề của việc kiểm tra liên tục
 
@@ -536,6 +544,8 @@ Shared data
 Condition Variable
 ```
 
+Condition Variable không chứa dữ liệu và cũng không lưu “điều kiện đã đúng”. Predicate nằm trong shared state và phải được kiểm tra khi giữ mutex; condition variable chỉ cung cấp cơ chế ngủ/đánh thức hiệu quả khi predicate chưa đúng. Mutex bảo đảm việc kiểm tra và thay đổi shared state có trật tự, còn wait operation đóng khoảng hở giữa **nhả mutex** và **bắt đầu chờ**.
+
 ---
 
 ### 7.4 `pthread_cond_wait()` làm hai việc quan trọng
@@ -576,11 +586,13 @@ sequenceDiagram
     C->>C: recheck predicate
 ```
 
+Sơ đồ sequence này cần đọc theo thời gian từ trên xuống dưới. Consumer giữ mutex để kiểm tra predicate; nếu predicate chưa đúng, `pthread_cond_wait()` thực hiện hai việc gắn liền về mặt semantics: **nhả mutex và đưa thread vào trạng thái chờ**. Producer sau đó có thể lấy mutex, thay đổi shared state rồi `signal`/`broadcast`. Khi consumer thức dậy, nó phải reacquire mutex trước khi `pthread_cond_wait()` trả về, sau đó **kiểm tra lại predicate**. Chính vòng `check → wait → reacquire → recheck` này ngăn khoảng hở dễ gây lost wakeup và cũng xử lý đúng spurious wakeup.
+
 ---
 
 ## 8. Predicate, spurious wakeup và lost wakeup
 
-> **Nói đơn giản:** Luồng phải kiểm tra điều kiện trong vòng lặp vì wakeup không đồng nghĩa điều kiện chắc chắn đúng. Đây là cách tránh spurious wakeup và nhiều lỗi lost wakeup.
+Luồng phải kiểm tra điều kiện trong vòng lặp vì wakeup không đồng nghĩa điều kiện chắc chắn đúng. Đây là cách tránh spurious wakeup và nhiều lỗi lost wakeup.
 
 ### 8.1 `predicate` là điều kiện logic thực sự
 
@@ -647,7 +659,7 @@ unlock(mutex)
 
 ### 8.4 Lost wakeup là gì?
 
-Nếu làm sai kiểu: Luồng A kiểm tra: chưa có dữ liệu, Luồng B thêm dữ liệu và báo hiệu và Luồng A mới bắt đầu ngủ.
+Một lỗi kinh điển xảy ra nếu Thread A kiểm tra và thấy chưa có dữ liệu, sau đó Thread B thêm dữ liệu và phát tín hiệu đúng vào khoảng thời gian trước khi Thread A thực sự đi ngủ.
 
 A có thể ngủ dù sự kiện đã xảy ra.
 
@@ -674,7 +686,7 @@ Nhờ đó trạng thái và chờ được phối hợp đúng.
 
 ## 9. `signal`, `broadcast` và chờ có thời hạn
 
-> **Nói đơn giản:** `signal` đánh thức ít nhất một luồng đang chờ (`waiter`) phù hợp; `broadcast` đánh thức nhiều luồng đang chờ. Timed wait thêm giới hạn thời gian chờ.
+`signal` đánh thức ít nhất một luồng đang chờ (`waiter`) phù hợp; `broadcast` đánh thức nhiều luồng đang chờ. Timed wait thêm giới hạn thời gian chờ.
 
 ### 9.1 `pthread_cond_signal()`
 
@@ -740,7 +752,7 @@ Dù trả về vì timeout, ứng dụng vẫn nên kiểm tra trạng thái the
 
 ## 10. `Semaphore`: bộ đếm tài nguyên hoặc token
 
-> **Nói đơn giản:** Semaphore là một bộ đếm. Giá trị lớn hơn 0 có thể xem như số 'vé' tài nguyên còn sẵn để luồng lấy.
+Semaphore là một bộ đếm. Giá trị lớn hơn 0 có thể xem như số 'vé' tài nguyên còn sẵn để luồng lấy.
 
 ### 10.1 Mô hình bộ đếm
 
@@ -763,6 +775,8 @@ giảm 1      chờ
  |          |
 tiếp tục   đợi sem_post()
 ```
+
+Semaphore hoạt động như một bộ đếm token. Nếu giá trị lớn hơn 0, `sem_wait()` lấy một token và giảm bộ đếm; nếu bằng 0, caller phải chờ cho tới khi một thread/process khác `sem_post()` thêm token. Khác mutex, semaphore không nhất thiết biểu diễn ownership của critical section; nó thường phù hợp hơn khi cần đếm số resource khả dụng hoặc số event chưa được tiêu thụ.
 
 ---
 
@@ -788,7 +802,7 @@ Sự khác biệt này quan trọng với thiết kế và `priority inheritance
 
 ## 11. Khi nào dùng `mutex`, `condition variable` hay `semaphore`?
 
-> **Nói đơn giản:** Mutex hợp để bảo vệ dữ liệu, Condition Variable hợp để chờ trạng thái thay đổi, Semaphore hợp để đếm tài nguyên/sự kiện. Chọn theo bài toán, không theo thói quen.
+Mutex hợp để bảo vệ dữ liệu, Condition Variable hợp để chờ trạng thái thay đổi, Semaphore hợp để đếm tài nguyên/sự kiện. Chọn theo bài toán, không theo thói quen.
 
 ### 11.1 `mutex`
 
@@ -839,7 +853,7 @@ Dùng khi bản chất bài toán là số đếm.
 
 ## 12. Mô hình `producer–consumer`
 
-> **Nói đơn giản:** Producer–Consumer là mô hình kinh điển: producer đưa dữ liệu vào hàng đợi, consumer lấy ra; mutex bảo vệ hàng đợi và condition variable/semaphore điều phối chờ.
+Producer–Consumer là mô hình kinh điển: producer đưa dữ liệu vào hàng đợi, consumer lấy ra; mutex bảo vệ hàng đợi và condition variable/semaphore điều phối chờ.
 
 ### 12.1 Kiến trúc
 
@@ -854,6 +868,8 @@ Producer
     v
 Consumer
 ```
+
+Trong producer–consumer, queue là shared state, mutex bảo vệ cấu trúc queue và condition variable biểu diễn các mốc trạng thái như `not_empty`/`not_full`. Producer không “gửi trực tiếp” cho consumer; nó cập nhật queue rồi thông báo rằng predicate có thể đã thay đổi. Consumer thức dậy, kiểm tra lại predicate và tự lấy item dưới mutex. Tách vai trò như vậy giúp pipeline mở rộng sang nhiều producer hoặc consumer mà vẫn có protocol rõ ràng.
 
 ---
 
@@ -917,7 +933,7 @@ count == capacity
 
 producer cũng cần chờ khi hết chỗ.
 
-`not_empty`: cho consumer; `not_full`: cho producer.
+`not_empty` được dùng để đánh thức consumer khi đã có dữ liệu, còn `not_full` được dùng để đánh thức producer khi queue đã có chỗ trống.
 
 ---
 
@@ -933,7 +949,7 @@ Khi đã hiểu mô hình này, nhiều kiến trúc luồng xử lý hàng đ�
 
 ## 13. `Barrier`: các luồng chờ nhau ở cuối một giai đoạn
 
-> **Nói đơn giản:** Barrier buộc một nhóm luồng chờ nhau tại một mốc trước khi tất cả cùng đi tiếp sang giai đoạn sau.
+Barrier buộc một nhóm luồng chờ nhau tại một mốc trước khi tất cả cùng đi tiếp sang giai đoạn sau.
 
 ### 13.1 `barrier` giải quyết bài toán khác mutex
 
@@ -947,21 +963,24 @@ Thread B ------> barrier -----+--> all participants arrived --> Phase 2
 Thread C ----------> barrier -/
 ```
 
+Ba thread trong sơ đồ có thể hoàn thành Phase 1 ở thời điểm khác nhau, nhưng barrier tạo một mốc mà **không thread nào vượt qua sớm**. Thread đến trước phải đợi thread cuối cùng; khi đủ participant, cả nhóm được release sang Phase 2. Barrier vì thế đồng bộ **tiến độ giữa các phase**, không thay thế mutex để bảo vệ dữ liệu dùng chung trong từng phase.
+
 ---
 
 ### 13.2 Mô hình trạng thái
 
 ```mermaid
 flowchart TD
-    Start([Start generation]) --> Collecting["Collecting"]
-    Collecting --> Check{"All participants arrived?"}
-    Check -->|No| Waiting["Waiting at barrier"]
-    Check -->|Yes| Release["Release"]
-    Release --> NextGeneration["Next generation"]
-    NextGeneration --> NewCollecting["Collecting (new generation)"]
+    Start([Start generation]) --> Arrive["Participant reaches barrier"]
+    Arrive --> Check{"Last participant?"}
+    Check -->|No| Wait["Wait at barrier"]
+    Wait --> Last["Last participant arrives"]
+    Last --> Release["Release all participants"]
+    Check -->|Yes| Release
+    Release --> Next["Next generation"]
 ```
 
-Khi chưa đủ participants, những thread đã tới barrier tiếp tục chờ ở generation hiện tại. Khi đủ participants, barrier cho các thread đang chờ đi tiếp; nếu barrier được tái sử dụng, generation tiếp theo lại bắt đầu ở trạng thái `Collecting`.
+Hãy xem mỗi lần barrier được sử dụng là một **generation**. Mỗi thread đi tới barrier được tính là một participant của generation hiện tại. Nếu nó chưa phải participant cuối cùng, thread đó phải chờ, trong khi các thread khác tiếp tục chạy cho tới khi cũng đi tới barrier. Participant cuối cùng làm cho điều kiện barrier được thỏa mãn; tại thời điểm đó barrier release toàn bộ những thread đang chờ và tất cả có thể bước sang phase tiếp theo. Nếu cùng barrier được tái sử dụng, bộ đếm và trạng thái chờ thuộc về một generation mới. Vì vậy barrier chỉ đồng bộ **tiến độ giữa các phase**; nó không thay thế mutex trong việc bảo vệ shared data.
 
 ---
 
@@ -994,7 +1013,7 @@ Vòng đời thành viên phải được thiết kế đồng bộ với barrie
 
 ## 14. `Deadlock`
 
-> **Nói đơn giản:** Deadlock xảy ra khi các luồng chờ tài nguyên của nhau theo vòng kín nên không ai tiến tiếp được.
+Deadlock xảy ra khi các luồng chờ tài nguyên của nhau theo vòng kín nên không ai tiến tiếp được.
 
 ### 14.1 Ví dụ hai mutex
 
@@ -1014,6 +1033,8 @@ A --waits for--> B
 |               |
 +---waits for---+
 ```
+
+Wait-for graph tạo thành một vòng: A giữ `M1` và chờ `M2`, trong khi B giữ `M2` và chờ `M1`. Không bên nào có thể tự giải phóng resource mà bên kia cần, nên hệ thống không tiến được. Đây là hình ảnh trực quan của circular wait và là lý do quy tắc lock ordering nhất quán có thể phá điều kiện tạo vòng.
 
 ---
 
@@ -1054,7 +1075,7 @@ barrier chờ thành viên không còn chạy
 
 ## 15. `Starvation` và `livelock`
 
-> **Nói đơn giản:** Starvation là một luồng bị thiếu cơ hội chạy/tài nguyên trong thời gian dài; livelock là các luồng vẫn hoạt động nhưng cứ phản ứng lẫn nhau mà không hoàn thành việc.
+Starvation là một luồng bị thiếu cơ hội chạy/tài nguyên trong thời gian dài; livelock là các luồng vẫn hoạt động nhưng cứ phản ứng lẫn nhau mà không hoàn thành việc.
 
 ### 15.1 `starvation`
 
@@ -1108,7 +1129,7 @@ Trừ khi chuẩn hoặc chính sách lập lịch nêu rõ.
 
 ## 16. `Lock ordering`, `critical-section granularity` và `contention`
 
-> **Nói đơn giản:** Giữ `lock ordering` nhất quán và vùng `critical section` ngắn giúp giảm `deadlock` và `contention`.
+Giữ `lock ordering` nhất quán và vùng `critical section` ngắn giúp giảm `deadlock` và `contention`.
 
 ### 16.1 Quy tắc `lock ordering`
 
@@ -1119,6 +1140,8 @@ Không cho phép đường ngược:
 ```text
 M3 -> M1
 ```
+
+Mũi tên ngược như vậy phá vỡ thứ tự khóa đã thống nhất và có thể kết hợp với các đường `M1 -> M2 -> M3` ở thread khác để tạo circular wait. Cách phòng tránh là chọn **một thứ tự toàn cục** cho các mutex và buộc mọi code path cần nhiều lock phải lấy chúng theo cùng chiều.
 
 Cách hình dung:
 
@@ -1194,7 +1217,7 @@ trong vùng khóa.
 
 ## 17. `Priority inversion` và `priority inheritance`
 
-> **Nói đơn giản:** Priority inversion xảy ra khi luồng ưu tiên cao phải chờ tài nguyên do luồng ưu tiên thấp giữ; priority inheritance là một cơ chế giảm vấn đề này.
+Priority inversion xảy ra khi luồng ưu tiên cao phải chờ tài nguyên do luồng ưu tiên thấp giữ; priority inheritance là một cơ chế giảm vấn đề này.
 
 ### 17.1 `priority inversion` là gì?
 
@@ -1228,6 +1251,8 @@ Medium priority M:        RUN RUN RUN RUN
 Low priority L:     owns M      not scheduled      RUN -> unlock(M)
 ```
 
+Timeline cho thấy high-priority thread H bị block bởi mutex do low-priority thread L giữ. Vấn đề trở nên nghiêm trọng khi medium-priority thread M liên tục được scheduler chạy thay cho L: L không có CPU để unlock, nên H dù có priority cao nhất vẫn phải chờ. Đây chính là priority inversion; nguyên nhân không chỉ là mutex contention mà là tương tác giữa ownership và scheduler priority.
+
 ---
 
 ### 17.3 `PTHREAD_PRIO_INHERIT`
@@ -1250,6 +1275,8 @@ unlock(mutex)
 H can continue
 ```
 
+Với priority inheritance, khi H bị block trên mutex do L giữ, L có thể tạm thời thừa hưởng priority cần thiết để hoàn tất critical section và unlock sớm hơn. Sau khi giải phóng mutex, priority tạm thời được bỏ. Cơ chế này giảm một dạng priority inversion nhưng không biến thiết kế khóa kém thành an toàn; critical section vẫn nên ngắn và lock ordering vẫn phải rõ ràng.
+
 ---
 
 ### 17.4 Đây là chủ đề real-time, không phải “tăng tốc mutex”
@@ -1262,7 +1289,7 @@ Nó không giải quyết: `deadlock`, `race condition` do quên lock và thiế
 
 ## 18. Tư duy gỡ lỗi đồng bộ
 
-> **Nói đơn giản:** Debug synchronization cần biết luồng nào đang giữ khóa, luồng nào đang chờ, điều kiện dữ liệu hiện tại là gì và thứ tự lock có nhất quán không.
+Debug synchronization cần biết luồng nào đang giữ khóa, luồng nào đang chờ, điều kiện dữ liệu hiện tại là gì và thứ tự lock có nhất quán không.
 
 ### 18.1 Phân loại triệu chứng trước
 
@@ -1279,6 +1306,8 @@ CPU 100% nhưng không tiến triển
 Một thread luôn chậm
   -> nghĩ tới starvation / priority inversion / contention
 ```
+
+Bản đồ này biến triệu chứng runtime thành nhóm giả thuyết. Data corruption ngẫu nhiên thường hướng tới race/lifetime; chương trình đứng với CPU thấp thường hướng tới blocking/deadlock; CPU cao nhưng không tiến triển có thể là busy loop hoặc livelock. Phân loại trước giúp chọn công cụ đúng thay vì thêm log ở mọi nơi mà không có giả thuyết.
 
 ---
 
@@ -1301,6 +1330,8 @@ Có thread nào đang wait cho event không thể xảy ra?
        |
 Có giữ lock quá lâu không?
 ```
+
+Các câu hỏi đi từ **shared state** tới **synchronization protocol** rồi tới điểm chờ. Mục tiêu là xác nhận mọi code path có bảo vệ cùng invariant theo cùng quy tắc hay không, mutex nào đang được giữ và thread đang block ở primitive nào. Khi đã vẽ được ownership/wait relationship, phần lớn lỗi synchronization trở nên cụ thể hơn rất nhiều.
 
 ---
 
@@ -1349,7 +1380,7 @@ mutex đang bị giữ
 
 ## 19. Liên hệ với Embedded Linux
 
-> **Nói đơn giản:** Embedded Linux có nhiều luồng I/O thời gian nhạy cảm; synchronization sai có thể gây treo, trễ bất thường hoặc dữ liệu sai rất khó tái hiện.
+Embedded Linux có nhiều I/O thread nhạy cảm về thời gian; synchronization sai có thể gây treo, trễ bất thường hoặc dữ liệu sai rất khó tái hiện.
 
 ### 19.1 Hàng đợi sensor
 
@@ -1365,15 +1396,13 @@ Sensor thread
 Processing thread
 ```
 
-Có thể cần:
-
-`mutex`: bảo vệ hàng đợi; `condition variable`: báo có mẫu mới.
+Trong mô hình này Sensor thread là producer còn Processing thread là consumer. `sample queue` là shared state nên mọi thao tác làm thay đổi cấu trúc queue cần tuân theo cùng một synchronization protocol, thường là mutex. Khi queue đang rỗng, Processing thread không nên busy-loop; nó có thể chờ một condition variable biểu diễn việc predicate “queue không rỗng” thay đổi. Sensor thread thêm sample dưới mutex rồi signal/broadcast condition thích hợp để đánh thức consumer. Như vậy mutex bảo vệ **tính nhất quán của dữ liệu**, còn condition variable hỗ trợ **wait/wake theo trạng thái dữ liệu**.
 
 ---
 
 ### 19.2 Một thiết bị có nhiều người dùng
 
-Ví dụ SPI/UART: Luồng A muốn gửi frame và Luồng B cũng muốn gửi frame.
+Ví dụ với SPI/UART: Thread A và Thread B cùng muốn gửi một frame qua cùng peripheral.
 
 Nếu một transaction gồm nhiều bước, `critical section` nên bảo vệ **toàn bộ logic của transaction** chứ không chỉ một lần `write()` ngẫu nhiên.
 
@@ -1435,7 +1464,7 @@ Priority inversion có thể làm một luồng ưu tiên cao trễ quá giới 
 
 ## 20. Tổng kết
 
-> **Nói đơn giản:** Topic 07 cần để lại mô hình: dữ liệu chia sẻ → vùng cần bảo vệ → mutex/condition/semaphore → tránh race và deadlock.
+Topic 07 cần để lại mô hình: dữ liệu chia sẻ → vùng cần bảo vệ → mutex/condition/semaphore → tránh race và deadlock.
 
 ### 20.1 Bản đồ chọn cơ chế
 
@@ -1455,6 +1484,8 @@ Bài toán đồng bộ là gì?
                 -> Barrier
 ```
 
+Bản đồ không nên được dùng như bảng tra API tuyệt đối; nó là cách đặt đúng câu hỏi. Nếu cần mutual exclusion cho shared state, bắt đầu từ mutex; nếu thread phải ngủ cho tới khi predicate trên shared state thay đổi, dùng condition variable cùng mutex; nếu bài toán là đếm token/resource, semaphore phù hợp hơn; nếu nhiều thread phải gặp nhau ở ranh giới phase, barrier là công cụ đúng hơn.
+
 ---
 
 ### 20.2 Condition Variable
@@ -1470,6 +1501,8 @@ condition variable hỗ trợ wait/wake
       |
 wake -> reacquire mutex -> kiểm tra lại predicate
 ```
+
+Hãy đọc sơ đồ theo quan hệ giữa ba thành phần. **Shared data** là trạng thái thật của chương trình; **predicate** là điều kiện logic mà thread đang chờ, chẳng hạn `queue_not_empty`; mutex bảo vệ cả dữ liệu và quá trình kiểm tra/thay đổi predicate. Condition variable không chứa dữ liệu và cũng không ghi nhớ rằng predicate đang đúng; nó chỉ cung cấp cơ chế ngủ và đánh thức hiệu quả. Sau khi wake, thread phải reacquire mutex và kiểm tra predicate một lần nữa vì trạng thái có thể đã đổi hoặc wakeup có thể là spurious.
 
 Điểm phải nhớ:
 
@@ -1488,6 +1521,8 @@ B giữ M2, chờ M1
 => vòng chờ
 => không ai tiến triển
 ```
+
+Deadlock trong sơ đồ hình thành vì dependency tạo thành vòng kín: A chỉ có thể tiếp tục khi lấy được M2, nhưng M2 đang do B giữ; B lại chỉ tiếp tục khi lấy được M1, trong khi M1 do A giữ. Không có thread nào tự giải phóng lock mà nó đang giữ vì cả hai đều đang chờ. Đây là lý do một **lock ordering nhất quán** giữa mọi code path là biện pháp thiết kế quan trọng khi phải giữ nhiều mutex.
 
 ---
 
@@ -1516,7 +1551,7 @@ B giữ M2, chờ M1
 
 ## 21. Tài liệu tham khảo
 
-> **Nói đơn giản:** Phần này liệt kê nguồn chuẩn về mutex, condition variable, semaphore và đồng bộ POSIX.
+Phần này liệt kê nguồn chuẩn về mutex, condition variable, semaphore và đồng bộ POSIX.
 
 ### POSIX.1-2024 / The Open Group
 

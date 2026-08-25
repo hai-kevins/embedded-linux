@@ -12,7 +12,7 @@
 
 Từ mô hình đó, các API `open()`, `read()`, `write()`, `lseek()` và `close()` trở thành một chuỗi logic thay vì năm hàm rời rạc. Phần còn lại của chương tập trung vào giá trị trả về, `partial I/O`, EOF, `blocking`/`nonblocking` và cách suy luận khi một lời gọi thất bại.
 
-**Cách đọc nếu bạn mới bắt đầu.** Trước hết hãy đọc phần **Nói đơn giản** ở đầu mỗi mục lớn để nắm câu hỏi mà mục đó đang giải quyết. Sau đó xem sơ đồ và ví dụ để hình thành mô hình trong đầu; chưa cần nhớ mọi cờ, mã lỗi hay trường hợp đặc biệt. Khi ý chính đã rõ, hãy đọc các mục `###` theo thứ tự và quay lại phần giải thích trước đó nếu gặp một thuật ngữ chưa quen.
+Nếu bạn mới bắt đầu, hãy đọc theo thứ tự từ mục lớn tới mục nhỏ và xem sơ đồ trước khi đi vào các chi tiết API. Mỗi sơ đồ chỉ giữ những thành phần cần thiết để tạo mô hình trong đầu; đoạn văn ngay bên dưới sẽ giải thích luồng dữ liệu, trạng thái hoặc quan hệ giữa các object. Sau khi đã hiểu mô hình, hãy quay lại tên API, flag và mã lỗi để gắn chúng vào đúng vị trí thay vì học thuộc rời rạc.
 
 ---
 
@@ -36,7 +36,7 @@ Từ mô hình đó, các API `open()`, `read()`, `write()`, `lseek()` và `clos
 
 ## 1. `file descriptor` là gì?
 
-> **Nói đơn giản:** Sau khi mở một đối tượng I/O, Linux trả về một số nguyên nhỏ gọi là `file descriptor` (`fd`). Chương trình dùng số này cho các thao tác đọc, ghi và đóng.
+Sau khi mở một đối tượng I/O, Linux trả về một số nguyên nhỏ gọi là `file descriptor` (`fd`). Chương trình dùng số này cho các thao tác đọc, ghi và đóng.
 
 ### 1.1 File I/O rộng hơn tệp thông thường
 
@@ -76,6 +76,8 @@ Tiến trình
 +--------------------------------+
 ```
 
+Bảng trong sơ đồ nằm **riêng trong từng process**. Một số nguyên nhỏ như 0, 1, 2 hay 3 chỉ là index để process tham chiếu tới các object I/O mà kernel đang giữ. Vì thế fd `3` của process A không liên quan tới fd `3` của process B, trừ khi hai process có quan hệ chia sẻ/inherit object phù hợp. Điều quan trọng là phân biệt **số fd** với **object mà fd đang trỏ tới**.
+
 ### 1.3 `fd` không phải inode
 
 `inode` thuộc lớp đối tượng trong filesystem.
@@ -108,7 +110,7 @@ Linux kernel dùng số này để tra bảng file descriptor của tiến trìn
 
 ## 2. Từ đường dẫn đến tệp đang mở
 
-> **Nói đơn giản:** Pathname chủ yếu dùng để tìm đối tượng lúc mở. Sau khi `open()` thành công, chương trình làm việc với `fd` và trạng thái tệp đang mở.
+Pathname chủ yếu dùng để tìm đối tượng lúc mở. Sau khi `open()` thành công, chương trình làm việc với `fd` và trạng thái tệp đang mở.
 
 ### 2.1 Hai giai đoạn khác nhau
 
@@ -131,6 +133,8 @@ fd
  +--> lseek()
  +--> close()
 ```
+
+Hai sơ đồ mô tả hai giai đoạn khác nhau của File I/O. `open()` dùng pathname để yêu cầu kernel **tìm object và tạo một handle**, còn các thao tác I/O phía sau chủ yếu dùng handle đó là `fd`; kernel không cần resolve lại pathname ở mỗi lần `read()` hay `write()`. Đây là lý do đổi tên/unlink một pathname sau khi file đã mở không nhất thiết làm fd đang mở mất hiệu lực ngay.
 
 Điểm quan trọng:
 
@@ -184,7 +188,7 @@ Không phải mọi đối tượng đều có inode theo cùng cách, nhưng m�
 
 ## 3. `open()`: mở một đối tượng I/O
 
-> **Nói đơn giản:** `open()` yêu cầu Linux kernel tìm pathname, kiểm tra quyền/cờ mở và tạo trạng thái cần thiết. Thành công thì nhận `fd`; thất bại thì nhận lỗi.
+`open()` yêu cầu Linux kernel tìm pathname, kiểm tra quyền/cờ mở và tạo trạng thái cần thiết. Thành công thì nhận `fd`; thất bại thì nhận lỗi.
 
 ### 3.1 `open()` làm gì?
 
@@ -203,6 +207,8 @@ tạo hoặc tham chiếu open file description
   v
 fd
 ```
+
+Sơ đồ cần được đọc như một pipeline trong kernel: pathname được resolve, permission và flags được kiểm tra, sau đó kernel thiết lập trạng thái open-file cần thiết và đặt một entry mới vào file descriptor table của process. Chỉ bước cuối mới tạo ra con số `fd` mà userspace dùng tiếp. Vì thế lỗi `open()` có thể phát sinh từ pathname, permission, filesystem hoặc flags trước khi bất kỳ I/O dữ liệu nào diễn ra.
 
 Nếu thành công:
 
@@ -279,7 +285,7 @@ Thiết lập nguyên tử ngay khi mở đặc biệt quan trọng trong chươ
 
 ## 4. `read()`: đọc dữ liệu
 
-> **Nói đơn giản:** `read()` yêu cầu đọc tối đa một số byte. Giá trị trả về mới cho biết thực tế đọc được bao nhiêu; ít hơn yêu cầu vẫn có thể hoàn toàn bình thường.
+`read()` yêu cầu đọc tối đa một số byte. Giá trị trả về mới cho biết thực tế đọc được bao nhiêu; ít hơn yêu cầu vẫn có thể hoàn toàn bình thường.
 
 ### 4.1 `read()` yêu cầu đọc tối đa một số byte
 
@@ -379,7 +385,7 @@ Vì vậy “`read() == 0`” phải được hiểu trong ngữ cảnh đối t
 
 ## 5. `write()`: ghi dữ liệu
 
-> **Nói đơn giản:** `write()` cũng có thể ghi ít byte hơn yêu cầu. Chương trình đúng phải dựa vào giá trị trả về thay vì giả sử một lần gọi luôn ghi đủ.
+`write()` cũng có thể ghi ít byte hơn yêu cầu. Chương trình đúng phải dựa vào giá trị trả về thay vì giả sử một lần gọi luôn ghi đủ.
 
 ### 5.1 `write()` cũng có thể hoàn thành một phần
 
@@ -439,7 +445,7 @@ Mỗi lớp có trạng thái riêng.
 
 ## 6. Vị trí đọc/ghi và `lseek()`
 
-> **Nói đơn giản:** Regular file thường có `file offset` hiện tại. `lseek()` thay đổi vị trí này, nhưng không phải mọi loại `fd` đều hỗ trợ seek.
+Regular file thường có `file offset` hiện tại. `lseek()` thay đổi vị trí này, nhưng không phải mọi loại `fd` đều hỗ trợ seek.
 
 ### 6.1 `file offset`
 
@@ -482,7 +488,7 @@ Ví dụ thường không seek: pipe, `FIFO`, socket, terminal và nhiều chara
 
 ## 7. `close()` và vòng đời `file descriptor`
 
-> **Nói đơn giản:** `close()` bỏ tham chiếu `fd` của tiến trình. Nếu còn tham chiếu khác tới cùng đối tượng thì tài nguyên bên dưới chưa chắc được giải phóng ngay.
+`close()` bỏ tham chiếu `fd` của tiến trình. Nếu còn tham chiếu khác tới cùng đối tượng thì tài nguyên bên dưới chưa chắc được giải phóng ngay.
 
 ### 7.1 `close(fd)` đóng cái gì?
 
@@ -497,6 +503,8 @@ close(3)
 
 3 -> free fd slot
 ```
+
+`close(fd)` trước hết xóa một entry khỏi file descriptor table của process hiện tại. Nó không nhất thiết phá hủy ngay object bên dưới, vì object đó có thể còn được tham chiếu bởi fd khác, process khác, mapping hoặc cấu trúc kernel khác. Đây là lý do `dup()`, `fork()` và việc chia sẻ socket/file cần được hiểu theo reference/lifetime chứ không theo suy nghĩ “mỗi số fd là một file độc lập”.
 
 ### 7.2 Số fd có thể được dùng lại
 
@@ -532,7 +540,7 @@ Việc retry mù quáng có thể nguy hiểm vì số fd có thể đã đượ
 
 ## 8. `blocking` và `nonblocking` I/O
 
-> **Nói đơn giản:** I/O chặn có thể làm luồng phải chờ dữ liệu hoặc chờ tài nguyên; I/O không chặn trả về ngay nếu chưa thể tiếp tục. Topic này chỉ cần hiểu khác biệt cơ bản đó.
+I/O chặn có thể làm luồng phải chờ dữ liệu hoặc chờ tài nguyên; I/O không chặn trả về ngay nếu chưa thể tiếp tục. Topic này chỉ cần hiểu khác biệt cơ bản đó.
 
 ### 8.1 `blocking` nghĩa là gì?
 
@@ -551,6 +559,8 @@ wake up
   |
 read() tiếp tục
 ```
+
+Trong blocking mode, khi thao tác chưa thể hoàn thành ngay, kernel có thể đưa thread gọi `read()`/`write()` vào trạng thái ngủ thay vì bắt CPU quay vòng liên tục. Thread sẽ được đánh thức khi điều kiện cần thiết xuất hiện, chẳng hạn pipe có dữ liệu hoặc socket có byte nhận được. Vì vậy `blocking` mô tả **semantics chờ của lời gọi I/O**, không đồng nghĩa chương trình bị treo hay CPU bị bận.
 
 ### 8.2 `blocking` không phải `busy loop`
 
@@ -599,7 +609,7 @@ Nó không hứa mọi đường đi trong filesystem/Linux kernel/hardware đ�
 
 ## 9. Giá trị trả về, `errno` và các lỗi quan trọng
 
-> **Nói đơn giản:** System call thường báo thành công/thất bại bằng giá trị trả về; khi lỗi, `errno` cho biết nguyên nhân cụ thể như bị ngắt hoặc tạm thời chưa có dữ liệu.
+System call thường báo thành công/thất bại bằng giá trị trả về; khi lỗi, `errno` cho biết nguyên nhân cụ thể như bị ngắt hoặc tạm thời chưa có dữ liệu.
 
 ### 9.1 Đừng bỏ qua giá trị trả về
 
@@ -649,7 +659,7 @@ không phải lỗi vĩnh viễn.
 
 ## 10. Tư duy gỡ lỗi File I/O
 
-> **Nói đơn giản:** Debug File I/O nên đi theo thứ tự: `fd` có hợp lệ không, quyền/cờ mở đúng không, giá trị trả về là gì, `errno` là gì và loại đối tượng đang đọc/ghi là gì.
+Debug File I/O nên đi theo thứ tự: `fd` có hợp lệ không, quyền/cờ mở đúng không, giá trị trả về là gì, `errno` là gì và loại đối tượng đang đọc/ghi là gì.
 
 ### 10.1 `open()` thất bại
 
@@ -669,6 +679,8 @@ flags phù hợp?
 resource limit?
 ```
 
+Hãy debug `open()` theo đúng các lớp mà kernel đi qua: pathname resolution, mount/filesystem, permission và cuối cùng là semantics của loại object. Cùng một lời gọi có thể trả `ENOENT`, `EACCES`, `ENOTDIR`, `EROFS`, `ENODEV` hoặc lỗi khác tùy lớp nào thất bại. Đọc `errno` rồi đối chiếu với pathname và loại file thường nhanh hơn việc sửa code I/O phía sau.
+
 ### 10.2 `read()` trả `0`
 
 Hỏi đối tượng là gì:
@@ -679,6 +691,8 @@ pipe -> không còn writer?
 socket -> peer half-close / EOF?
 device -> semantics do driver quyết định?
 ```
+
+Giá trị `0` chỉ có thể hiểu đúng khi biết fd đang trỏ tới loại object nào. Với regular file, nó thường là EOF tại offset hiện tại; với pipe, nó biểu thị không còn writer sau khi dữ liệu đã cạn; với TCP socket, nó thường cho biết peer đã thực hiện orderly shutdown theo chiều gửi. Device có thể có semantics riêng do driver định nghĩa. Vì thế đừng xử lý `read()==0` bằng một kết luận chung cho mọi fd.
 
 ### 10.3 Đọc ít hơn yêu cầu
 
@@ -712,7 +726,7 @@ driver / hardware / protocol layer đúng
 
 ## 11. Liên hệ với Embedded Linux
 
-> **Nói đơn giản:** Trên Embedded Linux, cùng mô hình `fd` được dùng để làm việc với tệp cấu hình, UART, GPIO qua sysfs cũ, pipe, socket và nhiều `device node`.
+Trên Embedded Linux, cùng mô hình `fd` được dùng để làm việc với tệp cấu hình, UART, GPIO qua sysfs cũ, pipe, socket và nhiều `device node`.
 
 ### 11.1 `device node`
 
@@ -775,7 +789,7 @@ Không nên dừng ở câu “`read()` bị lỗi”.
 
 ## 12. Tổng kết
 
-> **Nói đơn giản:** Topic 03 cần để lại mô hình: pathname → `open()` → `fd` → `read/write/lseek` → `close()`.
+Topic 03 cần để lại mô hình: pathname → `open()` → `fd` → `read/write/lseek` → `close()`.
 
 ```text
 pathname
@@ -791,12 +805,14 @@ fd
    +--> close()
 ```
 
+Điểm mấu chốt là pathname chủ yếu dùng ở bước **mở/tìm object**, còn sau khi `open()` thành công, process làm việc với một `file descriptor` cục bộ. fd là handle để kernel tìm tới open-file state và object bên dưới; `read()`/`write()` có thể block hoặc hoàn thành một phần tùy loại object, `lseek()` chỉ có nghĩa với object hỗ trợ seek, còn `close()` bỏ reference fd hiện tại. Nhờ cùng mô hình fd, Linux có thể cho file, pipe, socket, terminal và device cùng tham gia nhiều API I/O giống nhau dù semantics chi tiết khác nhau.
+
 Các ý cần nhớ:
 
 1. `fd` là số nguyên cục bộ trong một tiến trình.
 2. `fd` không phải inode và không phải con trỏ không gian người dùng.
 3. Pathname được dùng để tìm/mở đối tượng; I/O sau đó dùng `fd`.
-4. `Open file description` chứa trạng thái như `file offset` hiện tại và `file status flags`.
+4. `open file description` chứa trạng thái như `file offset` hiện tại và `file status flags`.
 5. `read()` và `write()` có thể hoàn thành một phần.
 6. `read() == 0` không phải lỗi; thường là EOF theo ngữ nghĩa đối tượng.
 7. `O_APPEND` mạnh hơn tự ghép `lseek(end)` + `write()`.
@@ -811,7 +827,7 @@ Các ý cần nhớ:
 
 ## 13. Tài liệu tham khảo
 
-> **Nói đơn giản:** Phần này liệt kê tài liệu chuẩn cho các `system call` và khái niệm I/O đã dùng trong Topic 03.
+Phần này liệt kê tài liệu chuẩn cho các `system call` và khái niệm I/O đã dùng trong Topic 03.
 
 - `open(2)`: https://man7.org/linux/man-pages/man2/open.2.html
 - `read(2)`: https://man7.org/linux/man-pages/man2/read.2.html

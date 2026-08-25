@@ -10,7 +10,7 @@ Một **chương trình** là mã và dữ liệu nằm trên thiết bị lưu 
 
 Chương này trước hết xây mô hình “một tiến trình đang sở hữu những gì”, sau đó theo dõi vòng đời của nó: được tạo ra, có thể thay `program image` bằng `execve()`, kết thúc, trở thành zombie trong một khoảng thời gian và được tiến trình cha thu hồi bằng `wait()`.
 
-**Cách đọc nếu bạn mới bắt đầu.** Trước hết hãy đọc phần **Nói đơn giản** ở đầu mỗi mục lớn để nắm câu hỏi mà mục đó đang giải quyết. Sau đó xem sơ đồ và ví dụ để hình thành mô hình trong đầu; chưa cần nhớ mọi cờ, mã lỗi hay trường hợp đặc biệt. Khi ý chính đã rõ, hãy đọc các mục `###` theo thứ tự và quay lại phần giải thích trước đó nếu gặp một thuật ngữ chưa quen.
+Nếu bạn mới bắt đầu, hãy đọc theo thứ tự từ mục lớn tới mục nhỏ và xem sơ đồ trước khi đi vào các chi tiết API. Mỗi sơ đồ chỉ giữ những thành phần cần thiết để tạo mô hình trong đầu; đoạn văn ngay bên dưới sẽ giải thích luồng dữ liệu, trạng thái hoặc quan hệ giữa các object. Sau khi đã hiểu mô hình, hãy quay lại tên API, flag và mã lỗi để gắn chúng vào đúng vị trí thay vì học thuộc rời rạc.
 
 ---
 
@@ -35,7 +35,7 @@ Chương này trước hết xây mô hình “một tiến trình đang sở h�
 
 ## 1. Chương trình và tiến trình khác nhau thế nào?
 
-> **Nói đơn giản:** Chương trình là mã và dữ liệu thực thi nằm trên thiết bị lưu trữ; tiến trình là một lần chương trình đang được chạy với PID, bộ nhớ và tài nguyên riêng.
+Chương trình là mã và dữ liệu thực thi nằm trên thiết bị lưu trữ; tiến trình là một lần chương trình đang được chạy với PID, bộ nhớ và tài nguyên riêng.
 
 ### 1.1 Chương trình là dữ liệu tĩnh
 
@@ -91,7 +91,7 @@ Khi sang đa luồng, ta sẽ thấy một tiến trình có thể có nhiều t
 
 ## 2. PID, PPID và cây tiến trình
 
-> **Nói đơn giản:** Mỗi tiến trình có PID; PPID cho biết tiến trình cha. Nhìn các PID/PPID giúp bạn thấy quan hệ tạo tiến trình trong hệ thống.
+Mỗi tiến trình có PID; PPID cho biết tiến trình cha. Nhìn các PID/PPID giúp bạn thấy quan hệ tạo tiến trình trong hệ thống.
 
 ### 2.1 PID
 
@@ -140,13 +140,15 @@ PID 1
  +--> child process của service manager
 ```
 
+Cây trên biểu diễn **quan hệ parent/child**, không phải thứ tự chạy trên CPU. Shell có thể tạo `app A` và `app B` bằng `fork()`/`exec()`, trong khi service manager tạo những process khác. Mỗi nhánh cho biết process nào đã tạo hoặc hiện đang là parent của process nào; scheduler vẫn có thể xen kẽ việc chạy mọi process độc lập với hình dạng của cây.
+
 Quan hệ này có thể thay đổi khi tiến trình cha kết thúc và tiến trình con được reparent.
 
 ---
 
 ## 3. Một tiến trình đang nắm giữ những gì?
 
-> **Nói đơn giản:** Một tiến trình không chỉ có code. Nó còn có không gian địa chỉ, `fd`, thư mục làm việc, biến môi trường, trạng thái signal và nhiều tài nguyên khác.
+Một tiến trình không chỉ có code. Nó còn có không gian địa chỉ, `fd`, thư mục làm việc, biến môi trường, trạng thái signal và nhiều tài nguyên khác.
 
 ### 3.1 Không gian địa chỉ ảo
 
@@ -231,7 +233,7 @@ Không nên rút gọn thành “mỗi tiến trình chỉ có một user”.
 
 ## 4. Trạng thái tiến trình và `scheduler`
 
-> **Nói đơn giản:** Tiến trình có thể chạy, chờ hoặc ngủ. Scheduler của Linux kernel quyết định tiến trình/luồng nào được dùng CPU tại từng thời điểm.
+Tiến trình có thể chạy, chờ hoặc ngủ. Scheduler của Linux kernel quyết định tiến trình/luồng nào được dùng CPU tại từng thời điểm.
 
 ### 4.1 `running` và `runnable`
 
@@ -289,13 +291,15 @@ scheduler chọn Task B
 Task B RUNNING
 ```
 
+Khi xảy ra `context switch`, CPU không chạy đồng thời hai task trên cùng một core. Kernel lưu phần execution context cần thiết của Task A, chọn Task B theo scheduler, khôi phục context của B rồi tiếp tục thực thi B. Việc chuyển đổi đủ nhanh khiến nhiều process/thread có vẻ như cùng tiến triển, nhưng nó cũng tạo overhead và làm thứ tự thực thi giữa các task không thể được giả định cố định.
+
 Đây là nền tảng để hiểu concurrency sau này.
 
 ---
 
 ## 5. `fork()`: tạo tiến trình con
 
-> **Nói đơn giản:** `fork()` tạo tiến trình con từ tiến trình hiện tại. Sau lời gọi, cả cha và con tiếp tục chạy từ gần cùng một vị trí nhưng là hai tiến trình riêng.
+`fork()` tạo tiến trình con từ tiến trình hiện tại. Sau lời gọi, cả cha và con tiếp tục chạy từ gần cùng một vị trí nhưng là hai tiến trình riêng.
 
 ### 5.1 Mô hình
 
@@ -308,7 +312,7 @@ Parent process
 Parent   Child
 ```
 
-`fork()` thành công tạo một tiến trình con mới.
+Sơ đồ có hai nhánh vì sau một lần `fork()` thành công sẽ có **hai process tiếp tục từ vị trí ngay sau lời gọi**. Parent nhận PID của child làm giá trị trả về, còn child nhận `0`; nhờ giá trị khác nhau này, cùng một đoạn code có thể rẽ sang logic parent hoặc child. Từ thời điểm đó chúng có PID riêng, scheduler state riêng và không gian địa chỉ riêng về mặt logic.
 
 ### 5.2 Hai luồng điều khiển
 
@@ -348,7 +352,7 @@ kernel copy physical page
 Parent và Child trỏ tới các physical page riêng
 ```
 
-Đây là `Copy-on-Write` (`COW`).
+Đây là `Copy-on-Write` (`COW`). Ngay sau `fork()`, parent và child có **virtual address space độc lập về mặt semantics**, nhưng nhiều page vật lý có thể tạm thời được map dùng chung ở chế độ không cho phép ghi trực tiếp. Khi một bên cố ghi, kernel xử lý page fault, tạo bản sao page cần thiết và cập nhật mapping của bên ghi. Nhờ vậy `fork()` không phải sao chép toàn bộ bộ nhớ ngay lập tức, nhưng thay đổi private memory của child vẫn không biến thành thay đổi private memory của parent.
 
 ### 5.5 `file descriptor` sau `fork()`
 
@@ -372,7 +376,7 @@ Muốn chạy executable khác, thường dùng `exec` sau đó.
 
 ## 6. `execve()`: thay `program image`
 
-> **Nói đơn giản:** `execve()` không tạo thêm tiến trình. Nó thay chương trình đang chạy bên trong tiến trình hiện tại bằng chương trình mới.
+`execve()` không tạo thêm tiến trình. Nó thay chương trình đang chạy bên trong tiến trình hiện tại bằng chương trình mới.
 
 ### 6.1 Ý nghĩa cốt lõi
 
@@ -451,7 +455,7 @@ Shell sử dụng mô hình này để chạy lệnh, kết hợp `redirection` 
 
 ## 7. Kết thúc tiến trình và `exit status`
 
-> **Nói đơn giản:** Khi tiến trình kết thúc, nó để lại exit status để tiến trình cha có thể biết kết quả chạy thành công hay thất bại.
+Khi tiến trình kết thúc, nó để lại exit status để tiến trình cha có thể biết kết quả chạy thành công hay thất bại.
 
 ### 7.1 `exit()`
 
@@ -473,7 +477,7 @@ Linux kernel giữ thông tin kết thúc để parent có thể thu thập bằ
 
 ## 8. Zombie, `wait()`, `orphan process` và chuyển tiến trình cha
 
-> **Nói đơn giản:** Zombie là tiến trình đã kết thúc nhưng tiến trình cha chưa thu `exit status`. `Orphan process` là tiến trình mất cha ban đầu và được hệ thống nhận quản lý lại.
+Zombie là tiến trình đã kết thúc nhưng tiến trình cha chưa thu `exit status`. `Orphan process` là tiến trình mất cha ban đầu và được hệ thống nhận quản lý lại.
 
 ### 8.1 Vì sao zombie tồn tại?
 
@@ -492,6 +496,8 @@ ZOMBIE
     v
 REAPED
 ```
+
+Zombie không còn chạy code và không còn giữ phần lớn tài nguyên thực thi của process; kernel chỉ giữ lại một lượng thông tin tối thiểu như PID và exit status để parent có thể thu nhận. Khi parent gọi `wait()`/`waitpid()`, record này được reap và PID có thể được tái sử dụng. Vì vậy cách sửa zombie không phải `kill -9` chính zombie, mà là sửa logic parent để thu nhận trạng thái child đúng cách.
 
 ### 8.2 `wait()` / `waitpid()`
 
@@ -517,7 +523,7 @@ Trong Embedded Linux, PID 1 có thể là: systemd, BusyBox init và một chư�
 
 ## 9. Quan sát tiến trình qua `/proc`
 
-> **Nói đơn giản:** `/proc/<pid>` là cửa sổ quan sát trạng thái tiến trình từ không gian người dùng: command line, `fd`, memory map, trạng thái và nhiều thông tin khác.
+`/proc/<pid>` là cửa sổ quan sát trạng thái tiến trình từ không gian người dùng: command line, `fd`, memory map, trạng thái và nhiều thông tin khác.
 
 ### 9.1 `/proc/<pid>`
 
@@ -567,7 +573,7 @@ cho phép quan sát các tham chiếu quan trọng của tiến trình.
 
 ### 9.7 `maps`
 
-`/proc/<pid>/maps` mô tả các các ánh xạ bộ nhớ ảo.
+`/proc/<pid>/maps` mô tả các ánh xạ bộ nhớ ảo.
 
 Nó không phải bản đồ RAM vật lý.
 
@@ -575,7 +581,7 @@ Nó không phải bản đồ RAM vật lý.
 
 ## 10. `ps`, `top` và góc nhìn của `scheduler`
 
-> **Nói đơn giản:** `ps` cho ảnh chụp tại một thời điểm; `top` cập nhật liên tục. Cả hai giúp nhìn CPU, memory và trạng thái tiến trình ở mức người dùng.
+`ps` cho ảnh chụp tại một thời điểm; `top` cập nhật liên tục. Cả hai giúp nhìn CPU, memory và trạng thái tiến trình ở mức người dùng.
 
 ### 10.1 `ps`
 
@@ -597,7 +603,7 @@ Các khái niệm nâng cao như nice value, real-time policy, CPU affinity và 
 
 ## 11. Tư duy gỡ lỗi tiến trình
 
-> **Nói đơn giản:** Debug tiến trình nên bắt đầu từ: tiến trình có tồn tại không, PID nào, đang ở trạng thái gì, exit status là gì và đang giữ tài nguyên nào.
+Debug tiến trình nên bắt đầu từ: tiến trình có tồn tại không, PID nào, đang ở trạng thái gì, exit status là gì và đang giữ tài nguyên nào.
 
 ### 11.1 Tiến trình “biến mất”
 
@@ -629,7 +635,7 @@ Sau `fork()`, file descriptor kế thừa có thể chia sẻ cùng `open file d
 
 ## 12. Liên hệ với Embedded Linux
 
-> **Nói đơn giản:** Embedded Linux thường chạy nhiều daemon/service nhỏ. Hiểu tiến trình giúp bạn đọc init script, systemd, watchdog và chẩn đoán chương trình treo hoặc thoát bất thường.
+Embedded Linux thường chạy nhiều daemon/service nhỏ. Hiểu tiến trình giúp bạn đọc init script, systemd, watchdog và chẩn đoán chương trình treo hoặc thoát bất thường.
 
 ### 12.1 PID 1 và init
 
@@ -659,7 +665,7 @@ Khi không có GUI, `/proc` là công cụ quan trọng để trả lời: tiế
 
 ## 13. Tổng kết
 
-> **Nói đơn giản:** Topic 04 cần để lại mô hình: tiến trình được tạo, có thể `exec` chương trình khác, chạy, kết thúc và được cha `wait` thu trạng thái.
+Topic 04 cần để lại mô hình: tiến trình được tạo, có thể `exec` chương trình khác, chạy, kết thúc và được cha `wait` thu trạng thái.
 
 ```mermaid
 stateDiagram-v2
@@ -672,6 +678,8 @@ stateDiagram-v2
     Running --> Zombie: exit
     Zombie --> [*]: wait() / reap
 ```
+
+Sơ đồ trên là mô hình rút gọn để hình dung vòng đời của một process ở góc nhìn thực thi và scheduler. `Running` nghĩa process đang thực sự sử dụng CPU, còn `Runnable` nghĩa nó đã sẵn sàng chạy nhưng đang chờ scheduler cấp CPU. Khi phải chờ I/O hoặc một sự kiện, process chuyển sang `Sleeping`; khi điều kiện chờ hoàn tất, nó quay về `Runnable`. `Stopped` là trạng thái bị dừng, chẳng hạn do job control hoặc tracing. Khi process gọi `exit()` hoặc kết thúc, Linux vẫn giữ lại một lượng nhỏ thông tin ở trạng thái `Zombie` để parent đọc exit status; chỉ sau khi parent gọi `wait()` hoặc `waitpid()` để **reap** child thì entry này mới được loại bỏ hoàn toàn. Đây không phải toàn bộ state nội bộ của Linux kernel, nhưng là mô hình đủ tốt để đọc `ps`, `top` và `/proc` ở mức nhập môn.
 
 Mô hình `fork` + `exec`:
 
@@ -687,6 +695,8 @@ Parent  Child
           v
       New program
 ```
+
+Sơ đồ thứ hai ghép hai operation thường xuất hiện cùng nhau nhưng có ý nghĩa khác nhau. `fork()` tạo **một process mới** là child; `execve()` sau đó không tạo thêm process mà **thay program image của process gọi nó**. Vì thế child có thể giữ nguyên PID sau `execve()` nhưng bắt đầu chạy code, data, stack setup và entry point của chương trình mới. Shell tận dụng đúng mô hình này để tạo child, chuẩn bị redirection/environment rồi `exec` command người dùng yêu cầu.
 
 Các ý cần nhớ:
 
@@ -708,7 +718,7 @@ Các ý cần nhớ:
 
 ## 14. Tài liệu tham khảo
 
-> **Nói đơn giản:** Phần này liệt kê nguồn chuẩn về tiến trình, `fork`, `exec`, `wait` và `/proc`.
+Phần này liệt kê nguồn chuẩn về tiến trình, `fork`, `exec`, `wait` và `/proc`.
 
 - `fork(2)`: https://man7.org/linux/man-pages/man2/fork.2.html
 - `execve(2)`: https://man7.org/linux/man-pages/man2/execve.2.html
