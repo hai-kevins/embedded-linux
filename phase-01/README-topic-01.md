@@ -111,9 +111,9 @@ Khi bạn gõ: `echo "$HOME" | grep home > result.txt`
 ```
 
 > **Đọc sơ đồ:** Sơ đồ này cho thấy quá trình Shell xử lý một dòng lệnh từ trên xuống dưới. Shell đọc toàn bộ dòng lệnh và tách thành các từ khóa, chuỗi và toán tử riêng biệt: echo, "$HOME", |, grep, home, >, result.txt. Tại đây, nó nhận diện | là toán tử đường ống (pipeline) và > là toán tử chuyển hướng đầu ra (redirection). Shell phát hiện $HOME nằm trong dấu ngoặc kép "", nên nó tiến hành nội suy (interpolate) và thay thế biến này bằng giá trị môi trường thực tế đang lưu trong hệ thống (Ví dụ: /home/ngocchien hoặc NgocChien Trùm VT01). Dựa vào cú pháp đã phân tích ở bước 1, Shell nhận ra đây là một chuỗi lệnh (pipeline). Nó gọi Kernel để tạo sẵn một bộ nhớ đệm luồng (Pipe) chuẩn bị cho việc đẩy dữ liệu từ echo sang grep. Ở bước 4, Shell thực hiện các thao tác: 
-Fork (Nhân bản): Tạo ra các tiến trình con (child processes) riêng biệt cho echo và grep.
-Cấu hình luồng (File Descriptors): Trỏ Standard Output (Đầu ra) của echo vào Pipe. Trỏ Standard Input (Đầu vào) của grep từ Pipe. Đồng thời, Shell cố gắng mở file result.txt để chuẩn bị ghi dữ liệu.
-Execve (Thực thi): Nếu mọi thứ thiết lập thành công, Shell gọi hàm execve() để thay thế tiến trình con bằng mã thực thi của echo và grep.
+- Fork (Nhân bản): Tạo ra các tiến trình con (child processes) riêng biệt cho echo và grep.
+- Cấu hình luồng (File Descriptors): Trỏ Standard Output (Đầu ra) của echo vào Pipe. Trỏ Standard Input (Đầu vào) của grep từ Pipe. Đồng thời, Shell cố gắng mở file result.txt để chuẩn bị ghi dữ liệu.
+- Execve (Thực thi): Nếu mọi thứ thiết lập thành công, Shell gọi hàm execve() để thay thế tiến trình con bằng mã thực thi của echo và grep.
 
 ### 3.2 Builtin (Lệnh tích hợp) và Chương trình ngoài
 
