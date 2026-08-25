@@ -261,7 +261,7 @@ Dấu nháy kiểm soát việc chúng được hiểu như cú pháp hay như d
 
 ### 4.2 Dấu nháy đơn
 
-Dấu nháy đơn sẽ giữ nguyên 100% ý nghĩa văn bản của tất cả các ký tự nằm bên trong nó.
+Dấu nháy đơn sẽ giữ nguyên ý nghĩa văn bản của tất cả các ký tự nằm bên trong nó.
 
 Mô hình:
 
