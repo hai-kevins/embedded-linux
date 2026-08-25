@@ -112,10 +112,10 @@ Shell phân tích
       +--> argv[2]: /etc
       |
       v
-Shell tìm executable và tạo tiến trình
+Shell tìm executable rồi tạo process
       |
       v
-Chương trình ls gọi các API/system call cần thiết
+Chương trình ls gọi các API / system call cần thiết
 ```
 
 ---
@@ -171,7 +171,7 @@ Shell
 Chương trình
    |
    v
-Linux kernel (Linux kernel)
+Linux kernel
 ```
 
 ---
@@ -407,7 +407,7 @@ Shell
   |
   | environment
   v
-Child tiến trình
+child process
 ```
 
 ### 7.3 `export`
@@ -417,7 +417,7 @@ Child tiến trình
 Điểm rất quan trọng:
 
 ```text
-parent -> child environment inheritance
+parent process -> child process: environment inheritance
 ```
 
 không có nghĩa:
@@ -509,7 +509,7 @@ Chuyển hướng được xử lý theo thứ tự, vì việc sao chép một 
 `pipe` là một kênh byte do Linux kernel quản lý.
 
 ```text
-Bên ghi
+writer
    |
    v
 +---------+
@@ -517,7 +517,7 @@ Bên ghi
 +---------+
    |
    v
-Bên đọc
+reader
 ```
 
 ### 9.2 Pipeline của Shell
@@ -531,8 +531,8 @@ A | B
 `Shell` tạo `pipe`, nối:
 
 ```text
-stdout của A -> đầu ghi pipe
-stdin của B  -> đầu đọc pipe
+stdout của A -> pipe write end
+stdin của B  -> pipe read end
 ```
 
 Sau đó A và B có thể chạy đồng thời.
@@ -688,7 +688,7 @@ stdin -> xử lý -> stdout
 `grep` tìm mẫu trong **nội dung dữ liệu đầu vào**.
 
 ```text
-luồng văn bản
+text stream
    |
    v
 grep pattern
@@ -867,10 +867,10 @@ Shell
         +--> pipeline
         |
         v
-Tiến trình / builtin
+process / shell builtin
         |
         v
-Linux kernel (Linux kernel)
+Linux kernel
 ```
 
 Các ý cần nhớ:

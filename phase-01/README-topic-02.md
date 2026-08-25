@@ -269,7 +269,7 @@ Khi theo liên kết, Linux kernel tiếp tục phân giải pathname mục tiê
 Ứng dụng
    |
    v
-System call / VFS
+system call / VFS
    |
    +--> ext4
    +--> tmpfs
@@ -334,7 +334,7 @@ Hai filesystem khác nhau có thể có inode cùng số.
 pathname
    |
    v
-directory lookup
+pathname component lookup
    |
    v
 dentry
@@ -343,7 +343,7 @@ dentry
 inode
    |
    +--> metadata
-   +--> data ánh xạ
+   +--> data mapping
 ```
 
 ---
@@ -401,7 +401,7 @@ Extension không quyết định loại tệp ở mức inode.
 `symbolic link` chứa pathname mục tiêu.
 
 ```text
-link -> target path
+symlink -> target pathname
 ```
 
 Mục tiêu có thể: tồn tại, không tồn tại, là đường dẫn tương đối và là đường dẫn tuyệt đối.
@@ -511,7 +511,7 @@ Có `x` không đảm bảo tệp thực sự chạy được; định dạng ex
 ```text
 r -> đọc danh sách tên trong thư mục
 w -> sửa các directory entry của thư mục
-x -> `search`/`traverse` qua thư mục
+x -> search / traverse qua thư mục
 ```
 
 `x` trên directory rất quan trọng cho pathname lookup.
@@ -727,7 +727,7 @@ Link count phản ánh số hard link theo ngữ nghĩa của filesystem.
 ### 13.4 Tệp đang mở vẫn có thể tồn tại sau khi mất tên
 
 ```text
-tiến trình fd ---> open file/đối tượng
+process fd ---> open file description / kernel object
                   ^
                   |
 pathname đã unlink
@@ -781,11 +781,11 @@ Kiểm tra theo lớp:
 ```text
 node đúng major/minor?
    |
-driver có bind?
+driver đã bind?
    |
 hardware có được phát hiện?
    |
-clock/pin/power/device-tree đúng?
+clock / pinctrl / power / Device Tree đúng?
 ```
 
 Node chỉ là một phần của toàn bộ đường đi.
@@ -858,7 +858,7 @@ dentry
 inode
    |
    +--> metadata
-   +--> data blocks / backing đối tượng
+   +--> data blocks / backing object
 ```
 
 Các ý cần nhớ:

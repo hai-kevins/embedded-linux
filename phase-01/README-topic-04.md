@@ -61,12 +61,12 @@ Executable
 Tiến trình
     |
     +--> PID
-    +--> không gian địa chỉ ảo (`virtual address space`)
-    +--> trạng thái thanh ghi CPU
+    +--> virtual address space
+    +--> CPU register state
     +--> file descriptor
-    +--> thông tin định danh/quyền (`credentials`)
-    +--> thư mục làm việc hiện tại
-    +--> trạng thái signal
+    +--> credentials
+    +--> current working directory (cwd)
+    +--> signal state
 ```
 
 Một executable có thể tạo ra nhiều tiến trình độc lập.
@@ -137,7 +137,7 @@ PID 1
  |     +--> app A
  |     +--> app B
  |
- +--> tiến trình con của service manager
+ +--> child process của service manager
 ```
 
 Quan hệ này có thể thay đổi khi tiến trình cha kết thúc và tiến trình con được reparent.
@@ -198,7 +198,7 @@ swap/reclaim trạng thái
 
 ### 3.5 Bảng file descriptor
 
-Mỗi tiến trình có bảng bộ mô tả:
+Mỗi tiến trình có bảng file descriptor:
 
 ```text
 fd 0 -> stdin
@@ -207,7 +207,7 @@ fd 2 -> stderr
 fd 3 -> file/socket/device/pipe...
 ```
 
-Sau `fork()`, tiến trình con nhận các bộ mô tả theo quy tắc kế thừa.
+Sau `fork()`, tiến trình con nhận các file descriptor theo quy tắc kế thừa.
 
 ### 3.6 Ngữ cảnh filesystem
 
@@ -278,15 +278,15 @@ Zombie không tiếp tục chạy instruction bình thường.
 ### 4.7 `context switch`
 
 ```text
-Task A running
+Task A RUNNING
       |
- lưu CPU context
+ save CPU context
       |
-Scheduler chọn B
+scheduler chọn Task B
       |
- khôi phục context B
+ restore Task B context
       |
-Task B running
+Task B RUNNING
 ```
 
 Đây là nền tảng để hiểu concurrency sau này.
@@ -300,7 +300,7 @@ Task B running
 ### 5.1 Mô hình
 
 ```text
-Parent tiến trình
+Parent process
      |
    fork()
     /   \
@@ -334,17 +334,18 @@ Linux tránh sao chép ngay toàn bộ page memory.
 Mô hình:
 
 ```text
-trước khi ghi:
-Parent page ----+
-                +--> cùng physical page
-Child page -----+
+Trước khi ghi (Copy-on-Write):
+Parent mapping ----+
+                    +--> cùng physical page
+Child mapping -----+
 
-khi một bên ghi:
+Khi một bên ghi:
         |
         v
-copy page
+kernel copy physical page
         |
-Parent và Child có bản riêng
+        v
+Parent và Child trỏ tới các physical page riêng
 ```
 
 Đây là `Copy-on-Write` (`COW`).
@@ -397,7 +398,7 @@ PID vẫn là định danh tiến trình; program image đã đổi.
 Nếu `execve()` thành công:
 
 ```text
-old code/data/stack image
+old process image (code/data/stack)
         X
         |
         v
@@ -479,17 +480,17 @@ Linux kernel giữ thông tin kết thúc để parent có thể thu thập bằ
 Child đã kết thúc, nhưng parent chưa thu trạng thái.
 
 ```text
-Child running
+Child RUNNING
     |
   exit
     |
     v
-Zombie
+ZOMBIE
     |
- parent wait()
+ parent wait()/waitpid()
     |
     v
-Reaped
+REAPED
 ```
 
 ### 8.2 `wait()` / `waitpid()`
@@ -622,7 +623,7 @@ Tách: virtual size, resident memory, ánh xạ dùng chung và ánh xạ dựa 
 
 ### 11.6 `file offset` thay đổi lạ giữa parent/child
 
-Sau `fork()`, bộ mô tả kế thừa có thể chia sẻ cùng `open file description` và vị trí đọc/ghi hiện tại (file offset).
+Sau `fork()`, file descriptor kế thừa có thể chia sẻ cùng `open file description` và vị trí đọc/ghi hiện tại (file offset).
 
 ---
 
@@ -675,7 +676,7 @@ stateDiagram-v2
 Mô hình `fork` + `exec`:
 
 ```text
-Parent tiến trình
+Parent process
      |
    fork()
     /   \
@@ -696,7 +697,7 @@ Các ý cần nhớ:
 5. Running khác runnable.
 6. Sleeping thường không tiêu thụ CPU bằng busy-loop.
 7. `fork()` tạo child với không gian địa chỉ riêng và COW.
-8. Bộ mô tả kế thừa qua `fork()` có thể cùng tham chiếu `open file description`.
+8. File descriptor kế thừa qua `fork()` có thể cùng tham chiếu `open file description`.
 9. `execve()` thay program image, không tạo PID mới.
 10. `exit()` và `_exit()` khác nhau ở quá trình dọn dẹp ở userspace.
 11. Zombie là child đã kết thúc chờ parent reap.

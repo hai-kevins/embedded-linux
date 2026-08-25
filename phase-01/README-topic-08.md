@@ -52,7 +52,7 @@ Mỗi tiến trình bình thường có không gian địa chỉ riêng:
 ```text
 +----------------------+       +----------------------+
 | Tiến trình A         |       | Tiến trình B         |
-| không gian địa chỉ A |       | không gian địa chỉ B |
+| virtual address space A |       | virtual address space B |
 +----------------------+       +----------------------+
 ```
 
@@ -82,10 +82,10 @@ IPC
  |      byte stream, có tên trong filesystem
  |
  +--> POSIX Message Queue
- |      thông điệp riêng biệt
+ |      discrete messages
  |
  +--> POSIX Shared Memory
-        nhiều tiến trình ánh xạ cùng vùng nhớ
+        nhiều tiến trình map cùng shared region
 ```
 
 ---
@@ -169,7 +169,7 @@ nên hai tiến trình được khởi động độc lập có thể cùng tham
 Portable pipe nên được xem là:
 
 ```text
-một chiều
+unidirectional
 writer ------> reader
 ```
 
@@ -248,10 +248,9 @@ Writer
 write(fd[1])
   |
   v
-+------------------+
-|  bộ đệm Pipe     |
-|  trong Linux kernel    |
-+------------------+
++------------------------+
+| kernel pipe buffer     |
++------------------------+
   |
 read(fd[0])
   |
@@ -393,7 +392,7 @@ Ví dụ:
 
 ```text
 Parent write fd ----+
-                    +--> cùng đầu ghi Pipe
+                    +--> cùng pipe write end
 Child write fd -----+
 ```
 
@@ -416,9 +415,10 @@ Nếu mọi đầu đọc đã đóng mà `writer` vẫn ghi:
 ```text
 write()
   |
-  +--> phát sinh SIGPIPE
+  +--> kernel generates SIGPIPE
   |
-  +--> nếu không bị terminate bởi signal thì lỗi EPIPE
+  +--> nếu SIGPIPE không terminate process
+          -> write() fails với EPIPE
 ```
 
 Đây là liên hệ trực tiếp với Topic 5.
@@ -432,7 +432,7 @@ Producer
    |
    v
 +--------------------+
-| Pipe buffer hữu hạn|
+| pipe buffer hữu hạn|
 +--------------------+
    |
    v
@@ -442,9 +442,9 @@ Consumer
 Nếu producer nhanh hơn consumer:
 
 ```text
-buffer đầy
+buffer full
   |
-writer blocking chờ chỗ trống
+blocking writer chờ buffer space
 ```
 
 hoặc nếu `nonblocking`:
@@ -534,7 +534,7 @@ open("/run/myapp.fifo")
    |
    +--------------------+
                         v
-                    FIFO name
+                    FIFO pathname
                         ^
    +--------------------+
    |
@@ -577,10 +577,10 @@ không seek
 Ở chế độ blocking thông thường:
 
 ```text
-Reader mở đầu đọc
+Reader open read end
   -> có thể chờ writer
 
-Writer mở đầu ghi
+Writer open write end
   -> có thể chờ reader
 ```
 
@@ -801,16 +801,16 @@ Do đó việc dọn tên/đối tượng là trách nhiệm thiết kế, khôn
 ```text
 Tiến trình A                     Tiến trình B
 +--------------+                +--------------+
-| ánh xạ A    |                | ánh xạ B    |
+| mapping A    |                | mapping B    |
 +------+-------+                +------+-------+
        |                               |
-       +------------+------------------+
-                    |
-                    v
-          +--------------------+
-          | Shared Memory      |
-          | cùng vùng backing  |
-          +--------------------+
+       +---------------+---------------+
+                       |
+                       v
+             +--------------------+
+             | Shared Memory      |
+             | backing object     |
+             +--------------------+
 ```
 
 ---
@@ -860,12 +860,12 @@ trước khi ánh xạ vùng cần dùng.
 Sau khi `mmap()` thành công:
 
 ```text
-fd của SHM
+SHM fd
    |
 close(fd)
    |
    X
-ánh xạ vẫn tồn tại
+mapping vẫn tồn tại
 ```
 
 Ánh xạ có vòng đời riêng và được bỏ bằng `munmap()` hoặc khi không gian địa chỉ tiến trình kết thúc.
@@ -1051,11 +1051,11 @@ Vì phía bên kia hoặc bộ đệm chưa sẵn sàng.
 Ví dụ:
 
 ```text
-Pipe rỗng        -> read chờ
-Pipe đầy         -> write chờ
-FIFO `open()`     -> chờ peer
-MQ rỗng          -> receive chờ
-MQ đầy           -> send chờ
+Pipe empty       -> read() blocks
+Pipe full        -> write() blocks
+FIFO open()      -> có thể block chờ peer
+MQ empty         -> mq_receive() blocks
+MQ full          -> mq_send() blocks
 ```
 
 ---
@@ -1093,8 +1093,10 @@ hoặc
 Bộ đệm trong Linux kernel hữu hạn.
 
 ```text
-đầy
-  -> blocking writer ngủ
+buffer full
+    |
+    v
+blocking writer sleeps / waits
 ```
 
 Đây có thể là hành vi tốt vì producer không chiếm RAM vô hạn.
@@ -1163,7 +1165,7 @@ Phù hợp khi: tiến trình có quan hệ, luồng dữ liệu một chiều, 
 Ví dụ khái niệm:
 
 ```text
-parent -> child luồng xử lý
+parent process -> child worker process
 ```
 
 ---
@@ -1217,23 +1219,23 @@ Shared Memory có thể nhanh về copy nhưng khó đúng hơn Message Queue r�
 ### 11.1 Kiểm tra theo tầng
 
 ```text
-Hai bên có đang nói tới cùng IPC đối tượng không?
+Hai bên có đang tham chiếu cùng IPC object không?
         |
-Tên/path có đúng không?
+name / pathname có đúng không?
         |
-Permission có đúng không?
+permissions có đúng không?
         |
-Peer có tồn tại và giữ endpoint không?
+peer có tồn tại và giữ endpoint không?
         |
-`blocking` hay `nonblocking`?
+blocking hay nonblocking?
         |
-Buffer/hàng đợi đang rỗng hay đầy?
+buffer / queue đang empty hay full?
         |
-Framing/message ngữ nghĩa có đúng không?
+framing / message semantics có đúng không?
         |
-Lifetime/unlink có đúng không?
+lifetime / unlink semantics có đúng không?
         |
-Shared memory có synchronization không?
+Shared Memory có synchronization đúng không?
 ```
 
 ---
@@ -1364,7 +1366,7 @@ Supervisor
     |
    Pipe
     |
-  Luồng xử lý
+  Thread xử lý
 ```
 
 Có thể dùng cho:
@@ -1396,7 +1398,7 @@ Control Service
 +----------------+
       |
       v
-Luồng xử lý
+Thread xử lý
 ```
 
 Message boundary giúp command không phải tự chia từ `byte stream`.
@@ -1408,7 +1410,7 @@ Message boundary giúp command không phải tự chia từ `byte stream`.
 Ví dụ:
 
 ```text
-Camera Tiến trình
+Camera process
     |
  ghi frame
     v
@@ -1416,7 +1418,7 @@ Shared Memory
     |
  đọc frame
     v
-AI Tiến trình
+AI process
 ```
 
 Payload lớn nằm trong SHM; control plane có thể dùng semaphore hoặc cơ chế đồng bộ khác.
@@ -1443,7 +1445,7 @@ POSIX MQ name/đối tượng
 POSIX SHM name/đối tượng
 ```
 
-khác với unnamed pipe vốn gắn mạnh với bộ mô tả tham chiếu.
+khác với unnamed pipe vốn gắn mạnh với file descriptor tham chiếu.
 
 Thiết kế supervisor và quá trình khởi động cần biết cơ chế IPC nào phải được dọn dẹp khi tiến trình khởi động lại.
 
@@ -1461,7 +1463,7 @@ Thiết kế supervisor và quá trình khởi động cần biết cơ chế IP
        +-------------+-------------+
        |             |             |
        v             v             v
-   Byte stream      Message      Vùng nhớ chung
+   Byte stream      Message      Shared Memory
        |             |             |
    +---+---+         |             |
    |       |         |             |
@@ -1485,15 +1487,15 @@ POSIX MQ:
 ### 13.3 Shared Memory
 
 ```text
-Tiến trình A ánh xạ ----+
+Process A mapping ----+
                       |
                       v
-                  SHM đối tượng
+                  SHM object
                       ^
                       |
-Tiến trình B ánh xạ ----+
+Process B mapping ----+
 
-+ synchronization riêng
+Synchronization phải được thiết kế riêng.
 ```
 
 ---
@@ -1565,7 +1567,7 @@ Nguồn chuẩn cho ngữ nghĩa di động của IPC và memory ánh xạ.
 - Unix & Linux Stack Exchange: https://unix.stackexchange.com/
 - Stack Overflow: https://stackoverflow.com/
 
-Nguồn cộng đồng hữu ích để tìm lỗi rò bộ mô tả, FIFO open bị chặn, MQ priority hoặc raw pointer trong SHM, nhưng ngữ nghĩa chuẩn phải đối chiếu lại với POSIX/Linux man-pages.
+Nguồn cộng đồng hữu ích để tìm lỗi rò file descriptor, FIFO open bị chặn, MQ priority hoặc raw pointer trong SHM, nhưng ngữ nghĩa chuẩn phải đối chiếu lại với POSIX/Linux man-pages.
 
 ---
 

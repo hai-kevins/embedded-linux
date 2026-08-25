@@ -49,7 +49,7 @@ Tiến trình chỉ có một luồng:
 Tiến trình
     |
     v
- Luồng A
+ Thread A
 ```
 
 Tiến trình đa luồng:
@@ -60,7 +60,7 @@ Tiến trình đa luồng:
           +----------+----------+
           |          |          |
           v          v          v
-       Luồng A    Luồng B    Luồng C
+       Thread A    Thread B    Thread C
 ```
 
 Các luồng cùng thuộc một tiến trình nhưng `scheduler` của Linux kernel có thể cho chúng chạy độc lập.
@@ -84,9 +84,9 @@ các công việc sau chưa thể chạy
 Với nhiều luồng:
 
 ```text
-Luồng đọc thiết bị  ---> đang chờ I/O
-Luồng xử lý         ---> vẫn có thể chạy
-Luồng mạng          ---> vẫn có thể chạy
+Thread đọc thiết bị  ---> đang chờ I/O
+Thread xử lý         ---> vẫn có thể chạy
+Thread mạng          ---> vẫn có thể chạy
 ```
 
 Đây là một lý do phổ biến để dùng đa luồng trong chương trình Linux.
@@ -118,22 +118,20 @@ Nếu tạo một **tiến trình khác**, hai tiến trình bình thường có
 Nhiều luồng cùng tiến trình nhìn thấy cùng phần lớn bộ nhớ:
 
 ```text
-+------------------------------------------------+
-|                  TIẾN TRÌNH                    |
-|                                                |
-|  Dùng chung:                                   |
-|    mã chương trình                             |
-|    dữ liệu toàn cục                            |
-|    heap                                        |
-|    vùng mmap                                   |
-|    bảng file descriptor                        |
-|                                                |
-|  +----------------+   +----------------+       |
-|  | Luồng A        |   | Luồng B        |       |
-|  | ngăn xếp A     |   | ngăn xếp B     |       |
-|  | thanh ghi A    |   | thanh ghi B    |       |
-|  +----------------+   +----------------+       |
-+------------------------------------------------+
++------------------------------------------------------+
+|                      TIẾN TRÌNH                      |
+|                                                      |
+|  Shared resources:                                   |
+|    code / global data / heap / mmap regions          |
+|    file descriptor table / cwd / process state       |
+|                                                      |
+|  +----------------------+  +----------------------+  |
+|  | Thread A             |  | Thread B             |  |
+|  | stack A              |  | stack B              |  |
+|  | CPU registers A      |  | CPU registers B      |  |
+|  | signal mask A        |  | signal mask B        |  |
+|  +----------------------+  +----------------------+  |
++------------------------------------------------------+
 ```
 
 Đây là khác biệt rất quan trọng với nhiều tiến trình.
@@ -145,10 +143,10 @@ Nhiều luồng cùng tiến trình nhìn thấy cùng phần lớn bộ nhớ:
 Lợi thế:
 
 ```text
-Luồng A tạo dữ liệu trên heap
+Thread A tạo dữ liệu trên heap
              |
              v
-Luồng B có thể truy cập trực tiếp
+Thread B có thể truy cập trực tiếp
 ```
 
 Không cần mặc định phải sao chép qua pipe/socket như giữa hai tiến trình tách biệt.
@@ -156,10 +154,10 @@ Không cần mặc định phải sao chép qua pipe/socket như giữa hai ti�
 Rủi ro:
 
 ```text
-Luồng A ghi sai bộ nhớ
+Thread A ghi sai bộ nhớ
         |
         v
-có thể phá dữ liệu mà Luồng B/C đang dùng
+có thể phá dữ liệu mà Thread B/C đang dùng
         |
         v
 cả tiến trình có thể hỏng
@@ -176,7 +174,7 @@ Các luồng cùng chung miền lỗi của tiến trình.
 | Không gian địa chỉ | Thường tách biệt | Dùng chung |
 | Dữ liệu heap/toàn cục | Không dùng chung trực tiếp mặc định | Dùng chung |
 | Ngăn xếp | Riêng | Riêng cho từng luồng |
-| File bộ mô tả | Tùy quan hệ/kế thừa | Cùng bảng của tiến trình |
+| File descriptor | Tùy quan hệ/kế thừa | Cùng bảng của tiến trình |
 | Cách trao đổi dữ liệu | Thường cần IPC | Có thể truy cập bộ nhớ chung |
 | Cách ly lỗi bộ nhớ | Tốt hơn | Thấp hơn |
 
@@ -214,16 +212,16 @@ Trên hệ GNU/Linux hiện đại, `glibc` triển khai `Pthreads` bằng `NPTL
 Ứng dụng
    |
    v
-Pthreads API
+POSIX Threads (pthreads) API
    |
    v
 glibc / NPTL
    |
    v
-cơ chế luồng của Linux kernel
+Linux kernel task / scheduler
 ```
 
-`NPTL` là **Native POSIX Luồng Library**.
+`NPTL` là **Native POSIX Thread Library**.
 
 ---
 
@@ -232,16 +230,18 @@ cơ chế luồng của Linux kernel
 `NPTL` sử dụng mô hình 1:1:
 
 ```text
-Luồng POSIX A  ---->  tác vụ có thể lập lịch A trong nhân
-Luồng POSIX B  ---->  tác vụ có thể lập lịch B trong nhân
-Luồng POSIX C  ---->  tác vụ có thể lập lịch C trong nhân
+POSIX Thread A  ---->  Linux task A (task_struct)
+POSIX Thread B  ---->  Linux task B (task_struct)
+POSIX Thread C  ---->  Linux task C (task_struct)
+
+Mỗi Linux task là một schedulable entity của scheduler.
 ```
 
 Do đó trên máy nhiều lõi:
 
 ```text
-CPU0 -> Luồng A
-CPU1 -> Luồng B
+CPU0 -> Thread A
+CPU1 -> Thread B
 ```
 
 hai luồng cùng tiến trình có thể thực sự chạy cùng lúc.
@@ -383,13 +383,13 @@ nhiều thông tin định danh/tài nguyên tiến trình
 Ví dụ:
 
 ```text
-Luồng A mở fd 5
+Thread A mở fd 5
       |
       v
 bảng fd của tiến trình
       |
       v
-Luồng B cũng có thể dùng fd 5
+Thread B cũng có thể dùng fd 5
 ```
 
 ---
@@ -403,19 +403,19 @@ Mỗi luồng có những thành phần riêng như: ngăn xếp, thanh ghi CPU,
 ### 5.3 Ngăn xếp là riêng về mục đích sử dụng, nhưng vẫn nằm trong cùng không gian địa chỉ
 
 ```text
-Không gian địa chỉ tiến trình
+Process virtual address space
 
-+---------------------------+
-| Ngăn xếp Luồng A          |
-+---------------------------+
-| Ngăn xếp Luồng B          |
-+---------------------------+
-| Heap dùng chung           |
-+---------------------------+
-| Dữ liệu toàn cục          |
-+---------------------------+
-| Mã chương trình           |
-+---------------------------+
++-------------------------------+
+| Thread A stack                |
++-------------------------------+
+| Thread B stack                |
++-------------------------------+
+| Shared heap                   |
++-------------------------------+
+| Shared global/static data     |
++-------------------------------+
+| Code / text                   |
++-------------------------------+
 ```
 
 Nếu Luồng A đưa cho Luồng B một con trỏ trỏ vào biến trên ngăn xếp A, Luồng B về mặt địa chỉ vẫn có thể truy cập nó.
@@ -429,8 +429,8 @@ Vấn đề là **vòng đời**: khi biến hoặc luồng A kết thúc, đị
 Nếu hai luồng cùng gọi API:
 
 ```text
-Luồng A -> errno = EINTR
-Luồng B -> errno = EAGAIN
+Thread A -> errno = EINTR
+Thread B -> errno = EAGAIN
 ```
 
 mỗi luồng phải đọc lỗi của chính lời gọi mà nó vừa thực hiện.
@@ -463,11 +463,11 @@ Sau khi thành công:
 
 ```text
 Trước:
-  Tiến trình -> Luồng A
+  Tiến trình -> Thread A
 
 Sau:
-  Tiến trình -> Luồng A
-             -> Luồng B
+  Tiến trình -> Thread A
+             -> Thread B
 ```
 
 Không có tiến trình mới và không có không gian địa chỉ mới.
@@ -484,10 +484,10 @@ Cách hình dung:
 pthread_create()
       |
       v
-Luồng mới được tạo
+new thread
       |
       v
-hàm bắt đầu(đối số)
+start_routine(arg)
 ```
 
 Sau đó luồng mới là một dòng thực thi độc lập về lập lịch.
@@ -501,13 +501,13 @@ Sau đó luồng mới là một dòng thực thi độc lập về lập lịch
 Nếu nó trỏ vào một đối tượng:
 
 ```text
-Luồng tạo --------+
-                  |
-                  v
-              Đối tượng
-                  ^
-                  |
-Luồng mới --------+
+creator thread --------+
+                        |
+                        v
+                  shared object
+                        ^
+                        |
+new thread ------------+
 ```
 
 hai luồng có thể đang nhìn cùng một vùng nhớ.
@@ -605,11 +605,11 @@ Giá trị này có thể được một luồng khác thu nhận bằng `pthrea
 ### 7.3 `pthread_exit()` chỉ kết thúc luồng gọi nó
 
 ```text
-Luồng A -> pthread_exit()
+Thread A -> pthread_exit()
             X
 
-Luồng B -> tiếp tục
-Luồng C -> tiếp tục
+Thread B -> tiếp tục
+Thread C -> tiếp tục
 ```
 
 Khác với `exit()` ở cấp tiến trình.
@@ -639,7 +639,7 @@ Do đó:
 Nếu không còn luồng nào trong tiến trình:
 
 ```text
-luồng cuối cùng kết thúc
+thread cuối cùng kết thúc
         |
         v
 tiến trình kết thúc
@@ -660,16 +660,17 @@ Luồng mới mặc định thường là joinable.
 Vòng đời:
 
 ```text
-Đang chạy
-    |
-    v
-Đã kết thúc
-nhưng còn trạng thái để join
-    |
+RUNNING
+   |
+   v
+TERMINATED (joinable)
+   |
+   | trạng thái kết thúc vẫn được giữ
+   v
 pthread_join()
-    |
-    v
-thu hồi tài nguyên vòng đời còn lại
+   |
+   v
+resources reclaimed
 ```
 
 ---
@@ -685,12 +686,12 @@ pthread_join(thread, ...)
 Nếu luồng đích chưa kết thúc:
 
 ```text
-luồng gọi join
+thread gọi join
       |
       v
 chờ
       |
-thread đích kết thúc
+target thread kết thúc
       |
       v
 join hoàn tất
@@ -725,13 +726,13 @@ Pthreads
 Luồng detached không chờ một `pthread_join()` sau khi nó kết thúc.
 
 ```text
-Đang chạy
-    |
-    v
-Kết thúc
-    |
-    v
-hệ thống tự thu hồi tài nguyên liên quan
+RUNNING
+   |
+   v
+TERMINATED (detached)
+   |
+   v
+resources are reclaimed automatically
 ```
 
 ---
@@ -780,10 +781,10 @@ Nó có thể mô tả những thuộc tính như:
 
 ```text
 trạng thái joinable/detached
-kích thước ngăn xếp
-vùng ngăn xếp
-vùng bảo vệ
-một số thuộc tính lập lịch
+kích thước stack
+stack region
+guard region
+một số scheduling attributes
 ```
 
 Sau khi luồng được tạo, đối tượng thuộc tính không phải là “đối tượng luồng”.
@@ -804,8 +805,9 @@ trạng thái theo ABI/compiler
 Nếu có nhiều luồng:
 
 ```text
-N luồng
-  -> N vùng ngăn xếp
+N threads
+   |
+   +--> N thread stacks
 ```
 
 nên số lượng luồng ảnh hưởng tài nguyên bộ nhớ.
@@ -836,9 +838,9 @@ Một vùng bảo vệ có thể đặt cạnh ngăn xếp để giúp phát hi�
 
 ```text
 +------------------------+
-| vùng ngăn xếp dùng được|
+| usable stack region    |
 +------------------------+
-| vùng bảo vệ            |
+| guard region / page    |
 +------------------------+
 ```
 
@@ -873,9 +875,9 @@ Trên một lõi CPU:
 ```text
 thời gian --->
 
-Luồng A: ███      ██
-Luồng B:    ████
-Luồng C:        ███
+Thread A: ███      ██
+Thread B:    ████
+Thread C:        ███
 ```
 
 Tại một thời điểm CPU lõi đó chỉ chạy một luồng, nhưng `scheduler` chuyển qua lại.
@@ -887,9 +889,9 @@ Tại một thời điểm CPU lõi đó chỉ chạy một luồng, nhưng `sch
 Hai hoặc nhiều luồng thực sự chạy cùng lúc trên nhiều lõi:
 
 ```text
-CPU0 -> Luồng A
-CPU1 -> Luồng B
-CPU2 -> Luồng C
+CPU0 -> Thread A
+CPU1 -> Thread B
+CPU2 -> Thread C
 ```
 
 Đa luồng tạo điều kiện cho song song, nhưng không đảm bảo song song luôn xảy ra.
@@ -901,13 +903,13 @@ CPU2 -> Luồng C
 Nếu một luồng chờ I/O:
 
 ```text
-Luồng A -> ngủ chờ socket
+Thread A -> block chờ socket I/O
 ```
 
 thì luồng khác có thể dùng CPU:
 
 ```text
-Luồng B -> xử lý dữ liệu
+Thread B -> xử lý dữ liệu
 ```
 
 Đây là đồng thời hữu ích ngay cả khi không có nhiều lõi.
@@ -941,7 +943,7 @@ Hai luồng có thể xen kẽ:
 ```text
 counter ban đầu = 10
 
-Luồng A                  Luồng B
+Thread A                  Thread B
 
 đọc 10
                          đọc 10
@@ -1066,21 +1068,21 @@ Tên luồng chỉ phục vụ quan sát và gỡ lỗi; không nên dùng nó t
 ### 13.1 Hãy tách vấn đề thành lớp
 
 ```text
-Luồng có được tạo thành công?
+Thread có được tạo thành công?
         |
 Định danh đang xem là pthread_t hay TID?
         |
-Luồng đang chạy, chờ hay đã kết thúc?
+Thread đang chạy, chờ hay đã kết thúc?
         |
 Joinable hay detached?
         |
-Dữ liệu là dùng chung hay riêng?
+Data là shared hay thread-local?
         |
-Đối tượng còn sống đủ lâu không?
+shared object còn sống đủ lâu không?
         |
-Có giả định thứ tự chạy không được bảo đảm không?
+Có giả định execution order nào không được bảo đảm?
         |
-Có `race condition` không?
+Có race condition không?
 ```
 
 ---
@@ -1137,10 +1139,10 @@ Thay đổi thời điểm thực thi (`timing`) do thêm log có thể làm l�
 +----------------------------------+
 | Ứng dụng Embedded Linux          |
 |                                  |
-| Luồng cảm biến                   |
-| Luồng xử lý                      |
-| Luồng mạng                       |
-| Luồng ghi log                    |
+| Thread cảm biến                   |
+| Thread xử lý                      |
+| Thread mạng                       |
+| Thread ghi log                    |
 +----------------------------------+
 ```
 
@@ -1153,8 +1155,8 @@ Các công việc này có thể chờ I/O độc lập nên đa luồng thườ
 Vì các luồng cùng bảng fd:
 
 ```text
-Luồng A mở UART -> fd 5
-Luồng B cũng có thể dùng fd 5
+Thread A mở UART -> fd 5
+Thread B cũng có thể dùng fd 5
 ```
 
 Nhưng điều đó không có nghĩa ứng dụng nên để mọi luồng đọc/ghi tùy ý.
@@ -1206,25 +1208,24 @@ Một sản phẩm Embedded Linux thường kết hợp cả hai.
 ### 15.1 Mô hình chính
 
 ```text
-                    TIẾN TRÌNH
-                        |
-       +----------------+----------------+
-       |                                 |
-       v                                 v
-Tài nguyên dùng chung              Các luồng
---------------------              -----------------
-không gian địa chỉ                 Luồng A
-heap                                ngăn xếp A
-global/static                       thanh ghi A
-bảng fd                             TID A
-cwd                                 pthread_t A
-                                    signal mask A
+                         TIẾN TRÌNH
+                             |
+          +------------------+------------------+
+          |                                     |
+          v                                     v
+   Shared resources                           Threads
+   ----------------                           -------
+   virtual address space                      Thread A
+   heap / global/static data                    |- stack A
+   file descriptor table                        |- CPU registers A
+   cwd                                           |- TID / pthread_t A
+                                                 `- signal mask A
 
-                                    Luồng B
-                                     ngăn xếp B
-                                     thanh ghi B
-                                     TID B
-                                     pthread_t B
+                                               Thread B
+                                                 |- stack B
+                                                 |- CPU registers B
+                                                 |- TID / pthread_t B
+                                                 `- signal mask B
 ```
 
 ---
@@ -1235,19 +1236,19 @@ cwd                                 pthread_t A
 pthread_create()
       |
       v
-luồng được tạo
+new thread
       |
- chạy / chờ / được lập lịch
+ RUNNABLE / RUNNING / BLOCKED
       |
       v
 return hoặc pthread_exit()
       |
       v
-đã kết thúc
+TERMINATED
    /           \
 joinable      detached
    |             |
-pthread_join  tự thu hồi
+pthread_join()   automatic reclaim
 ```
 
 ---

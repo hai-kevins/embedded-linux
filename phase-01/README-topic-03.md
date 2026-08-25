@@ -66,14 +66,14 @@ Một `fd` là một số nguyên không âm dùng làm chỉ mục trong bảng
 
 ```text
 Tiến trình
-+---------------------------+
-| bảng fd                  |
-| 0 -> stdin                |
-| 1 -> stdout               |
-| 2 -> stderr               |
-| 3 -> đối tượng A             |
-| 4 -> đối tượng B             |
-+---------------------------+
++--------------------------------+
+| file descriptor table          |
+| 0 -> stdin                     |
+| 1 -> stdout                    |
+| 2 -> stderr                    |
+| 3 -> kernel object A           |
+| 4 -> kernel object B           |
++--------------------------------+
 ```
 
 ### 1.3 `fd` không phải inode
@@ -166,7 +166,7 @@ tham chiếu tới đối tượng bên dưới
 pathname
    |
    v
-VFS tìm pathname
+VFS pathname lookup
    |
    v
 inode / đối tượng trong filesystem
@@ -194,11 +194,11 @@ Không phải mọi đối tượng đều có inode theo cùng cách, nhưng m�
 pathname
   |
   v
-phân giải đường dẫn
+pathname resolution
   |
 kiểm tra quyền / cờ
   |
-tạo hoặc tham chiếu trạng thái open
+tạo hoặc tham chiếu open file description
   |
   v
 fd
@@ -424,13 +424,13 @@ Ví dụ:
 send/write thành công
      |
      v
-Linux kernel buffer
+kernel buffer
      |
      v
-network/peer
+network / peer
      |
      v
-ứng dụng ở đầu bên kia
+peer application
 ```
 
 Mỗi lớp có trạng thái riêng.
@@ -489,13 +489,13 @@ Ví dụ thường không seek: pipe, `FIFO`, socket, terminal và nhiều chara
 Nó giải phóng **mục `file descriptor` của tiến trình**.
 
 ```text
-bảng fd
+file descriptor table
 
 3 -> đối tượng
 
 close(3)
 
-3 -> free slot
+3 -> free fd slot
 ```
 
 ### 7.2 Số fd có thể được dùng lại
@@ -541,15 +541,15 @@ Nếu thao tác chưa thể hoàn thành ngay, luồng thực thi có thể ng�
 ```text
 read()
   |
-chưa có dữ liệu
+chưa có data
   |
-luồng ngủ
+thread bị block / sleep
   |
-dữ liệu đến
+data đến
   |
-wakeup
+wake up
   |
-read tiếp tục
+read() tiếp tục
 ```
 
 ### 8.2 `blocking` không phải `busy loop`
@@ -619,7 +619,7 @@ Không nên đọc `errno` sau một lời gọi thành công rồi suy luận l
 
 ### 9.4 `EBADF`
 
-Thường biểu thị bộ mô tả không hợp lệ cho thao tác hiện tại.
+Thường biểu thị file descriptor không hợp lệ cho thao tác hiện tại.
 
 Hãy kiểm tra: `fd` đã bị đóng chưa, nó có thực sự được mở thành công không và access mode có phù hợp với thao tác hiện tại không.
 
@@ -660,7 +660,7 @@ pathname đúng?
   |
 filesystem/mount đúng?
   |
-quyền directory prefix?
+quyền traverse trên các parent directory?
   |
 quyền đối tượng?
   |
@@ -675,9 +675,9 @@ Hỏi đối tượng là gì:
 
 ```text
 tệp thông thường -> EOF?
-pipe -> hết writer?
-socket -> peer `half-close`/EOF?
-device -> driver ngữ nghĩa?
+pipe -> không còn writer?
+socket -> peer half-close / EOF?
+device -> semantics do driver quyết định?
 ```
 
 ### 10.3 Đọc ít hơn yêu cầu
@@ -764,7 +764,7 @@ không gian người dùng fd/API
    |
 driver
    |
-device tree / bus / pinctrl / clock
+Device Tree / bus / pinctrl / clock
    |
 hardware
 ```
@@ -802,7 +802,7 @@ Các ý cần nhớ:
 7. `O_APPEND` mạnh hơn tự ghép `lseek(end)` + `write()`.
 8. `write()` thành công không đồng nghĩa dữ liệu đã bền vững trên thiết bị.
 9. `lseek()` chỉ phù hợp với đối tượng có seek ngữ nghĩa.
-10. `close()` giải phóng bộ mô tả; số fd có thể được tái sử dụng.
+10. `close()` giải phóng file descriptor; số fd có thể được tái sử dụng.
 11. Blocking I/O cho phép luồng ngủ chờ thay vì busy-loop.
 12. `EAGAIN` trong `nonblocking` I/O thường nghĩa “chưa sẵn sàng ngay lúc này”.
 13. `errno` chỉ có ý nghĩa khi API báo thất bại theo quy ước tương ứng.

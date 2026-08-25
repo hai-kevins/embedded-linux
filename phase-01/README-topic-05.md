@@ -66,7 +66,7 @@ code đang chạy
 Linux kernel chuẩn bị signal delivery
     |
     v
-handler/default action
+signal handler / default action
     |
     v
 có thể quay lại mã đang chạy trước đó hoặc thay đổi trạng thái tiến trình
@@ -83,8 +83,8 @@ một tiến trình gọi kill()
 terminal tạo SIGINT/SIGTSTP
 tiến trình con thay đổi trạng thái -> SIGCHLD
 pipe/socket bị đóng -> SIGPIPE
-lỗi CPU/bộ nhớ (`fault`) -> SIGSEGV/SIGILL/SIGFPE...
-Linux kernel/subsystem tạo signal
+CPU/memory fault -> SIGSEGV / SIGILL / SIGFPE ...
+Linux kernel / subsystem tạo signal
 ```
 
 ### 1.3 “Bất đồng bộ” không phải lúc nào cũng có nghĩa ngẫu nhiên
@@ -105,24 +105,24 @@ Ba khái niệm nền tảng:
 
 ```text
 signal generation
-   |
-   v
-đang chờ
-   |
-   v
+      |
+      v
+   pending
+      |
+      v
 signal delivery
 ```
 
 Trong tài liệu này:
 
 ```text
-phát sinh
-   |
-   v
-đang chờ
-   |
-   v
-signal delivery/xử lý
+signal generated
+      |
+      v
+   pending
+      |
+      v
+signal delivery / handling
 ```
 
 ### 2.1 `signal generation`
@@ -191,13 +191,13 @@ Khi `signal disposition` là `ignore`, signal không làm handler chạy.
 Khi `signal delivery` xảy ra:
 
 ```text
-Linux kernel tạm chuyển `control flow`
+Linux kernel tạm chuyển control flow
       |
       v
-hàm xử lý signal
+signal handler
       |
       v
-cơ chế `sigreturn`
+sigreturn mechanism
       |
       v
 mã bị gián đoạn tiếp tục
@@ -311,7 +311,7 @@ SIGUSR1 blocked
 signal generated
     |
     v
-đang chờ
+pending
     |
 unblock
     |
@@ -459,21 +459,21 @@ Nó hữu ích để kích hoạt luồng xử lý signal từ chính ứng dụ
 Khi delivery tới một luồng:
 
 ```text
-luồng đang chạy
+thread đang chạy
     |
 Linux kernel lưu ngữ cảnh thực thi cần thiết
     |
-tạo `signal frame` và chuẩn bị ngữ cảnh user space
+tạo signal frame và chuẩn bị user-space context
     |
     v
 handler chạy
     |
 handler kết thúc
     |
-cơ chế `sigreturn`
+sigreturn mechanism
     |
     v
-luồng tiếp tục
+thread tiếp tục
 ```
 
 Ứng dụng không nên tự gọi `sigreturn()`.
@@ -507,11 +507,11 @@ Các hàm như `malloc()` hoặc `stdio` có thể đang giữ trạng thái n�
 ### 10.2 Ví dụ deadlock nội bộ
 
 ```text
-mã thực thi bình thường
+normal execution
    |
-hàm libc đang giữ mutex nội bộ
+libc function đang giữ internal mutex
    |
-signal interrupt
+signal delivery
    |
 handler gọi lại hàm cần cùng mutex
    |
@@ -526,10 +526,10 @@ Nguyên tắc tốt:
 ```text
 handler làm tối thiểu
   |
-  +--> đặt cờ nhỏ an toàn
-  +--> ghi vào cơ chế async-signal-safe phù hợp
+  +--> set một flag đơn giản, an toàn
+  +--> ghi qua API async-signal-safe phù hợp
   |
-main loop/luồng xử lý logic phức tạp
+main loop / worker thread xử lý logic phức tạp
 ```
 
 ### 10.4 `volatile sig_atomic_t`
@@ -555,14 +555,14 @@ Một handler cần bảo toàn `errno` nếu chương trình bị gián đoạn
 Ví dụ:
 
 ```text
-luồng đang read()
+thread đang read()
      |
 signal delivery
      |
 handler chạy
      |
      v
-`system call` được restart hoặc trả `EINTR` tùy API, cờ và trạng thái
+system call được restart hoặc trả EINTR tùy API, flags và trạng thái
 ```
 
 ### 11.2 `EINTR`
@@ -572,7 +572,7 @@ handler chạy
 Không nên mặc định:
 
 ```text
-EINTR -> retry vô điều kiện
+EINTR -> retry vô điều kiện (không phải lúc nào cũng đúng)
 ```
 
 Hãy xét:
@@ -673,7 +673,7 @@ SIGTERM
    v
 STOPPING
    |
-cleanup có kiểm soát
+controlled cleanup
    |
    v
 EXIT
@@ -710,23 +710,23 @@ Tuy nhiên signal name chỉ mô tả lớp sự kiện; root cause vẫn cần 
 > **Nói đơn giản:** Topic 05 cần để lại mô hình: `signal generation` → `pending`/blocked → `signal delivery` → mặc định/ignore/handler.
 
 ```text
-Sự kiện/API
+Event / API
     |
     v
-Signal phát sinh
+signal generated
     |
-    +--> bị block -> pending
+    +--> blocked -> pending
     |                 |
-    |              unblock
+    |               unblock
     |                 |
     +-----------------+
     |
     v
-Delivery
+signal delivery
     |
-    +--> mặc định action
-    +--> ignore
-    +--> handler
+    +--> default action
+    +--> ignored
+    +--> signal handler
 ```
 
 Các ý cần nhớ:

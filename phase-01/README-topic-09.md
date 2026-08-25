@@ -57,7 +57,7 @@ Mô hình đơn giản:
    |
    | socket API
    v
-Socket trong Linux kernel
+socket object trong Linux kernel
    |
    +--> TCP
    |
@@ -71,13 +71,13 @@ Với TCP/UDP qua IP:
 ```text
 Ứng dụng
    |
-Socket API
+socket API
    |
 TCP / UDP
    |
 IP
    |
-route / giao diện
+routing / network interface
    |
 NIC / mạng
 ```
@@ -93,11 +93,11 @@ Hai phía:
 ```text
 Ứng dụng A
    |
-Socket A
+socket A
    |
    +========== giao tiếp ==========+
                                 |
-                             Socket B
+                             socket B
                                 |
                            Ứng dụng B
 ```
@@ -259,13 +259,13 @@ Cách hình dung:
 fd
  |
  v
-open file description / trạng thái tệp phía kernel
+open file description
  |
  v
-đối tượng socket
+kernel socket object
  |
  v
-TCP/UDP/Unix trạng thái giao thức
+TCP / UDP / Unix Domain Socket state
 ```
 
 Với TCP, trạng thái có thể gồm: `endpoint` cục bộ, `endpoint` từ xa, bộ đệm gửi, bộ đệm nhận, TCP trạng thái và trạng thái lỗi.
@@ -297,7 +297,7 @@ Các API riêng của socket thêm khả năng như flag, địa chỉ nguồn/�
 Không nên suy ra:
 
 ```text
-có fd -> là tệp thông thường
+có fd  -/->  regular file
 ```
 
 Internet socket không lưu nội dung bền vững như tệp và cũng không có file offset để `seek` như tệp thông thường.
@@ -318,7 +318,7 @@ có thể có:
 
 ```text
 fd 7 ----+
-         +--> cùng underlying socket
+         +--> cùng underlying socket object
 fd 10 ---+
 ```
 
@@ -405,7 +405,7 @@ sockaddr_in6
   +--> sin6_port
   +--> sin6_addr
   +--> sin6_scope_id
-  +--> trường IPv6 khác
+  +--> các IPv6-specific fields khác
 ```
 
 `scope_id` đặc biệt quan trọng với các địa chỉ có phạm vi như link-cục bộ.
@@ -503,7 +503,7 @@ TCP/UDP cổng là 16 bit.
 Cách hình dung:
 
 ```text
-số cổng ở host byte order
+port number ở host byte order
    |
  htons()
    |
@@ -529,18 +529,18 @@ Mỗi field/API phải được đọc đúng hợp đồng biểu diễn của 
 inet_pton()
    |
    v
-binary địa chỉ IPv4
+binary IPv4 address
 ```
 
 Ngược lại:
 
 ```text
-địa chỉ nhị phân
+binary network address
    |
 inet_ntop()
    |
    v
-chuỗi để con người đọc
+human-readable IP string
 ```
 
 ---
@@ -566,13 +566,14 @@ không đồng nghĩa một IP duy nhất.
 Hiểu đơn giản:
 
 ```text
-tên máy + tên dịch vụ hoặc cổng + yêu cầu về `address family`/kiểu socket
+hostname + service/port + hints
+(address family / socket type / protocol)
              |
              v
         getaddrinfo()
              |
              v
-    danh sách địa chỉ phù hợp
+      candidate addresses
 ```
 
 ---
@@ -602,7 +603,7 @@ cho phép bộ phân giải trả về nhiều `address family` phù hợp.
 ### 6.5 Phân giải địa chỉ phía `client`
 
 ```text
-tên máy
+hostname
   +
 service
   |
@@ -610,12 +611,12 @@ service
 getaddrinfo()
   |
   v
-địa chỉ ứng viên A
-địa chỉ ứng viên B
-địa chỉ ứng viên C
+candidate address A
+candidate address B
+candidate address C
   |
   v
-thử socket/connect theo chính sách ứng dụng
+thử socket()/connect() theo application policy
 ```
 
 ---
@@ -750,12 +751,12 @@ Nó khác `AF_UNIX`, dù đều dùng cho giao tiếp cục bộ.
 socket()
    |
    v
-socket chưa bind cụ thể
+unbound socket
    |
-bind(địa chỉ cục bộ)
+bind(local address)
    |
    v
-socket có endpoint cục bộ
+socket có local endpoint
 ```
 
 ---
@@ -925,14 +926,14 @@ fd mới là **socket đã kết nối** cho một đầu bên kia cụ thể.
 ### 10.5 socket lắng nghe và socket đã kết nối phải tách nhau trong đầu
 
 ```text
-                 Listening fd
-                    :8080
-                      |
-        +-------------+-------------+
-        |             |             |
-        v             v             v
- Connected A     Connected B     Connected C
- client A         client B        client C
+                  listening socket
+                      :8080
+                        |
+          +-------------+-------------+
+          |             |             |
+          v             v             v
+ connected fd A   connected fd B   connected fd C
+    client A         client B         client C
 ```
 
 Listener tiếp tục dùng cho `accept()` các kết nối sau.
@@ -988,10 +989,10 @@ getaddrinfo()
       v
 socket()
       |
-connect(server địa chỉ)
+connect(server address)
       |
       v
-socket đã kết nối
+connected socket
 ```
 
 ---
@@ -1211,13 +1212,13 @@ giao thức grammar
 Receiver phải có `state machine`:
 
 ```text
-đọc đủ header
+read complete header
     |
-parse length
+parse length field
     |
-đọc đủ payload
+read complete payload
     |
-chuyển sang frame tiếp theo
+advance to next frame
 ```
 
 ---
@@ -1244,11 +1245,13 @@ Mô hình đơn giản:
 send()
    |
    v
-bộ đệm gửi / TCP cục bộ
+local TCP send buffer
    |
-mạng
+   v
+network
    |
-bộ đệm nhận / TCP từ xa
+   v
+remote TCP receive buffer
    |
 recv()
    |
@@ -1315,10 +1318,10 @@ Không phải:
 Nếu ứng dụng gửi nhanh hơn mạng/đầu bên kia đọc:
 
 ```text
-bộ đệm gửi dần đầy
-   |
-   v
-send blocking phải chờ
+TCP send buffer dần đầy
+        |
+        v
+blocking send() phải chờ buffer space
 ```
 
 hoặc nonblocking sẽ báo chưa sẵn sàng.
@@ -1379,15 +1382,15 @@ Một phía có thể báo:
 Ví dụ:
 
 ```text
-Client gửi yêu cầu
+Client gửi request
 Client shutdown(SHUT_WR)
         |
         v
-Server đọc yêu cầu cho tới EOF
-Server vẫn gửi phản hồi
+Server đọc request tới EOF
+Server vẫn gửi response
         |
         v
-Client vẫn có thể recv() phản hồi
+Client vẫn có thể recv() response
 ```
 
 ---
@@ -1557,7 +1560,7 @@ Không nên hiểu UDP là:
 ```text
 socket(SOCK_DGRAM)
       |
-bind(cổng cục bộ)
+bind(local port)
       |
       v
 recvfrom()/sendto()
@@ -1586,9 +1589,9 @@ Không có fd đã kết nối mới cho mỗi `client` như TCP `accept()`.
 Mỗi lần gửi có thể chỉ rõ destination:
 
 ```text
-Datagram 1 -> Đầu bên kia A
-Datagram 2 -> Đầu bên kia B
-Datagram 3 -> Đầu bên kia C
+Datagram 1 -> peer A
+Datagram 2 -> peer B
+Datagram 3 -> peer C
 ```
 
 ---
@@ -1659,12 +1662,12 @@ sendto()
 Mô hình tư duy:
 
 ```text
-socket đã biết đầu bên kia
-        |
-      send()
-        |
-        v
-Linux kernel nhận một phần/toàn bộ số byte được yêu cầu
+connected socket
+      |
+    send()
+      |
+      v
+kernel accepts some/all requested bytes
 ```
 
 Giá trị trả về cho biết số byte mà lời gọi đã chấp nhận xử lý. Với socket kiểu luồng, số byte này có thể nhỏ hơn số byte ứng dụng yêu cầu gửi.
@@ -1676,9 +1679,9 @@ Giá trị trả về cho biết số byte mà lời gọi đã chấp nhận x�
 `sendto()` thêm một địa chỉ đích:
 
 ```text
-dữ liệu
+data
   +
-địa chỉ đích
+destination address
   |
   v
 sendto()
@@ -1708,13 +1711,13 @@ recvfrom()
 Với TCP, `recv()` lấy các byte từ luồng nhận:
 
 ```text
-byte stream nhận từ TCP
-       |
-       v
-    recv()
-       |
-       v
-một số byte đang sẵn có
+TCP byte stream
+      |
+      v
+   recv()
+      |
+      v
+returns currently available bytes
 ```
 
 Không được giả định rằng một lần `recv()` sẽ trả đúng một thông điệp của ứng dụng.
@@ -1730,7 +1733,7 @@ Datagram
    |
    +--> payload
    |
-   +--> địa chỉ nguồn
+   +--> source address
 ```
 
 `recvfrom()` cho phép ứng dụng nhận cả hai. Đây là cơ sở để một `server` UDP biết phải gửi phản hồi về địa chỉ nào.
@@ -1752,16 +1755,15 @@ Linux `send(2)` phân biệt rõ việc dữ liệu được socket cục bộ c
 Mô hình:
 
 ```text
-send() thành công
+send() succeeds
       |
       v
-socket cục bộ đã nhận dữ liệu từ ứng dụng
+local kernel/socket buffer accepted the data
       |
-      X
-không đồng nghĩa
+      X   does NOT imply
       |
       v
-ứng dụng đầu bên kia đã xử lý thành công
+peer application processed the data
 ```
 
 Nếu giao thức ứng dụng cần xác nhận nghiệp vụ, nó phải tự định nghĩa thông điệp phản hồi/xác nhận phù hợp.
@@ -1777,11 +1779,11 @@ Nếu giao thức ứng dụng cần xác nhận nghiệp vụ, nó phải tự 
 Topic 8 đã giải thích Unix Domain Socket ở góc nhìn IPC. Trong Topic 9 chỉ cần giữ một ý quan trọng:
 
 ```text
-cùng Socket API
+cùng socket API
       |
       +--> AF_INET / AF_INET6 : giao tiếp qua IP
       |
-      +--> AF_UNIX            : giao tiếp cục bộ
+      +--> AF_UNIX            : local IPC
 ```
 
 Nhờ đó, cùng tư duy `server`/`client` có thể được dùng cho cả dịch vụ mạng và dịch vụ chỉ chạy trên một máy.
@@ -1833,7 +1835,7 @@ AF_INET + SOCK_STREAM
   -> byte stream
 
 AF_UNIX + SOCK_STREAM
-  -> giao tiếp cục bộ
+  -> local IPC
   -> vẫn là byte stream
 ```
 
@@ -1864,17 +1866,17 @@ Dịch vụ cục bộ
 ### 20.1 Một lỗi `socket` có thể nằm ở nhiều lớp
 
 ```text
-Giao thức ứng dụng
+Application protocol
         |
-`socket` / fd
+     socket fd
         |
-TCP hoặc UDP
+    TCP / UDP
         |
-IP / định tuyến
+   IP / routing
         |
-Giao diện mạng
+network interface
         |
-Mạng vật lý / đầu bên kia
+physical network / peer
 ```
 
 Cùng biểu hiện “không nhận được dữ liệu” có thể xuất phát từ những lớp rất khác nhau.
@@ -2123,7 +2125,7 @@ Không nên coi mọi `TIME_WAIT` là rò rỉ socket.
 
 `CLOSE_WAIT` thường cho thấy: đầu bên kia đã gửi FIN nhưng ứng dụng cục bộ chưa hoàn tất việc đóng phía mình.
 
-Nếu trạng thái này tồn tại lâu với số lượng lớn, cần xem lại vòng đời bộ mô tả/kết nối trong ứng dụng.
+Nếu trạng thái này tồn tại lâu với số lượng lớn, cần xem lại vòng đời file descriptor/kết nối trong ứng dụng.
 
 ---
 
@@ -2236,17 +2238,17 @@ Một dịch vụ có thể nhận `SIGTERM` từ `systemd`/init.
 Mô hình lý thuyết:
 
 ```text
-nhận yêu cầu dừng
+shutdown requested
       |
-ngừng nhận công việc/kết nối mới
+stop accepting new work / connections
       |
-hoàn tất hoặc hủy các thao tác đang chạy
+finish or cancel in-flight operations
       |
-shutdown các chiều socket nếu cần
+shutdown socket direction(s) if needed
       |
-close bộ mô tả
+close file descriptors
       |
-tiến trình kết thúc
+process exits
 ```
 
 Đây là nơi kiến thức Signal, đồng bộ luồng và Socket gặp nhau.
@@ -2294,13 +2296,13 @@ Dùng `getaddrinfo()` và các cấu trúc địa chỉ tổng quát giúp giả
 socket fd
    |
    v
-address family + kiểu + giao thức
+address family + socket type + protocol
    |
    +--> AF_INET / AF_INET6 + SOCK_STREAM -> TCP
    |
    +--> AF_INET / AF_INET6 + SOCK_DGRAM  -> UDP
    |
-   +--> AF_UNIX                          -> giao tiếp cục bộ
+   +--> AF_UNIX                          -> local IPC
 ```
 
 ---
@@ -2316,9 +2318,9 @@ listen()
    |
 accept()
    |
-   +--> socket đã kết nối với client A
+   +--> connected socket -> client A
    |
-   +--> socket đã kết nối với client B
+   +--> connected socket -> client B
 ```
 
 Điểm phải nhớ:
@@ -2334,7 +2336,7 @@ socket đã kết nối trả về từ accept()
 ### 22.3 TCP `client`
 
 ```text
-tên máy / địa chỉ
+hostname / address
       |
  getaddrinfo()
       |
@@ -2343,7 +2345,7 @@ tên máy / địa chỉ
   connect()
       |
       v
-kết nối TCP
+TCP connection
 ```
 
 ---
@@ -2384,19 +2386,19 @@ Ranh giới từng datagram được giữ, nhưng không có bảo đảm chung
 
 ```text
 shutdown()
-  -> thay đổi chiều giao tiếp
+  -> disables one or both I/O directions
 
 close()
-  -> giải phóng tham chiếu fd
+  -> releases one file descriptor reference
 
 FIN
-  -> đóng có trật tự một chiều
+  -> graceful half-close / close direction
 
 RST
-  -> đặt lại/hủy kết nối
+  -> aborts / resets the connection
 
 TIME_WAIT
-  -> trạng thái bình thường trong vòng đời TCP
+  -> normal state in the TCP connection lifecycle
 ```
 
 ---

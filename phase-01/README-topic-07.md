@@ -49,13 +49,13 @@ Vì vậy chương này không học từng API riêng lẻ. Nó đi từ `race 
 ### 1.1 Vấn đề bắt đầu từ dữ liệu dùng chung có thể thay đổi
 
 ```text
-Luồng A --------+
+Thread A --------+
                 |
                 v
         trạng thái dùng chung
                 ^
                 |
-Luồng B --------+
+Thread B --------+
 ```
 
 Nếu dữ liệu chỉ đọc và không thay đổi, vấn đề đơn giản hơn nhiều.
@@ -159,17 +159,17 @@ không nguyên vẹn.
 `critical section` là đoạn mã thay đổi/đọc trạng thái mà các thao tác xung đột không được phép cùng thực hiện.
 
 ```text
-Luồng A
+Thread A
    |
-khóa
+mutex lock
    |
    v
-+-------------------------+
-|      VÙNG TỚI HẠN      |
-| cập nhật trạng thái     |
-+-------------------------+
++---------------------------+
+|     CRITICAL SECTION      |
+| cập nhật shared state     |
++---------------------------+
    |
-mở khóa
+mutex unlock
 ```
 
 ---
@@ -212,14 +212,14 @@ Nhưng khi có nhiều CPU/compiler, thứ tự và khả năng quan sát giữa
 Cách hình dung:
 
 ```text
-Luồng A                        Luồng B
+Thread A                        Thread B
 
-khóa M
-sửa dữ liệu
-mở khóa M  ----------------->  khóa M
+lock(M)
+cập nhật shared data
+unlock(M)  ------------------>  lock(M)
                                   |
                                   v
-                           đọc trạng thái đã bảo vệ
+                           đọc protected state
 ```
 
 Không nên xem `pthread_mutex_unlock()` chỉ như việc đổi một cờ từ 1 về 0.
@@ -257,8 +257,8 @@ mutual exclusion
 Nói đơn giản:
 
 ```text
-một mutex đang khóa
-  -> chỉ một luồng sở hữu nó
+mutex ở trạng thái locked
+  -> chỉ một thread là owner tại một thời điểm
 ```
 
 Các luồng khác muốn lấy cùng mutex phải chờ hoặc nhận trạng thái “đang bận”, tùy API.
@@ -277,9 +277,9 @@ stateDiagram-v2
 Khi đang bị khóa:
 
 ```text
-Luồng A sở hữu M
-Luồng B muốn M -> chờ
-Luồng C muốn M -> chờ
+Thread A owns M
+Thread B lock(M) -> wait
+Thread C lock(M) -> wait
 ```
 
 ---
@@ -289,13 +289,13 @@ Luồng C muốn M -> chờ
 Đây là điểm phân biệt mutex với semaphore.
 
 ```text
-Luồng A lock M
-   |
-   v
-A là chủ sở hữu M
-   |
-   v
-A unlock M
+Thread A: lock(M)
+      |
+      v
+A becomes owner of M
+      |
+      v
+Thread A: unlock(M)
 ```
 
 Không nên thiết kế theo kiểu luồng A khóa mutex rồi luồng B mở khóa thay. Mutex có ownership; vi phạm quy tắc sở hữu thường là lỗi giao thức và có thể dẫn tới hành vi không xác định tùy loại mutex.
@@ -327,13 +327,13 @@ Mọi bên phải tuân thủ cùng một giao thức.
 Trước khi dùng, mutex phải ở trạng thái đã khởi tạo hợp lệ.
 
 ```text
-bộ nhớ chưa khởi tạo
+uninitialized memory
       |
       v
-khởi tạo mutex
+initialize mutex
       |
       v
-mutex hợp lệ
+valid mutex
 ```
 
 Có thể có khởi tạo tĩnh hoặc động tùy API/đối tượng.
@@ -365,11 +365,11 @@ lock
 `trylock` thay đổi cách ứng xử khi mutex đang bận:
 
 ```text
-mutex mở?
-  /    \
-có      không
- |        |
-lấy      trả EBUSY
+mutex available?
+    /      \
+  yes       no
+   |         |
+acquire   return EBUSY
 ```
 
 Nó không phải “mutex nhanh hơn”; nó là **không chờ** trong trường hợp mutex đang bị giữ.
@@ -381,12 +381,12 @@ Nó không phải “mutex nhanh hơn”; nó là **không chờ** trong trườ
 Luồng sở hữu giải phóng mutex:
 
 ```text
-đang khóa bởi A
+M is locked by A
       |
-A unlock
+A calls unlock(M)
       |
       v
-mở
+M becomes unlocked
 ```
 
 Sau đó một luồng đang chờ có thể được chạy và lấy mutex theo quy tắc lập lịch/triển khai.
@@ -450,10 +450,10 @@ Nó hỗ trợ chẩn đoán, không thay thế thiết kế đúng.
 Cho phép cùng một luồng khóa nhiều lần.
 
 ```text
-A lock -> số đếm 1
-A lock -> số đếm 2
-A unlock -> 1
-A unlock -> 0, mutex thực sự mở
+A lock   -> recursion count = 1
+A lock   -> recursion count = 2
+A unlock -> recursion count = 1
+A unlock -> recursion count = 0 -> mutex unlocked
 ```
 
 Cần số lần `unlock` tương ứng với số lần `lock`.
@@ -492,13 +492,13 @@ while queue rỗng:
 Ta muốn:
 
 ```text
-queue rỗng
+queue empty
     |
-consumer ngủ
+consumer waits
     |
-producer thêm dữ liệu
+producer thêm data
     |
-đánh thức consumer
+wake consumer
 ```
 
 ---
@@ -522,7 +522,7 @@ Predicate nằm trong dữ liệu dùng chung nên phải được kiểm tra m�
 Mô hình:
 
 ```text
-Dữ liệu dùng chung
+Shared data
       |
       +--> predicate
       |
@@ -708,10 +708,10 @@ Mỗi luồng vẫn phải kiểm tra lại predicate sau khi lấy mutex.
 Về tư duy:
 
 ```text
-trạng thái mới chỉ cho phép một waiter tiến lên
+state mới chỉ cho phép một waiter tiến lên
   -> signal có thể phù hợp
 
-trạng thái mới có thể cho nhiều luồng đang chờ cùng tiến lên
+state mới có thể cho nhiều waiter cùng tiến lên
   -> broadcast có thể phù hợp
 ```
 
@@ -726,9 +726,9 @@ Timed wait cho phép chờ tới một thời điểm giới hạn.
 ```text
 chờ điều kiện
    |
-   +--> được báo / thức
+   +--> signaled / woken
    |
-   +--> hết thời gian
+   +--> timeout
 ```
 
 Dù trả về vì timeout, ứng dụng vẫn nên kiểm tra trạng thái theo giao thức, vì thời điểm timeout và thay đổi predicate có thể gần nhau.
@@ -845,7 +845,7 @@ Producer
     |
     v
 +-------------------+
-| Hàng đợi dùng chung|
+|   Shared queue    |
 +-------------------+
     |
     v
@@ -897,9 +897,9 @@ count == 0
    |
 consumer chờ not_empty
    |
-producer thêm dữ liệu
+producer thêm data
    |
-báo not_empty
+signal not_empty
 ```
 
 ---
@@ -939,9 +939,9 @@ Giả sử ba luồng làm Phase 1.
 Không luồng nào được sang Phase 2 trước khi cả ba hoàn thành Phase 1.
 
 ```text
-Luồng A --------> barrier --\
-Luồng B ------> barrier -----+--> tất cả đã tới --> Giai đoạn 2
-Luồng C ----------> barrier -/
+Thread A --------> barrier --\
+Thread B ------> barrier -----+--> tất cả đã tới --> Giai đoạn 2
+Thread C ----------> barrier -/
 ```
 
 ---
@@ -977,7 +977,7 @@ Nếu barrier cần 4 luồng nhưng chỉ 3 luồng tới:
 A -> chờ
 B -> chờ
 C -> chờ
-D -> không bao giờ tới
+D -> never reaches barrier
 ```
 
 thì các luồng còn lại không thể qua barrier.
@@ -1081,10 +1081,10 @@ Starvation:
 Các luồng vẫn chạy và phản ứng với nhau, nhưng không tạo tiến triển hữu ích.
 
 ```text
-A thấy xung đột -> nhường
-B thấy xung đột -> nhường
-A thử lại -> nhường
-B thử lại -> nhường
+A thấy xung đột -> yield
+B thấy xung đột -> yield
+A thử lại -> yield
+B thử lại -> yield
 ...
 ```
 
@@ -1165,11 +1165,11 @@ Hệ quả có thể là: thời gian chờ cao, ít chạy song song và nhiề
 Ví dụ rủi ro:
 
 ```text
-khóa mutex
-   |
-gọi I/O có thể chặn rất lâu
-   |
-mở mutex
+lock(mutex)
+    |
+blocking I/O có thể chờ rất lâu
+    |
+unlock(mutex)
 ```
 
 Các luồng khác phải chờ trong toàn bộ thời gian I/O.
@@ -1203,10 +1203,10 @@ L = luồng ưu tiên thấp
 L đang giữ mutex mà H cần.
 
 ```text
-L giữ mutex
-H chạy -> chờ mutex của L
-M chạy -> chiếm CPU trước L
-L không được chạy để mở mutex
+L owns mutex
+H runs -> blocks on mutex held by L
+M runs -> preempts L
+L không được scheduled để unlock mutex
 H tiếp tục phải chờ
 ```
 
@@ -1217,9 +1217,9 @@ H bị chậm gián tiếp bởi M dù M không giữ mutex đó.
 ### 17.2 Sơ đồ
 
 ```text
-Ưu tiên cao H:       [chờ mutex do L giữ] ----------------
-Ưu tiên vừa M:              CHẠY CHẠY CHẠY CHẠY
-Ưu tiên thấp L:      giữ M       chưa chạy       chạy -> mở M
+High priority H:   [blocked on mutex held by L] ----------------
+Medium priority M:        RUN RUN RUN RUN
+Low priority L:     owns M      not scheduled      RUN -> unlock(M)
 ```
 
 ---
@@ -1231,17 +1231,17 @@ POSIX có cơ chế priority inheritance cho mutex phù hợp.
 Ý tưởng:
 
 ```text
-H chờ mutex do L giữ
+H blocks on mutex held by L
        |
        v
-L tạm thời được nâng ưu tiên
+L receives temporary priority boost
        |
-L chạy để hoàn tất `critical section`
+L runs and finishes critical section
        |
-L mở mutex
+unlock(mutex)
        |
        v
-H có thể tiếp tục
+H can continue
 ```
 
 ---
@@ -1261,17 +1261,17 @@ Nó không giải quyết: `deadlock`, `race condition` do quên lock và thiế
 ### 18.1 Phân loại triệu chứng trước
 
 ```text
-Dữ liệu sai ngẫu nhiên
-  -> nghĩ race/lifetime
+Data corruption ngẫu nhiên
+  -> nghĩ tới race condition / lifetime bug
 
 Chương trình đứng, CPU thấp
-  -> nghĩ deadlock/wait vô hạn
+  -> nghĩ deadlock/indefinite wait
 
 CPU 100% nhưng không tiến triển
   -> nghĩ busy-loop/livelock
 
-Một luồng luôn chậm
-  -> nghĩ tới `starvation`/`priority inversion`/`contention`
+Một thread luôn chậm
+  -> nghĩ tới starvation / priority inversion / contention
 ```
 
 ---
@@ -1279,19 +1279,19 @@ Một luồng luôn chậm
 ### 18.2 Câu hỏi gỡ lỗi theo thứ tự
 
 ```text
-Dữ liệu dùng chung nào đang sai?
+Shared data nào đang sai?
        |
-Mọi truy cập có dùng cùng protocol không?
+Mọi access có tuân cùng synchronization protocol?
        |
 Mutex nào bảo vệ invariant nào?
        |
-Có lock-order nhất quán không?
+Lock ordering có nhất quán không?
        |
 Condition predicate là gì?
        |
 Predicate có luôn kiểm tra trong while không?
        |
-Có luồng nào chờ một sự kiện không thể xảy ra không?
+Có thread nào đang wait cho event không thể xảy ra?
        |
 Có giữ lock quá lâu không?
 ```
@@ -1348,15 +1348,15 @@ mutex đang bị giữ
 ### 19.1 Hàng đợi sensor
 
 ```text
-Luồng cảm biến
+Thread cảm biến
      |
      v
 +-----------------+
-| hàng đợi mẫu    |
+| sample queue    |
 +-----------------+
      |
      v
-Luồng xử lý
+Thread xử lý
 ```
 
 Có thể cần:
@@ -1378,9 +1378,9 @@ Nếu một transaction gồm nhiều bước, `critical section` nên bảo v�
 Thay vì mọi luồng cùng giữ lock và ghi file lâu:
 
 ```text
-Luồng A --\
-Luồng B ----> hàng đợi log -> Luồng logger
-Luồng C --/
+Thread A --\
+Thread B ----> log queue -> Thread logger
+Thread C --/
 ```
 
 có thể dùng ownership rõ hơn.
@@ -1401,7 +1401,7 @@ stop_requested = true
    v
 STOPPING
    |
-đánh thức các luồng đang chờ
+wake waiting threads
    |
 join
    |
@@ -1436,16 +1436,16 @@ Priority inversion có thể làm một luồng ưu tiên cao trễ quá giới 
 ```text
 Bài toán đồng bộ là gì?
         |
-        +--> Chỉ một luồng được sửa trạng thái?
+        +--> Chỉ một thread được sửa trạng thái?
         |       -> Mutex
         |
-        +--> Chờ một điều kiện của dữ liệu?
+        +--> Chờ một condition/predicate của data?
         |       -> Condition Variable + Mutex
         |
-        +--> Đếm số tài nguyên/token?
+        +--> Đếm số resource/token?
         |       -> Semaphore
         |
-        +--> Mọi luồng phải gặp nhau ở cuối giai đoạn?
+        +--> Mọi thread phải rendezvous ở cuối phase?
                 -> Barrier
 ```
 
@@ -1454,15 +1454,15 @@ Bài toán đồng bộ là gì?
 ### 20.2 Condition Variable
 
 ```text
-Dữ liệu dùng chung
+Shared data
       |
   predicate
       |
   mutex bảo vệ
       |
-condition variable giúp ngủ/thức
+condition variable hỗ trợ wait/wake
       |
-thức -> lấy lại mutex -> kiểm tra lại predicate
+wake -> reacquire mutex -> kiểm tra lại predicate
 ```
 
 Điểm phải nhớ:
