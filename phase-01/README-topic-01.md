@@ -218,7 +218,7 @@ Pipe là một vùng đệm (buffer) do Kernel quản lý. Khi bạn viết `A |
 
 > **Đọc sơ đồ:** Shell yêu cầu Kernel tạo ra một Pipe Buffer nằm gọn trong bộ nhớ lõi. Tiếp đó, Shell cấu hình `stdout` của Tiến trình A nối vào cổng ghi của ống, và `stdin` của Tiến trình B nối vào cổng đọc. Nhờ vậy, Kernel đóng vai trò làm điều phối viên: tiến trình A sẽ bị block (tạm dừng) nếu pipe buffer đã đầy và đang dùng blocking I/O; tiến trình B sẽ bị block chờ nếu pipe chưa có dữ liệu nhưng vẫn còn writer (A) đang mở. Đặc biệt, nếu mọi đầu ghi đã đóng và buffer đã hết dữ liệu, lệnh đọc của B sẽ nhận được tín hiệu kết thúc (EOF) thay vì ngủ chờ vô thời hạn.
 
-*Lưu ý:* Theo mặc định, `stderr` của lệnh A không đi vào pipe mà vẫn xuất ra màn hình. Muốn đưa `stderr` vào pipe, cần thực hiện cú pháp chuyển hướng rõ ràng (ví dụ: `2>&1`).
+*Lưu ý:* Theo mặc định, `stderr` của lệnh A không đi vào pipe mà vẫn xuất ra màn hình. Muốn đưa `stderr` vào pipe, cần thực hiện cú pháp chuyển hướng rõ ràng (ví dụ: `2>&1`). `2>&1` nghĩa là toàn bộ output từ luồng lỗi sẽ vào chung với luồng dữ liệu ra, nếu `2>1` thì sẽ hiểu lầm ghi luồng lỗi vào một file văn bản có tên là `1`.
 
 ---
 
