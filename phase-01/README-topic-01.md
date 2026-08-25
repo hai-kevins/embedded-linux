@@ -1,14 +1,14 @@
 # Chủ đề 1 — Dòng lệnh Linux cơ bản
 
-> **Mục tiêu:** Hiểu bản chất cách dòng lệnh Linux hoạt động giống như cách vận hành một dây chuyền, thay vì học vẹt từng lệnh máy móc.
+> **Mục tiêu:** Hiểu luồng hoạt động cốt lõi của dòng lệnh Linux, từ khi người dùng nhập phím đến khi kernel thực thi chương trình, thay vì chỉ ghi nhớ tên lệnh rời rạc.
 >
-> **Quy ước ngôn ngữ:** Giải thích bằng tiếng Việt đời thường kết hợp với ngôn ngữ kỹ thuật chuẩn mực. Các thuật ngữ cốt lõi như `shell`, `pipe`, `stdout`, `environment variable` được giữ nguyên tiếng Anh để đảm bảo tính chính xác và thuận tiện cho việc tra cứu tài liệu.
+> **Quy ước ngôn ngữ:** Phần giải thích dùng Tiếng Việt. Các thuật ngữ cần tra cứu đúng theo tài liệu chuẩn của Linux/POSIX như `shell`, `builtin`, `quoting`, `expansion`, `environment variable`, `file descriptor`, `redirection`, `pipeline`, `exit status`, `job control` được giữ nguyên bằng tiếng Anh.
 >
-> **Phạm vi:** Các khái niệm từ cơ bản đến chuyên sâu về `terminal`, `TTY`, `shell`, cấu trúc dòng lệnh, biến môi trường, đường ống (`pipe`), chuyển hướng (`redirection`), và tư duy gỡ lỗi.
+> **Phạm vi:** Giao diện dòng lệnh, `terminal`, `TTY`, `PTY`, `shell`, cấu trúc một dòng lệnh, dấu nháy, mở rộng của `shell`, `PATH`, biến môi trường, `stdin/stdout/stderr`, chuyển hướng, `pipe`, `exit status`, tiến trình tiền cảnh/nền và các công cụ quan sát cơ bản.
 >
-> Chương này là **lý thuyết nền tảng**, được thiết kế để bạn có thể đọc, hình dung rõ luồng dữ liệu thông qua các mô hình, trước khi tự mình áp dụng vào thực tế.
+> Chương này là **lý thuyết nền tảng**, được thiết kế để bạn hình dung rõ luồng dữ liệu thông qua các mô hình hệ thống trước khi bắt tay vào gõ lệnh thực tế.
 
-Trước khi đi vào chi tiết, hãy nhớ một nguyên tắc sống còn: **Bàn phím của bạn không hề nói chuyện trực tiếp với lõi máy tính (Kernel). Bàn phím chỉ nói chuyện với một "tổng đài viên" tên là Shell**. Khi hiểu được Shell làm việc thế nào, việc điều khiển hệ thống, từ các máy chủ mạnh mẽ cho đến các thiết bị nhúng nhỏ gọn, sẽ trở nên hiển nhiên và hoàn toàn nằm trong tầm kiểm soát.
+Trước khi đi vào từng lệnh, hãy giữ một mô hình duy nhất trong đầu: **Bàn phím và terminal chỉ đưa ký tự tới hệ thống, nhưng Shell mới là thành phần phân tích dòng lệnh; sau đó Shell chạy builtin hoặc yêu cầu Kernel tạo tiến trình để thực thi chương trình**. Những khái niệm như dấu nháy, `PATH`, chuyển hướng, pipe hay `exit status` đều là các mảnh ghép của quá trình đó. Khi đã hiểu luồng này, việc điều khiển hệ thống—từ máy chủ đến thiết bị nhúng—sẽ trở nên có tính dự đoán và hệ thống hơn.
 
 ---
 
@@ -37,273 +37,272 @@ Trước khi đi vào chi tiết, hãy nhớ một nguyên tắc sống còn: **
 
 ## 1. Dòng lệnh Linux thực chất là gì?
 
-Dòng lệnh là phương thức giao tiếp cốt lõi, nơi bạn dùng văn bản (text) để yêu cầu hệ điều hành thực thi các tác vụ.
+Dòng lệnh là cách bạn yêu cầu Linux làm việc thông qua ngôn ngữ văn bản. Nó cho phép bạn biểu đạt các tác vụ từ đơn giản đến phức tạp thông qua cú pháp của Shell.
 
 ### 1.1 CLI và GUI khác nhau ở đâu?
 
-*   **GUI (Graphic User Interface):** Cung cấp các nút bấm, menu và cửa sổ. GUI giống như bạn ra quầy fast-food, nhìn bảng menu và **chỉ tay** vào món đồ có sẵn. Nó trực quan, dễ dùng nhưng bị giới hạn bởi những gì nhà phát triển đã thiết kế sẵn trên giao diện.
-*   **CLI (Command Line Interface):** Cung cấp một ngôn ngữ lệnh. CLI giống như bạn đi thẳng vào bếp và nói với đầu bếp: *"Lấy nguyên liệu A, xử lý qua máy B, rồi đưa kết quả vào hộp C"*. Nó đòi hỏi bạn phải nhớ từ vựng, nhưng bù lại, cung cấp quyền lực tối thượng để ghép nối các công cụ nhỏ thành một quy trình tự động hóa phức tạp.
+*   **GUI (Graphic User Interface):** Cung cấp các nút bấm và biểu tượng. GUI trực quan nhưng giới hạn hành động của người dùng trong khuôn khổ những gì phần mềm đã lập trình sẵn trên giao diện.
+*   **CLI (Command Line Interface):** Cung cấp một ngôn ngữ lệnh. Sức mạnh của CLI không nằm ở việc gõ nhanh, mà ở khả năng tự do **ghép nhiều công cụ nhỏ thành một quy trình xử lý dữ liệu liên tục**.
 
 ```text
-GUI:  Người dùng ---> [Nhấp chuột/Nút bấm] ---> Ứng dụng xử lý cố định
-CLI:  Người dùng ---> [Dòng lệnh linh hoạt] ---> Shell ---> Chương trình/System Call
+GUI:  Người dùng ---> [Tương tác qua đồ họa] ---> Ứng dụng
+CLI:  Người dùng ---> [Nhập chuỗi văn bản] ---> Shell ---> Chương trình / System call
 ```
 
 ### 1.2 Dòng lệnh không phải `system call`
 
-Khi bạn gõ `ls -l /etc`, bản thân hạt nhân Linux (Kernel) không nhận cả chuỗi ký tự này. Hạt nhân chỉ hiểu các lệnh gọi hệ thống (system call). `Shell` mới là thành phần đọc, hiểu cú pháp của dòng lệnh đó, tách nó ra thành tên chương trình (`ls`) và các đối số (`-l`, `/etc`), sau đó nhờ Kernel tạo một tiến trình mới để chạy chương trình `ls`.
+Khi bạn gõ `ls -l /etc`, bản thân Linux kernel không nhận nguyên chuỗi này để "hiểu lệnh". Kernel chỉ cung cấp các system call (như đọc file, tạo tiến trình). `Shell` mới là thành phần đọc chuỗi văn bản đó, phân tích cú pháp để biết lệnh là `ls`, các đối số là `-l` và `/etc`, sau đó Shell mới gọi system call để thực thi chương trình.
 
 ---
 
 ## 2. Terminal, TTY, PTY và Shell
 
-Để một ký tự từ bàn phím đi tới chương trình xử lý, nó phải đi qua một chuỗi các lớp môi giới.
+Để ký tự từ bàn phím đi tới chương trình và kết quả quay lại màn hình, nó đi qua một chuỗi các lớp trừu tượng và ranh giới hệ thống:
 
-### 2.1 Terminal
-
-Terminal (Thiết bị đầu cuối) là phần xác vật lý hoặc phần mềm mô phỏng (ví dụ: cửa sổ terminal trên Ubuntu, VS Code terminal) dùng để hiển thị ký tự và nhận phím bấm từ bạn. 
-
-### 2.2 TTY (Teletype)
-
-TTY là lớp trừu tượng trong Linux quản lý việc truyền nhận văn bản. Nó quy định các tính năng như "khi người dùng bấm Ctrl+C, hãy gửi tín hiệu ngắt" hoặc "hiển thị lại ký tự vừa gõ lên màn hình (echo)".
-
-### 2.3 PTY (Pseudo-Terminal)
-
-Khi bạn kết nối SSH vào một mạch nhúng hoặc một server từ xa, bạn không dùng cáp nối trực tiếp. Lúc này, PTY (thiết bị giả lập) sẽ đóng vai trò tạo ra một luồng TTY ảo để mô phỏng lại quá trình giao tiếp, giúp phần mềm ở xa tưởng rằng bạn đang ngồi ngay trước máy.
-
-### 2.4 Shell
-
-Shell (như `Bash`, `Zsh`, `sh`) là trình thông dịch (interpreter). Nó lắng nghe luồng ký tự từ TTY, phân tích ngữ pháp, tìm chương trình tương ứng và kích hoạt chương trình đó.
+*   **2.1 Terminal:** Thiết bị nhập/xuất vật lý hoặc một ứng dụng phần mềm (Terminal Emulator) chạy ở tầng user-space như GNOME Terminal.
+*   **2.2 TTY (Teletype):** Lớp trừu tượng (subsystem) của Linux Kernel quản lý dòng dữ liệu văn bản. Nó xử lý các tính năng như hiển thị lại phím gõ (echo) và phát tín hiệu ngắt (SIGINT) khi bấm Ctrl+C.
+*   **2.3 PTY (Pseudo-Terminal):** Một cặp thiết bị giả lập gồm Master và Slave. Các ứng dụng như SSH server hay `tmux` dùng PTY để cung cấp một môi trường TTY đầy đủ cho Shell bên trong nó.
+*   **2.4 Shell:** Trình thông dịch (như Bash, sh). Shell hoạt động như một tiến trình đọc ký tự từ TTY/PTY, diễn giải cú pháp và gọi các chương trình khác.
 
 **2.5 Quan hệ tổng thể:**
 
 ```text
-[Bàn phím] 
-    |
-    v
-[Terminal / PTY / TTY] (Kênh truyền tải sóng/kết nối)
-    |
-    v
-[Shell]                (Tổng đài viên phân tích ngôn ngữ)
-    |
-    v
-[Chương trình ngoài]   (Thực hiện tác vụ và gọi Kernel)
+[ Bàn phím ] 
+      |
+      v
+[ Terminal Emulator (User-space) ] (Ví dụ: GNOME Terminal, VS Code)
+      |
+      v
+[ TTY / PTY Subsystem (Kernel) ]   (Lớp trừu tượng quản lý luồng I/O và tín hiệu)
+      |
+      v
+[ Shell (User-space) ]             (Tiến trình phân tích ngôn ngữ lệnh)
+      |
+      v
+[ Chương trình ngoài ]             (Thực hiện tác vụ thông qua System Call)
 ```
+
+> **Đọc sơ đồ:** Luồng dữ liệu bắt đầu từ phím bấm đi vào Terminal Emulator. Tuy nhiên, Terminal Emulator không truyền thẳng ký tự đó cho Shell mà đẩy xuống TTY/PTY subsystem nằm sâu trong Kernel. Kernel xử lý các tác vụ như tạo tín hiệu ngắt hoặc cấu hình luồng, rồi mới chuyển các byte hợp lệ lên cho tiến trình Shell đọc. Sau khi phân tích hiểu ý người dùng, Shell yêu cầu Kernel tạo một tiến trình con mới để xử lý tác vụ thực tế.
 
 ---
 
 ## 3. Shell hiểu một dòng lệnh như thế nào?
 
-Shell là một ngôn ngữ lập trình thu nhỏ. Trước khi bất kỳ chương trình nào thực sự chạy, Shell phải tiến hành một loạt các bước tiền xử lý. Nếu bạn gõ: `echo "$USER" > log.txt`
+Shell không chuyển nguyên chuỗi văn bản bạn gõ cho chương trình đích. Nó hoạt động như một trình thông dịch ngôn ngữ nhỏ, xử lý qua nhiều giai đoạn trước khi chương trình thực sự chạy.
+
+### 3.1 Các giai đoạn chính
+
+Khi bạn gõ: `echo "$HOME" | grep home > result.txt`
 
 ```text
-"echo $USER > log.txt"
+"echo $HOME | grep home > result.txt"
            |
            v
-[ 1. Parse (Tách từ)     ]  Nhận ra 'echo' là lệnh, '>' là toán tử điều hướng.
+[ 1. Parse (Tách từ)     ]  Tách cú pháp: 'echo', '|', 'grep', 'home', '> result.txt'.
            |
            v
-[ 2. Expand (Mở rộng)    ]  Dịch biến '$USER' thành giá trị thực (vd: NgocChien Trùm VT01).
+[ 2. Expand (Mở rộng)    ]  Dịch biến '$HOME' thành giá trị thực (vd: NgocChien Trùm VT01).
            |
            v
-[ 3. Redirect (Điều hướng)] Mở/tạo file 'log.txt' để hứng dữ liệu đầu ra.
+[ 3. Prepare (Chuẩn bị)  ]  Phân tích cấu trúc pipeline, yêu cầu Kernel tạo Pipe.
            |
            v
-[ 4. Execute (Thực thi)  ]  Chạy chương trình 'echo' với kết quả sau khi đã biên dịch.
+[ 4. Fork & Exec         ]  Tạo process con, nối fd vào pipe/file, rồi gọi execve().
 ```
 
-Điều quan trọng nhất cần nhớ: Lỗi như "file không tồn tại" hay "sai cú pháp" thường xảy ra ở giai đoạn 1, 2, 3 do Shell báo lỗi, trước cả khi chương trình (như `echo`, `cat`, `gcc`) kịp khởi động.
+> **Đọc sơ đồ:** Sơ đồ này cho thấy quá trình Shell xử lý một dòng lệnh từ trên xuống dưới. Shell tách từ khóa và nhận diện toán tử đường ống (`|`) và điều hướng (`>`). Sau khi mở rộng biến `$HOME`, Shell phân tích và chuẩn bị cấu trúc pipeline, tạo các pipe cần thiết. Tiếp đó, Shell yêu cầu Kernel tạo các process con (fork) và thiết lập file descriptor thích hợp cho từng process (như mở file `result.txt`) trước khi chương trình đích thực sự được chạy bằng `execve()`. Nhờ đó, nếu có lỗi như "không có quyền ghi file", tiến trình con sẽ báo lỗi và thoát ngay trước khi lệnh `grep` kịp khởi chạy.
+
+### 3.2 Builtin (Lệnh tích hợp) và Chương trình ngoài
+
+*   **Builtin:** Là các tính năng nằm ngay trong mã nguồn của Shell. Ví dụ quan trọng nhất là `cd`. Việc thay đổi thư mục (`chdir`) chỉ ảnh hưởng đến tiến trình hiện tại. Nếu `cd` là một chương trình ngoài, Shell sẽ phải tạo một tiến trình con, tiến trình con đổi thư mục xong rồi thoát, và Shell cha vẫn đứng ở thư mục cũ. Vì vậy `cd` phải do chính Shell tự thực thi (builtin).
+*   **Chương trình ngoài:** Các công cụ như `ls`, `grep` nằm trong hệ thống tệp (như `/bin/ls`). Shell sẽ tìm đường dẫn của chúng và yêu cầu Kernel tạo một tiến trình mới (fork/exec) để chạy.
 
 ---
 
 ## 4. Quoting và Shell expansion
 
-Ký tự nháy (`'`, `"`) được dùng để bảo vệ văn bản khỏi sự phân tích tự động của Shell.
+Ký tự nháy quyết định phần văn bản nào được Shell giữ nguyên và phần nào được can thiệp (mở rộng). Shell có một số ký tự đặc biệt như khoảng trắng (để tách từ), `*`, `?`, `$`.
 
-*   **Dấu cách (Space):** Shell dùng khoảng trắng để tách các từ. Nếu bạn muốn truy cập thư mục `My Projects`, bạn phải bọc nó lại `"My Projects"`, nếu không Shell sẽ tìm hai thư mục riêng biệt là `My` và `Projects`.
-*   **Nháy đơn (`' '`):** Đóng băng tuyệt đối mọi ký tự. Chuỗi `'$HOME'` sẽ được truyền nguyên vẹn là `$HOME`.
-*   **Nháy kép (`" "`):** Đóng băng khoảng trắng, nhưng vẫn cho phép Shell dịch các biến (như `$VAR`) hoặc chạy lệnh con (như `$(cmd)`). Cú pháp `"$HOME"` sẽ được dịch ra thành `/home/user`.
-*   **Globbing (Khớp mẫu):** Ký tự `*` hay `?`. Ví dụ `*.c` sẽ được Shell tự động mở rộng thành danh sách tất cả các file mã nguồn C trong thư mục trước khi nạp vào chương trình.
+*   **4.1 Nháy đơn (`' '`):** Ngăn chặn hoàn toàn mọi phép mở rộng. Chuỗi `'$HOME'` sẽ được truyền nguyên vẹn thành `$HOME` cho chương trình.
+*   **4.2 Nháy kép (`" "`):** Ngăn chặn việc tách từ bằng khoảng trắng (word splitting), nhưng vẫn cho phép Shell dịch biến (Parameter expansion) và thay thế lệnh (Command substitution). Chuỗi `"$HOME"` sẽ được dịch thành `/home/user`.
+*   **4.3 Command substitution (`$(cmd)`):** Chạy lệnh bên trong, thu thập kết quả (stdout) và chèn ngược lại vào dòng lệnh cha trước khi thực thi.
+*   **4.4 Globbing (`*`, `?`):** Cơ chế khớp tên file của Shell. Ký tự `*.c` sẽ được Shell tự động mở rộng thành một danh sách các file C hiện có trong thư mục. Khác với Regular Expression (biểu thức chính quy) của lệnh `grep` thường dùng để so khớp luồng văn bản, Globbing chỉ dành cho việc phân giải đường dẫn (pathname).
 
 ---
 
 ## 5. Shell tìm chương trình bằng `PATH` như thế nào?
 
-Khi bạn gõ lệnh như `make` hay `cmake`, làm sao hệ điều hành biết công cụ đó nằm ở đâu?
+Khi bạn gõ lệnh như `gcc`, làm sao hệ điều hành biết công cụ đó nằm ở đâu để thực thi?
 
 ### 5.1 Biến môi trường PATH
-`PATH` là một danh sách các thư mục, được ngăn cách bởi dấu hai chấm `:`. Khi nhận một lệnh không có đường dẫn rõ ràng, Shell sẽ rà soát từng thư mục trong danh sách này từ trái sang phải.
+`PATH` là một chuỗi chứa danh sách các thư mục, cách nhau bởi dấu hai chấm `:`. Khi nhận một lệnh không chứa dấu `/`, Shell sẽ rà soát tuần tự từng thư mục trong `PATH`.
 
 ```text
-Lệnh: cmake
+Lệnh: gcc
   |
-  +---> Tìm ở /usr/local/bin/cmake ? ---> (Không thấy)
+  +---> Tìm ở /usr/local/bin/gcc ? ---> (Không thấy)
   |
-  +---> Tìm ở /bin/cmake ?           ---> (Không thấy)
-  |
-  +---> Tìm ở /usr/bin/cmake ?       ---> (CÓ! Bắt đầu chạy)
+  +---> Tìm ở /usr/bin/gcc ?       ---> (CÓ! Bắt đầu chạy)
 ```
 
-Nếu rà soát hết mà không thấy, Shell sẽ trả về thông báo lỗi: `Command not found`.
+> **Đọc sơ đồ:** Quá trình tra cứu diễn ra nghiêm ngặt từ trái sang phải. Shell sẽ ghép tên lệnh `gcc` vào từng thư mục và gọi Kernel kiểm tra xem tệp thực thi đó có tồn tại hay không. Ngay khi tìm thấy kết quả hợp lệ đầu tiên (ví dụ ở `/usr/bin/gcc`), Shell dừng tìm kiếm và tiến hành khởi chạy. Nếu cấu hình `PATH` sai thứ tự, một phiên bản phần mềm cũ nằm ở đầu danh sách có thể bị gọi nhầm.
 
-### 5.2 Lệnh có chứa dấu `/`
-Nếu bạn gõ `./build.sh` hoặc `/opt/toolchain/bin/gcc`, Shell hiểu rằng bạn đã chỉ định tọa độ chính xác. Nó bỏ qua `PATH` và đi thẳng tới vị trí đó để chạy tệp tin.
+### 5.2 Vì sao thư mục hiện tại (`.`) thường không nằm sẵn trong PATH?
+Nếu thư mục hiện tại luôn được ưu tiên tìm kiếm, một tệp thực thi trùng tên với lệnh hệ thống (ví dụ: một tệp độc hại tên là `ls` trong thư mục tải xuống) có thể bị chạy nhầm. Khi cần chạy phần mềm tại thư mục hiện hành, bạn phải dùng đường dẫn rõ ràng: `./app`.
 
 ---
 
 ## 6. Thư mục làm việc và đường dẫn
 
-Mỗi tiến trình trong Linux (bao gồm cả Shell) đều có một trạng thái gọi là **Thư mục làm việc hiện tại (Current Working Directory - CWD)**.
+Mỗi tiến trình (bao gồm cả tiến trình Shell) đều duy trì một trạng thái độc lập gọi là **Thư mục làm việc hiện tại (Current Working Directory - CWD)**.
 
-*   **Đường dẫn tuyệt đối:** Bắt đầu bằng dấu gạch chéo gốc `/` (ví dụ: `/home/user/workspace/app.c`). Đây là tọa độ cố định, ở đâu gọi cũng giống nhau.
-*   **Đường dẫn tương đối:** Bắt đầu từ CWD hiện hành (ví dụ: `src/main.c` hoặc `../include/`).
-*   **Lệnh `cd`:** Đây là một lệnh tích hợp sẵn (builtin) của Shell. Nó thay đổi trạng thái CWD của chính phiên Shell hiện tại để bạn "bước" sang một không gian khác.
+*   **Đường dẫn tuyệt đối:** Bắt đầu bằng gốc `/` (ví dụ: `/etc/fstab`). Đường dẫn này luôn đúng bất kể CWD của tiến trình là gì.
+*   **Đường dẫn tương đối:** Bắt đầu từ CWD hiện tại (ví dụ: `src/main.c`).
+*   **Lệnh `cd`:** Thay đổi CWD của chính phiên Shell.
 
 ---
 
 ## 7. Shell variable, environment variable và `argv`
 
-Biến (Variables) là cách lưu trữ thông tin cấu hình và truyền dữ liệu giữa các tiến trình.
-
 ### 7.1 Shell Variable (Biến cục bộ)
-Được tạo ra và chỉ có ý nghĩa bên trong phiên Shell hiện tại (ví dụ: `MY_VAR=123`). Các chương trình con bạn khởi chạy từ Shell này sẽ không nhìn thấy biến đó.
+Các biến định nghĩa thông thường (`VAR=123`) là trạng thái nội bộ của phiên Shell đó. Các tiến trình con không thể truy cập biến này.
 
 ### 7.2 Environment Variable (Biến môi trường)
-Khi bạn dùng lệnh `export MY_VAR=123`, bạn biến nó thành biến môi trường. Khi Shell tạo ra một tiến trình con (ví dụ: chạy một script Python hoặc trình biên dịch C), tiến trình con đó sẽ kế thừa và nhìn thấy biến `MY_VAR`.
+Khi sử dụng `export VAR=123`, biến được đánh dấu để sao chép vào bộ nhớ môi trường của tiến trình con. Khi tạo tiến trình mới, hệ điều hành tuân theo luồng một chiều: cha truyền môi trường cho con; con có thể sửa môi trường của nó, nhưng không tự dội ngược lại lên cha.
 
-### 7.3 `argv` (Danh sách đối số)
-Sau khi Shell thực hiện việc mở rộng biến và tách từ, nó đóng gói các thành phần lại thành một mảng dữ liệu gọi là `argv`. Chương trình C/C++ của bạn sẽ nhận mảng này thông qua tham số `int main(int argc, char *argv[])`.
+### 7.3 Mảng `argv`
+Sau khi Shell hoàn tất việc mở rộng biến và phân tách cú pháp (word splitting), dữ liệu được đóng gói thành một cấu trúc danh sách đối số (`argv`). Khoảng trắng không còn là một chuỗi liền mạch, ranh giới giữa các đối số đã được xác lập rõ ràng và truyền cho chương trình thông qua họ hàm `exec*()` (cuối cùng sử dụng system call `execve()`).
 
 ---
 
 ## 8. `stdin`, `stdout`, `stderr` và redirection
 
-Mỗi chương trình Linux sinh ra đều được cấp sẵn 3 luồng dữ liệu tiêu chuẩn (File Descriptors - fd):
+Các tiến trình được Shell khởi chạy thông thường sẽ kế thừa 3 luồng dữ liệu chuẩn (Standard Streams) được quản lý bởi File Descriptor (fd). *(Lưu ý: Một số tiến trình nền như daemon có thể chủ động đóng hoặc nối lại các luồng này).*
 
-*   **`stdin` (fd 0 - Standard Input):** Lỗ hút dữ liệu đầu vào. Thường được nối với bàn phím.
-*   **`stdout` (fd 1 - Standard Output):** Lỗ xả kết quả bình thường. Thường in ra màn hình terminal.
-*   **`stderr` (fd 2 - Standard Error):** Lỗ xả thông báo lỗi. Cũng thường in ra màn hình để người dùng lập tức chú ý.
-
-```text
-[ Bàn phím ] ---> (stdin 0) ---> [ CHƯƠNG TRÌNH ] ---> (stdout 1) ---> [ Màn hình ]
-                                        |
-                                        +------------> (stderr 2) ---> [ Màn hình ]
-```
+*   **`stdin` (fd 0):** Luồng dữ liệu vào (mặc định nối với bàn phím).
+*   **`stdout` (fd 1):** Luồng dữ liệu ra thông thường (mặc định nối với terminal).
+*   **`stderr` (fd 2):** Luồng lỗi. Việc tách riêng `stdout` và `stderr` giúp Shell có thể điều hướng dữ liệu sạch vào file, đồng thời vẫn giữ được thông báo lỗi hiện lên màn hình.
 
 **Chuyển hướng (Redirection):**
-Bạn có thể can thiệp vào các luồng này. Ví dụ lệnh `ls > output.txt` sẽ "bẻ lái" luồng xả sạch `stdout` ghi thẳng vào tệp văn bản.
+Chuyển hướng thực chất là việc Shell yêu cầu Kernel nối lại các File Descriptor trước khi chạy chương trình.
+Thứ tự chuyển hướng cực kỳ quan trọng vì quá trình sao chép fd phụ thuộc vào trạng thái tại thời điểm phân tích.
 
 ```text
-SAU KHI ĐIỀU HƯỚNG: Lệnh > output.txt
+(Trạng thái mặc định)
+[ Terminal ] <--- (stderr 2) ---+
+                                |
+[ Terminal ] <--- (stdout 1) ---+--- [ Chương trình ] <--- (stdin 0) <--- [ Bàn phím ]
 
-[ Bàn phím ] ---> (stdin 0) ---> [ CHƯƠNG TRÌNH ] ---> (stdout 1) --X-- [ Màn hình ]
-                                        |                 |
-                                        |                 +-----------> [ output.txt ]
-                                        |
-                                        +------------> (stderr 2) ----> [ Màn hình ]
+(Sau khi áp dụng cú pháp "> output.txt")
+[ Terminal ] <--- (stderr 2) ---+
+                                |
+[ output.txt ] <--- (stdout 1) -+--- [ Chương trình ] <--- (stdin 0) <--- [ Bàn phím ]
 ```
+
+> **Đọc sơ đồ:** Sơ đồ trên mô phỏng sự can thiệp của Shell vào luồng dữ liệu. Ban đầu, `stdout` (fd 1) trỏ thẳng ra màn hình. Khi có toán tử `>`, Shell yêu cầu Kernel mở tệp `output.txt`, sau đó sao chép (nối lại) `fd 1` để nó trỏ vào tệp này thay vì màn hình. Chương trình khi chạy vẫn ghi dữ liệu vào `fd 1`; nó không cần biết `fd 1` hiện đang tham chiếu tới terminal, regular file, pipe hay một đối tượng I/O khác.
 
 ---
 
 ## 9. Pipe và Pipeline
 
-**Pipe (`|`) là cơ chế ghép nối sức mạnh cốt lõi của UNIX/Linux.**
+**Pipe (`|`) là cơ chế ghép nối tiến trình, không chỉ là ghép chuỗi văn bản.**
 
-Đường ống này nối thẳng `stdout` của chương trình đứng trước vào `stdin` của chương trình đứng sau. Dữ liệu được luân chuyển trực tiếp qua bộ nhớ của Kernel mà không cần phải ghi xuống một file tạm trên ổ cứng.
+Pipe là một vùng đệm (buffer) do Kernel quản lý. Khi bạn viết `A | B`, Shell tạo ra một pipe, nối `stdout` của tiến trình A vào đầu ghi của pipe, và `stdin` của tiến trình B vào đầu đọc của pipe. Kernel sẽ đồng bộ hóa luồng dữ liệu giữa hai tiến trình này.
 
 ```text
-[ Lệnh A (Tạo dữ liệu) ]                        [ Lệnh B (Lọc dữ liệu) ]
-       |                                              ^
-       | (stdout xả ra)                               | (stdin hút vào)
-       +-----------------> [ ỐNG PIPE | ] ------------+
+[ Tiến trình A ]                        [ Tiến trình B ]
+       |                                       ^
+       | (stdout 1)                            | (stdin 0)
+       +--------> [ Pipe Buffer (Kernel) ] ----+
 ```
 
-*Ví dụ:* `cat system.log | grep "ERROR" | wc -l`. Lệnh này đọc log, truyền qua bộ lọc chỉ giữ lại dòng có chữ ERROR, rồi truyền qua máy đếm để biết có bao nhiêu lỗi đã xảy ra.
+> **Đọc sơ đồ:** Shell yêu cầu Kernel tạo ra một Pipe Buffer nằm gọn trong bộ nhớ lõi. Tiếp đó, Shell cấu hình `stdout` của Tiến trình A nối vào cổng ghi của ống, và `stdin` của Tiến trình B nối vào cổng đọc. Nhờ vậy, Kernel đóng vai trò làm điều phối viên: tiến trình A sẽ bị block (tạm dừng) nếu pipe buffer đã đầy và đang dùng blocking I/O; tiến trình B sẽ bị block chờ nếu pipe chưa có dữ liệu nhưng vẫn còn writer (A) đang mở. Đặc biệt, nếu mọi đầu ghi đã đóng và buffer đã hết dữ liệu, lệnh đọc của B sẽ nhận được tín hiệu kết thúc (EOF) thay vì ngủ chờ vô thời hạn.
+
+*Lưu ý:* Theo mặc định, `stderr` của lệnh A không đi vào pipe mà vẫn xuất ra màn hình. Muốn đưa `stderr` vào pipe, cần thực hiện cú pháp chuyển hướng rõ ràng (ví dụ: `2>&1`).
 
 ---
 
 ## 10. `exit status` và toán tử điều khiển Shell
 
-Các chương trình làm việc rất âm thầm. Khi kết thúc, chúng không báo cáo bằng lời nói mà trả về cho hệ điều hành một mã số gọi là `exit status`.
+Mọi tiến trình khi kết thúc đều trả về một mã số cho tiến trình cha, gọi là `exit status`. Đây là kênh giao tiếp dành cho máy (machine-to-machine), khác với `stdout` là luồng dữ liệu.
 
-*   **Mã `0`:** Chương trình thực thi thành công mỹ mãn.
-*   **Mã `1` đến `255`:** Xảy ra lỗi (mỗi chương trình quy định mã lỗi mang ý nghĩa riêng).
+*   **Quy ước:** Mã `0` thường biểu thị trạng thái thành công. Mã khác `0` biểu thị một trạng thái khác hoặc thất bại theo quy ước của từng phần mềm cụ thể. Ví dụ: lệnh `grep` trả về `1` khi quá trình chạy vẫn an toàn nhưng không tìm thấy đoạn văn bản khớp mẫu (không nhất thiết là chương trình bị "lỗi").
 
-Shell sử dụng mã này để điều khiển logic chuỗi lệnh:
-*   `&&` (Toán tử AND): `A && B` -> B chỉ chạy nếu A trả về 0 (Thành công).
-*   `||` (Toán tử OR): `A || B` -> B chỉ chạy nếu A trả về mã lỗi (Thất bại).
-*   `;` (Chạy tuần tự): `A ; B` -> Chạy A xong, bất kể sống chết, chạy tiếp B.
+Shell cung cấp các toán tử để phản ứng với `exit status` này:
+*   `&&`: Chạy lệnh tiếp theo chỉ khi lệnh trước trả về 0 (thành công).
+*   `||`: Chạy lệnh tiếp theo chỉ khi lệnh trước trả về khác 0 (thất bại).
+*   `;`: Chạy tuần tự, không phụ thuộc vào `exit status` của lệnh trước.
 
 ---
 
 ## 11. `foreground`, `background` và `job control`
 
-*   **Tiền cảnh (Foreground):** Khi bạn chạy một lệnh như `nano` hay trình biên dịch, tiến trình này sẽ chiếm dụng màn hình terminal. Bạn không thể gõ lệnh mới cho đến khi nó kết thúc hoặc bị bạn ngắt (Ctrl+C).
-*   **Nền (Background):** Thêm dấu `&` vào cuối dòng lệnh (ví dụ `server_app &`). Tiến trình sẽ chạy ngầm dưới hệ thống, trả lại dấu nhắc lệnh (`prompt`) để bạn tiếp tục thao tác khác trên terminal.
-*   **Job control:** Các phím tắt như Ctrl+Z (tạm dừng), lệnh `bg` (đưa vào chạy nền) và `fg` (gọi lại ra tiền cảnh) giúp bạn quản lý đồng thời nhiều công việc trong một phiên duy nhất.
+*   **Foreground (Tiền cảnh):** Trong một terminal tương tác, nhóm tiến trình tiền cảnh là nhóm nhận tín hiệu trực tiếp từ bàn phím. Khi bạn nhấn `Ctrl+C`, một tín hiệu `SIGINT` được gửi tới nhóm tiền cảnh để ngắt công việc.
+*   **Background (Nền):** Tiến trình chạy ở chế độ nền (bằng cách thêm dấu `&` ở cuối lệnh) sẽ chạy ngầm dưới hệ thống. Tuy nhiên, theo nguyên tắc, chỉ nhóm tiến trình tiền cảnh mới được quyền đọc trực tiếp từ controlling terminal. Nếu một tiến trình nền cố tình đọc dữ liệu từ terminal, Kernel sẽ gửi cho nó tín hiệu `SIGTTIN` để đình chỉ hoạt động.
+*   **Job Control:** Các tính năng của Shell tương tác giúp di chuyển tiến trình qua lại giữa foreground và background (`fg`, `bg`, `Ctrl+Z`).
 
 ---
 
 ## 12. Các nhóm lệnh Linux cơ bản
 
-Bạn không cần học vẹt từ điển, chỉ cần gom nhóm các công cụ dựa theo mục đích sử dụng:
+Mục đích của phần này không phải để học thuộc cú pháp, mà hiểu mỗi nhóm lệnh đang tương tác với tầng nào của hệ thống:
 
-*   **Điều hướng & Quản lý File:** `pwd`, `cd`, `ls`, `mkdir`, `cp`, `mv`, `rm`. Làm việc với không gian thư mục.
-*   **Quan sát nội dung:** `cat` (in toàn bộ), `head` (in phần đầu), `tail` (in phần cuối), `less` (cuộn trang). Dùng để đọc text.
-*   **Lọc và Biến đổi:** `grep` (lọc dòng), `sort` (sắp xếp), `awk` (xử lý cột), `sed` (tìm/thay thế). Chuyên gia xử lý luồng dữ liệu (stream) qua Pipe.
+*   **Điều hướng & Namespace:** `pwd`, `cd`, `ls`, `mkdir`, `cp`, `mv`, `rm`. Nhóm này tương tác với pathname, thư mục và siêu dữ liệu của hệ thống tệp.
+*   **Quan sát nội dung:** `cat`, `head`, `tail`, `less`. Đọc byte từ các file descriptor và xuất ra màn hình.
+*   **Lọc và Biến đổi:** `grep`, `sort`, `cut`, `awk`. Nhận dữ liệu từ `stdin`, áp dụng xử lý, và xuất ra `stdout` – cực kỳ phù hợp để ghép nối thành các pipeline.
 
 ---
 
 ## 13. `grep` và `find`: tìm kiếm theo hai mô hình khác nhau
 
-Đây là sự nhầm lẫn phổ biến nhất. Hai lệnh này giải quyết bài toán tìm kiếm ở hai tầng hoàn toàn khác biệt.
+Sự khác biệt quan trọng nhất là chúng hoạt động trên hai lớp trừu tượng khác nhau:
 
-### 13.1 `find` (Tìm ngoài vỏ metadata)
-`find` quét qua cấu trúc cây thư mục. Nó kiểm tra tên file, kích thước, quyền hạn, ngày tạo. Nó **không bao giờ mở file ra đọc**.
-*Ví dụ:* "Tìm mọi file `.c` hoặc `.h` trong thư mục `src/`".
+*   **13.1 `find` (Tìm theo metadata):** Duyệt qua cấu trúc cây thư mục (namespace). Nó đối chiếu điều kiện dựa trên siêu dữ liệu như tên file, quyền truy cập, kích thước, và thời gian sửa đổi (mtime). Nó chủ yếu làm việc với pathname và metadata chứ không đi sâu phân tích dữ liệu byte bên trong tệp.
+*   **13.2 `grep` (Tìm theo content):** Đọc luồng dữ liệu hoặc nội dung trực tiếp của file. Nó dùng Biểu thức chính quy (Regular Expressions) để tìm kiếm và trích xuất các dòng văn bản khớp mẫu.
 
-### 13.2 `grep` (Tìm trong ruột nội dung)
-`grep` quét qua luồng văn bản hoặc chui vào bên trong các file được chỉ định để tìm kiếm các chuỗi ký tự khớp với yêu cầu.
-*Ví dụ:* "Tìm hàm `main` hoặc chuỗi cấu hình `UART_Init` nằm bên trong các file mã nguồn".
-
-Bạn có thể kết hợp chúng: Dùng `find` gom hết các file cấu hình lại, băm qua đường ống `|` hoặc `xargs` để giao cho `grep` lật từng dòng tìm lỗi.
+Một bài toán thực tế như *"Tìm tất cả các file cấu hình sửa đổi gần đây và có chứa từ khóa 'ERROR'"* sẽ cần kết hợp cả hai: dùng `find` thu thập file, rồi dẫn hướng sang `grep` để kiểm tra nội dung.
 
 ---
 
 ## 14. `ps`, `top`, `mount`, `df`, `du` đang quan sát điều gì?
 
-Đây là bộ đồ nghề chẩn đoán sức khỏe hệ thống:
-*   `ps` (Process Status): Chụp lại một bức ảnh X-Quang tĩnh xem tiến trình nào đang chạy tại thời điểm gõ lệnh.
-*   `top` / `htop`: Màn hình theo dõi nhịp tim động, cập nhật liên tục CPU, RAM của các tiến trình.
-*   `mount`: Kiểm tra xem các thiết bị ngoại vi, phân vùng ổ cứng đang được "gắn" vào gốc `/` ở đâu.
-*   `df` (Disk Free): Đứng ở góc nhìn hệ thống tệp, báo cáo dung lượng tổng quát của toàn bộ ổ cứng/phân vùng.
-*   `du` (Disk Usage): Đứng ở góc nhìn thư mục, đếm dung lượng thực tế của từng file/thư mục con cộng dồn lại.
+Mỗi công cụ cung cấp một lăng kính quan sát tài nguyên riêng biệt:
+
+*   **`ps`:** Cung cấp ảnh chụp (snapshot) tĩnh về trạng thái các tiến trình tại khoảnh khắc gọi lệnh.
+*   **`top`:** Thu thập trạng thái vòng lặp, hiển thị sự thay đổi động của CPU và bộ nhớ theo thời gian thực.
+*   **`mount`:** Quản lý và quan sát việc các hệ thống tệp/thiết bị được gắn vào cấu trúc cây thư mục gốc `/`.
+*   **`df`:** Đứng ở cấp độ filesystem, báo cáo không gian đã cấp phát (allocation) và còn trống dựa trên siêu dữ liệu quản lý tổng quát của hệ thống tệp đó.
+*   **`du`:** Hoạt động bằng cách duyệt đệ quy qua cây thư mục (pathname), đo lường và cộng dồn **số lượng disk blocks đã cấp phát** (allocated disk blocks) của từng tệp tin. Đây chính là lý do khiến dung lượng báo bởi `du` có thể khác với kích thước logic của file khi xem bằng lệnh `ls -l`.
+
+*(Vì đo đạc từ hai góc nhìn khác biệt, số liệu của `df` và `du` đôi khi sẽ có độ lệch tự nhiên mà không phải do lỗi hệ thống).*
 
 ---
 
 ## 15. Tư duy gỡ lỗi khi một lệnh không hoạt động
 
-Khi hệ thống báo lỗi, đừng thử sai ngẫu nhiên. Hãy tư duy theo từng lớp:
+Khi hệ thống báo lỗi, hãy tư duy theo cấu trúc các lớp (layers) đã học thay vì thử ngẫu nhiên:
 
-1.  **Lỗi "Command not found":** 
-    *   Bạn có gõ sai chính tả không? 
-    *   Chương trình đã cài chưa?
-    *   Đường dẫn chứa file thực thi có nằm trong biến danh bạ `PATH` chưa?
-2.  **Lỗi "Permission denied":** 
-    *   Bạn đang đóng vai người dùng thường, nhưng đụng vào cấu hình của quyền Root (Giám đốc). Giải pháp: chạy qua `sudo`.
-    *   File đó thiếu quyền thực thi (`chmod +x`).
-3.  **Lệnh Pipe ra kết quả trắng tinh hoặc báo lỗi lạ:**
-    *   Hãy tách chuỗi ra. Chạy riêng phần lệnh đầu tiên xem `stdout` của nó có đúng định dạng không, trước khi băm nó sang cho chương trình phía sau.
+1.  **Lỗi "Command not found":**
+    *   Tên lệnh gõ đúng chính tả không?
+    *   Thư mục chứa file thực thi đã có trong biến `PATH` chưa?
+    *   Bản thân file executable đó có tồn tại không? (Đối với script, hãy kiểm tra cả dòng interpreter `#!/bin/bash` ở đầu tệp).
+2.  **Lỗi "Permission denied":**
+    *   Hãy kiểm tra chủ sở hữu (ownership) và cờ phân quyền (read/write/execute bits) trên bản thân file.
+    *   Kiểm tra quyền truy cập (execute bit) của các thư mục cha dẫn đến file đó.
+    *   Kiểm tra các tùy chọn của hệ thống tệp (ví dụ phân vùng được mount với cờ `noexec`).
+    *   Chỉ khi xác nhận thiết lập cấu hình thuộc về tài khoản quản trị viên thì mới cần gọi đặc quyền hệ thống (`sudo`).
+3.  **Pipeline không hoạt động đúng:**
+    *   Phân tách từng mắt xích. Đảm bảo tiến trình A xả ra `stdout` đúng định dạng mong đợi trước khi `pipe` nó vào `stdin` của tiến trình B. Chú ý luồng lỗi `stderr` có thể bị rò rỉ ra terminal.
 
 ---
 
 ## 16. Liên hệ với Embedded Linux
 
-Nếu bạn đang làm việc với các dự án điện tử viễn thông, lập trình vi điều khiển như STM32, ESP32, hay xây dựng firmware trên OpenWrt, dòng lệnh (CLI) không phải là tùy chọn, nó là môi trường bắt buộc.
+Khi mang Linux lên các hệ thống nhúng, các thiết bị thường không có GUI, thậm chí không có cả kết nối mạng trong quá trình bring-up ban đầu. 
 
-Ví dụ như khi bạn SSH vào `[NgocChien Trùm VT01@openwrt:~]#` trên một router, hoặc quan sát log OTA qua cổng UART Serial (`/dev/ttyUSB0`), thiết bị nhúng sẽ không có màn hình GUI đồ họa. 
+Các giao diện phổ biến để kết nối thường là cổng serial UART (console) hoặc SSH (PTY). Trong môi trường này, kỹ năng dòng lệnh là một trong những công cụ chẩn đoán quan trọng nhất. Sự thông hiểu về `file descriptor`, chuyển hướng `stdout/stderr` để kiểm soát log hệ thống (như xuất từ dmesg), và khai thác `exit status` trong các Makefile hay CMake trở thành kỹ năng sinh tồn thiết yếu để phát triển và bring-up hệ thống Embedded Linux.
 
-Kỹ năng dùng CLI, sử dụng `dmesg | grep tty` để tìm cổng COM thiết bị, viết các script `Makefile` hay `CMake` (vốn khai thác sức mạnh của biến môi trường và exit status), hoặc dùng `BusyBox` để điều hướng hệ thống file nhỏ gọn, chính là nền tảng cốt lõi phân biệt một kỹ sư Embedded Systems nắm rõ bản chất so với việc chỉ click chuột mù mờ trên các IDE truyền thống.
+Thêm vào đó, để tối ưu dung lượng lưu trữ, hệ thống nhúng thường gói gọn hàng chục công cụ vào một tệp thực thi duy nhất gọi là **BusyBox**. Mặc dù cú pháp của BusyBox có thể được rút gọn so với các tiện ích GNU tiêu chuẩn, các mô hình cốt lõi về shell parsing, pipeline và xử lý tiến trình hoàn toàn không thay đổi.
 
 ---
 
@@ -312,12 +311,24 @@ Kỹ năng dùng CLI, sử dụng `dmesg | grep tty` để tìm cổng COM thi�
 Hãy lưu giữ mô hình vận hành duy nhất này trong tư duy:
 
 ```text
-Bạn gõ chữ -> Terminal truyền đi -> Shell dịch cú pháp -> Thực hiện mở rộng biến 
--> Thiết lập ống nước (pipe/redirection) -> Tìm đường dẫn (PATH) 
--> Giao việc (Process/Kernel) -> Trả về kết quả (Exit status).
+Người dùng nhập chuỗi 
+   |
+Terminal/TTY truyền dữ liệu 
+   |
+Shell phân tích (Parse) 
+   |
+Shell mở rộng cú pháp (Expand) 
+   |
+Shell chuẩn bị luồng I/O (Redirection/Pipe) 
+   |
+Shell tra cứu lệnh (PATH) 
+   |
+Kernel tạo tiến trình (Fork/Execve) 
+   |
+Tiến trình chạy và báo cáo (Exit status)
 ```
 
-Nếu một lệnh không chạy, đừng vội đổ lỗi cho chương trình hỏng. Hãy xem xét lại chuỗi dây chuyền trên, xác định xem cú pháp nháy (`' '`), toán tử ống dẫn (`|`, `>`) đã được ông "tổng đài viên Shell" hiểu đúng ý định của bạn hay chưa.
+> **Đọc sơ đồ:** Đọc chuỗi này từ trên xuống dưới, ta thấy rõ trách nhiệm của từng thành phần. Terminal/TTY làm nhiệm vụ dẫn truyền tín hiệu thô; Shell đóng vai trò như một bộ não trung tâm chuyên dịch cú pháp, thiết lập môi trường và cấu hình các File Descriptor/Pipe; cuối cùng, Kernel đảm nhiệm vai trò cung cấp tài nguyên, tạo tiến trình và thực thi công việc thực tế. Khi đối mặt với một chuỗi lệnh phức tạp bị lỗi, hãy bóc tách tuần tự theo lớp: Lỗi đang xảy ra ở khâu cấu hình chuẩn bị của Shell, hay ở khâu chạy của bản thân chương trình?
 
 ---
 
@@ -333,5 +344,6 @@ Phần này liệt kê các nguồn chính thống để bạn tra cứu khi c�
 - GNU Findutils Manual: https://www.gnu.org/software/findutils/manual/
 - Bootlin Embedded Linux training: https://bootlin.com/training/embedded-linux/
 - BusyBox documentation: https://busybox.net/
+- Linux TTY documentation: https://docs.kernel.org/driver-api/tty/
 
 > **Điều hướng:** [Chủ đề 2 — Hệ thống tệp Linux →](README-topic-02.md)
