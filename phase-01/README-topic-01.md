@@ -211,12 +211,12 @@ stateDiagram-v2
     state "Execute" as Execute
     state "Wait / continue" as WaitContinue
 
-    [*] --> ReadLine: Shell nhận command line
-    ReadLine --> Parse: phân tích cú pháp và tokenize
-    Parse --> Expansion: parameter/command expansion và glob
-    Expansion --> Redirection: chuẩn bị pipe và redirection
-    Redirection --> Execute: chạy builtin hoặc executable
-    Execute --> WaitContinue: foreground chờ, background tiếp tục
+    [*] --> ReadLine: command line
+    ReadLine --> Parse: parse / tokenize
+    Parse --> Expansion: expand
+    Expansion --> Redirection: setup fd / pipe
+    Redirection --> Execute: execute
+    Execute --> WaitContinue: wait / continue
     WaitContinue --> [*]
 ```
 

@@ -220,17 +220,17 @@ sequenceDiagram
     participant F as Filesystem
 
     P->>V: pathname /a/b/c
-    V->>D: lookup component "a"
+    V->>D: lookup "a"
     D-->>V: dentry "a"
-    V->>D: lookup component "b"
+    V->>D: lookup "b"
     D-->>V: dentry "b"
-    V->>D: lookup component "c"
-    D-->>V: cache hit hoặc cache miss
+    V->>D: lookup "c"
+    D-->>V: cache hit / miss
     alt cache miss
-        V->>F: lookup component trong filesystem
-        F-->>V: dentry/inode tương ứng
+        V->>F: filesystem lookup
+        F-->>V: dentry / inode
     end
-    V-->>P: resolved object hoặc error
+    V-->>P: object / error
 ```
 
 Đây là mô hình tư duy. Chi tiết cache và filesystem cụ thể phức tạp hơn.

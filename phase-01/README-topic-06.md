@@ -577,16 +577,16 @@ stateDiagram-v2
     state "Terminated" as Terminated
 
     [*] --> Created
-    Created --> Runnable: thread trở thành schedulable
-    Runnable --> Running: scheduler cấp CPU
-    Running --> Runnable: preempt hoặc yield
-    Running --> Waiting: block khi chờ I/O hoặc event
-    Waiting --> Runnable: wakeup khi điều kiện chờ hoàn tất
-    Running --> Terminated: start routine return hoặc pthread_exit()
-    Terminated --> [*]: join/detach quyết định việc thu hồi resource vòng đời
+    Created --> Runnable: schedulable
+    Runnable --> Running: dispatch
+    Running --> Runnable: preempt / yield
+    Running --> Waiting: wait I/O / event
+    Waiting --> Runnable: wakeup
+    Running --> Terminated: return / pthread_exit()
+    Terminated --> [*]
 ```
 
-Đây là mô hình học tập, không phải toàn bộ trạng thái nội bộ của `scheduler` Linux.
+Đây là mô hình học tập, không phải toàn bộ trạng thái nội bộ của `scheduler` Linux. Sau khi thread ở trạng thái `Terminated`, việc thread là `joinable` hay `detached` quyết định cách tài nguyên vòng đời của nó được thu hồi.
 
 ---
 

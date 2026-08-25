@@ -146,26 +146,20 @@ Khi signal đủ điều kiện được delivery, Linux kernel áp dụng cách
 ### 2.4 Sơ đồ trạng thái
 
 ```mermaid
-stateDiagram-v2
-    state "Generated" as Generated
-    state "Pending" as Pending
-    state "Delivery" as Delivery
-    state "Handler" as Handler
-    state "Resume" as Resume
-    state "Ignored" as Ignored
-    state "Default action" as DefaultAction
-
-    [*] --> Generated: signal được tạo
-    Generated --> Pending: signal bị block hoặc chưa thể delivery
-    Generated --> Delivery: có thể delivery ngay
-    Pending --> Delivery: signal được unblock
-    Delivery --> Ignored: disposition = ignore
-    Delivery --> Handler: disposition = handler
-    Delivery --> DefaultAction: disposition = default
-    Handler --> Resume: handler return bình thường
-    Resume --> [*]
-    Ignored --> [*]
-    DefaultAction --> [*]
+flowchart TD
+    Start([Signal generated]) --> Generated["Generated"]
+    Generated --> Ready{"Deliverable now?"}
+    Ready -->|No| Pending["Pending"]
+    Pending -->|unblock / eligible| Delivery["Delivery"]
+    Ready -->|Yes| Delivery
+    Delivery --> Disposition{"Disposition"}
+    Disposition -->|ignore| Ignored["Ignored"]
+    Disposition -->|handler| Handler["Handler"]
+    Disposition -->|default| DefaultAction["Default action"]
+    Handler --> Resume["Resume"]
+    Resume --> End((End))
+    Ignored --> End
+    DefaultAction --> End
 ```
 
 ---

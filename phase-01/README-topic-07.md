@@ -273,9 +273,11 @@ stateDiagram-v2
     state "Locked" as Locked
 
     [*] --> Unlocked
-    Unlocked --> Locked: pthread_mutex_lock() thành công
-    Locked --> Unlocked: owner gọi pthread_mutex_unlock()
+    Unlocked --> Locked: lock()
+    Locked --> Unlocked: unlock()
 ```
+
+Trong sơ đồ, `lock()` tương ứng với thao tác lấy mutex bằng `pthread_mutex_lock()`, còn `unlock()` tương ứng với `pthread_mutex_unlock()` do owner thực hiện.
 
 Khi đang bị khóa:
 
@@ -562,16 +564,16 @@ sequenceDiagram
     participant P as Producer
 
     C->>M: pthread_mutex_lock()
-    C->>C: kiểm tra predicate == false
+    C->>C: check predicate
     C->>V: pthread_cond_wait()
-    V->>M: atomically unlock mutex rồi wait
+    V->>M: atomic unlock + wait
     P->>M: pthread_mutex_lock()
-    P->>P: cập nhật shared state và predicate
-    P->>V: pthread_cond_signal()/pthread_cond_broadcast()
+    P->>P: update shared state
+    P->>V: signal / broadcast
     P->>M: pthread_mutex_unlock()
     V-->>C: wakeup
-    C->>M: reacquire mutex trước khi return
-    C->>C: kiểm tra lại predicate
+    C->>M: reacquire mutex
+    C->>C: recheck predicate
 ```
 
 ---
@@ -950,17 +952,16 @@ Thread C ----------> barrier -/
 ### 13.2 Mô hình trạng thái
 
 ```mermaid
-stateDiagram-v2
-    state "Collecting" as Collecting
-    state "Release" as Release
-    state "Next generation" as NextGeneration
-
-    [*] --> Collecting
-    Collecting --> Collecting: Thread tới barrier, chưa đủ participants
-    Collecting --> Release: Thread cuối cùng tới barrier
-    Release --> NextGeneration: các waiting threads được release
-    NextGeneration --> Collecting: barrier bắt đầu generation tiếp theo
+flowchart TD
+    Start([Start generation]) --> Collecting["Collecting"]
+    Collecting --> Check{"All participants arrived?"}
+    Check -->|No| Waiting["Waiting at barrier"]
+    Check -->|Yes| Release["Release"]
+    Release --> NextGeneration["Next generation"]
+    NextGeneration --> NewCollecting["Collecting (new generation)"]
 ```
+
+Khi chưa đủ participants, những thread đã tới barrier tiếp tục chờ ở generation hiện tại. Khi đủ participants, barrier cho các thread đang chờ đi tiếp; nếu barrier được tái sử dụng, generation tiếp theo lại bắt đầu ở trạng thái `Collecting`.
 
 ---
 

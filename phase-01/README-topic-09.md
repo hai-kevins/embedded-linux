@@ -958,19 +958,19 @@ Trên Linux hiện đại, `listen(2)` mô tả backlog theo hàng đợi kết 
 
 ```mermaid
 sequenceDiagram
-    participant S as Server application
+    participant S as Server app
     participant K as Linux TCP/IP stack
-    participant C as Client application
+    participant C as Client app
 
     S->>K: socket()
     S->>K: bind()
     S->>K: listen()
     C->>K: connect()
-    K->>K: TCP three-way handshake
+    K->>K: three-way handshake
     S->>K: accept()
     K-->>S: connected socket fd
     S<<->>C: TCP byte stream
-    S->>K: shutdown()/close()
+    S->>K: shutdown() / close()
 ```
 
 ---
@@ -1111,16 +1111,16 @@ stateDiagram-v2
     [*] --> CLOSED
     CLOSED --> LISTEN: listen()
     CLOSED --> SYN_SENT: connect()
-    LISTEN --> SYN_RECEIVED: nhận SYN
-    SYN_SENT --> ESTABLISHED: nhận SYN+ACK rồi gửi ACK
-    SYN_RECEIVED --> ESTABLISHED: nhận ACK cuối
-    ESTABLISHED --> FIN_WAIT_1: local endpoint thực hiện active close
-    ESTABLISHED --> CLOSE_WAIT: nhận FIN từ peer
-    FIN_WAIT_1 --> FIN_WAIT_2: local FIN được ACK
-    FIN_WAIT_2 --> TIME_WAIT: nhận FIN từ peer
-    CLOSE_WAIT --> LAST_ACK: local application close
-    LAST_ACK --> CLOSED: local FIN được ACK
-    TIME_WAIT --> CLOSED: hết thời gian 2MSL
+    LISTEN --> SYN_RECEIVED: SYN
+    SYN_SENT --> ESTABLISHED: SYN+ACK / ACK
+    SYN_RECEIVED --> ESTABLISHED: ACK
+    ESTABLISHED --> FIN_WAIT_1: active close
+    ESTABLISHED --> CLOSE_WAIT: FIN
+    FIN_WAIT_1 --> FIN_WAIT_2: ACK
+    FIN_WAIT_2 --> TIME_WAIT: FIN
+    CLOSE_WAIT --> LAST_ACK: close()
+    LAST_ACK --> CLOSED: ACK
+    TIME_WAIT --> CLOSED: 2MSL timeout
 ```
 
 RFC 9293 có `state machine` đầy đủ hơn; sơ đồ trên phục vụ nhập môn.
