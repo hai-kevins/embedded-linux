@@ -230,7 +230,7 @@ Sơ đồ này nên được đọc từ trên xuống dưới như vòng đời
 
 Sơ đồ trên là mô hình học tập, không phải toàn bộ chi tiết triển khai của Bash hay một Shell cụ thể. Tuy nhiên, nó đủ để giải thích phần lớn hiện tượng mà người mới gặp khi dùng dấu nháy, biến, pipe và chuyển hướng.
 
-### 3.3 Builtin và chương trình ngoài
+### 3.3 Builtin (Tích hợp sẵn) và chương trình ngoài
 
 Sau khi phân tích dòng lệnh, Shell phải quyết định lệnh cần chạy là **builtin** hay một executable bên ngoài. Builtin là chức năng nằm ngay trong Shell. `cd` là ví dụ quan trọng: nếu `cd` chạy trong một tiến trình con rồi tiến trình đó kết thúc, thư mục làm việc của Shell cha sẽ không thay đổi; vì vậy việc đổi thư mục phải được Shell tự thực hiện.
 
