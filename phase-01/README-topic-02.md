@@ -299,13 +299,13 @@ Một `device node` giao tiếp với phần cứng cho phép truy cập ngẫu 
 ### 6.6 `major` và `minor`
 
 Mỗi `device node` mang một cặp ID:
-*   `major number`: Định danh loại trình điều khiển (Driver) chịu trách nhiệm.
-*   `minor number`: Phân biệt các thiết bị/phân vùng vật lý khác nhau cùng dùng chung Driver đó.
+*   `major number`: Định danh loại trình điều khiển (Driver) chịu trách nhiệm. Ví dụ, tất cả các ổ đĩa cứng chuẩn SCSI/SATA đều có số Major là 8. Cứ nhìn thấy số 8 là hệ thống tự động giao cho Driver ổ cứng xử lý, thay vì gửi nhầm sang Driver của bàn phím hay chuột. Cứ cùng một loại phần cứng (dùng chung một Driver) thì sẽ có chung số Major.
+*   `minor number`: Phân biệt các thiết bị/phân vùng vật lý khác nhau cùng dùng chung Driver đó. Ví dụ: ổ cứng thứ nhất (sda) là số 0, ổ cứng thứ hai (sdb) là số 16, phân vùng đầu tiên của ổ cứng thứ nhất (sda1) là số 1. 
 *Lưu ý: Sự tồn tại của một file `device node` trong `/dev` không chứng minh phần cứng vật lý đó đang được cắm vào máy.*
 
 ### 6.7 FIFO (Named Pipe)
 
-Là một đường ống (Pipe) được đặt tên hiển thị thẳng trong filesystem. Pathname của FIFO đóng vai trò như một "địa điểm gặp gỡ" (rendezvous point) để hai tiến trình không quen biết nhau có thể tìm thấy và truyền dữ liệu cho nhau.
+Là một đường ống (Pipe) được đặt tên hiển thị thẳng trong filesystem. Pathname của FIFO đóng vai trò như một "địa điểm gặp gỡ" để hai tiến trình không quen biết nhau có thể tìm thấy và truyền dữ liệu cho nhau. Khác với dấu gạch đứng `|` (đường ống vô danh) chỉ dùng giữa các lệnh cha-con đi liền nhau, FIFO cho phép hai tiến trình hoàn toàn độc lập kết nối qua một file đại diện trên ổ cứng. Dữ liệu truyền qua FIFO chạy trực tiếp trên bộ nhớ RAM theo cơ chế một chiều (First In, First Out) và không làm tăng dung lượng file thật. Khi một tiến trình ghi dữ liệu vào FIFO, nó sẽ bị chặn (block) và dừng lại cho đến khi có một tiến trình khác mở đầu kia ra để đọc.
 
 ### 6.8 Unix-domain socket
 
