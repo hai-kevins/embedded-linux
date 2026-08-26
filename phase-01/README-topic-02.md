@@ -191,7 +191,7 @@ VFS là hạt nhân điều phối, `dentry` ánh xạ cấu trúc tên, còn `i
    +----> [ ... ]
 ```
 
-> **Đọc sơ đồ:** Ứng dụng ở tầng Userspace chỉ biết gọi các hàm System Call chuẩn. VFS nhận yêu cầu này, phân tích xem file đó thuộc loại filesystem nào, chuẩn hóa các thông số và gọi (dispatch) xuống driver cụ thể tương ứng (ext4, tmpfs...). Nhờ VFS, một lệnh `cp` copy tệp từ ổ cứng `ext4` sang thư mục `/tmp` chạy trên `tmpfs` vẫn diễn ra hoàn hảo mà người lập trình lệnh `cp` không cần viết riêng code xử lý cho từng loại định dạng.
+> **Đọc sơ đồ:** Ứng dụng ở tầng Userspace chỉ biết gọi các hàm System Call chuẩn. VFS nhận yêu cầu này, phân tích xem file đó thuộc loại filesystem nào, chuẩn hóa các thông số và gọi (dispatch) xuống driver cụ thể tương ứng (ext4, tmpfs...). Nhờ VFS, một lệnh `cp` copy tệp từ ổ cứng `ext4` sang thư mục `/tmp` chạy trên `tmpfs` vẫn diễn ra hoàn hảo mà người lập trình lệnh `cp` không cần viết riêng code xử lý cho từng loại định dạng. Tại sao dcache lại giúp tăng tốc? Hãy tưởng tượng mỗi lần muốn tìm phòng của "Anh Hải", bạn lại phải lội xuống tầng hầm lục lọi đống hồ sơ bằng giấy (ổ cứng vật lý), việc này rất lâu. Thay vào đó, VFS dán luôn một tấm biển tên "Phòng Anh Hải" ngay trên bảng chỉ đường ở sảnh chính bằng RAM (gọi là dcache). Lần sau bạn đến, chỉ cần liếc mắt nhìn bảng dcache là biết đường đi ngay lập tức mà không cần xuống tầng hầm nữa.
 
 ### 4.2 `dentry` là gì?
 
@@ -199,7 +199,7 @@ VFS là hạt nhân điều phối, `dentry` ánh xạ cấu trúc tên, còn `i
 
 *   Mô hình: `Parent directory + Tên tệp -> dentry -> inode`.
 *   Các đối tượng `dentry` được VFS duy trì và lưu vào bộ nhớ đệm (gọi là `dcache`) để giúp việc `pathname resolution` diễn ra nhanh chóng. *Lưu ý: Khái niệm `dentry` của VFS nằm trên RAM hoàn toàn khác với các bản ghi directory entry vật lý được ghi cứng trên đĩa của một filesystem cụ thể.*
-* Mô hình hoạt động: Khi bạn tìm đường dẫn `/home/user/a.txt`, Kernel sẽ ghép `Thư mục cha (/home/user/)` + `Tên tệp (a.txt)` để tạo ra một dentry. dentry này chỉ thẳng đến inode chứa dữ liệu thật của tệp `a.txt`.
+* Mô hình hoạt động: Khi bạn tìm đường dẫn `/home/user/a.txt`, Kernel sẽ ghép `Thư mục cha (/home/user/)` + `Tên tệp (a.txt)` để tạo ra một dentry, dentry này chỉ thẳng đến inode chứa dữ liệu thật của tệp `a.txt`.
 
 ### 4.3 `inode` là gì?
 
