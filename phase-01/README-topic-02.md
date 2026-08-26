@@ -162,10 +162,8 @@ Chuỗi này có 4 thành phần (component): `home`, `user`, `docs` và tệp �
 Một liên kết mềm (`symbolic link`) thực chất chứa nội dung là một đoạn chuỗi pathname khác.
 Khi Kernel dò đường và đụng phải một symbolic link, nó sẽ dừng đường đi hiện tại, đọc nội dung của link đó, thay thế đoạn pathname và phân giải lại từ đầu (đối với đường dẫn tuyệt đối) hoặc từ thư mục chứa link đó (đối với đường dẫn tương đối).
 Ví dụ:
-1. Với đường dẫn tuyệt đối (Bắt đầu bằng /): Bạn tạo một link tại /ban_lam_viec/chu_ky_link và nội dung bên trong link này là chuỗi /o_cung/du_lieu/chu_ky.txt. Khi bạn mở /ban_lam_viec/chu_ky_link, Kernel đi đến thư mục /ban_lam_viec và đụng phải link, nó sẽ dừng lại để đọc chuỗi bên trong. Vì thấy dấu / ở đầu, Kernel lập tức bỏ con đường cũ, quay ngược về tận gốc / rồi tiến hành tra cứu lại từ đầu theo hướng / \(\rightarrow \) o_cung \(\rightarrow \) du_lieu \(\rightarrow \) chu_ky.txt.
-2. Với đường dẫn tương đối (Bắt đầu bằng tên file hoặc ..): Bạn tạo một link khác cũng tại /ban_lam_viec/chu_ky_link_2 nhưng nội dung bên trong link này lại là chuỗi ../o_cung/du_lieu/chu_ky.txt. Khi bạn mở link này, Kernel đụng phải link và đọc được chuỗi ../. Vì đây là đường dẫn tương đối, Kernel không quay về gốc / mà đứng ngay tại thư mục chứa link là /ban_lam_viec, sau đó làm theo lệnh .. để lùi lại một bước ra thư mục mẹ / rồi từ đó mới rẽ tiếp vào o_cung \(\rightarrow \) du_lieu \(\rightarrow \) chu_ky.txt.
-
-
+1. Với đường dẫn tuyệt đối (Bắt đầu bằng /): Bạn tạo một link tại /ban_lam_viec/chu_ky_link và nội dung bên trong link này là chuỗi /o_cung/du_lieu/chu_ky.txt. Khi bạn mở /ban_lam_viec/chu_ky_link, Kernel đi đến thư mục /ban_lam_viec và đụng phải link, nó sẽ dừng lại để đọc chuỗi bên trong. Vì thấy dấu / ở đầu, Kernel lập tức bỏ con đường cũ, quay ngược về tận gốc / rồi tiến hành tra cứu lại từ đầu theo hướng / → o_cung → du_lieu → chu_ky.txt.
+2. Với đường dẫn tương đối (Bắt đầu bằng tên file hoặc ..): Bạn tạo một link khác cũng tại /ban_lam_viec/chu_ky_link_2 nhưng nội dung bên trong link này lại là chuỗi ../o_cung/du_lieu/chu_ky.txt. Khi bạn mở link này, Kernel đụng phải link và đọc được chuỗi ../. Vì đây là đường dẫn tương đối, Kernel không quay về gốc / mà đứng ngay tại thư mục chứa link là /ban_lam_viec, sau đó làm theo lệnh .. để lùi lại một bước ra thư mục mẹ / rồi từ đó mới rẽ tiếp vào o_cung → du_lieu → chu_ky.txt.
 
 ---
 
