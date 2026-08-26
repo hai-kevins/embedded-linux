@@ -203,7 +203,7 @@ VFS là hạt nhân điều phối, `dentry` ánh xạ cấu trúc tên, còn `i
 
 ### 4.3 `inode` là gì?
 
-`inode` (Index Node) là hạt nhân lưu trữ của mọi đối tượng tệp tin. Nó chứa toàn bộ **siêu dữ liệu (metadata)** và bản đồ ánh xạ tới các block dữ liệu thực tế, **NGOẠI TRỪ TÊN TỆP**.
+`inode` (Index Node) là hạt nhân lưu trữ của mọi đối tượng tệp tin. Nó chứa toàn bộ **siêu dữ liệu (metadata)** và bản đồ ánh xạ tới các block dữ liệu thực tế, **NGOẠI TRỪ TÊN TỆP**. Việc dữ liệu thực tế không năm ở inode bởi vì dữ liệu thực tế quá lớn, inode chỉ cung cấp cho bạn các con trở tới các block dữ liệu đó trên ổ cứng. Khi bạn mở tệp, các dữ liệu sẽ được ghép lại hoàn chỉnh.
 
 Siêu dữ liệu trong inode bao gồm:
 *   Loại tệp (file type).
@@ -216,7 +216,9 @@ Siêu dữ liệu trong inode bao gồm:
 
 ### 4.4 `inode` không chứa pathname đầy đủ
 
-Tên tệp không nằm trong `inode`. Tên tệp thuộc quyền quản lý của cấu trúc thư mục (directory) trỏ tới `inode` đó. Sự chia tách kiến trúc này vô cùng mạnh mẽ: nó cho phép một `inode` dữ liệu (một object) có thể sở hữu nhiều cái tên ở các thư mục hoàn toàn khác nhau thông qua cơ chế liên kết cứng (`hard link`).
+Tên tệp không nằm trong `inode`. Tên tệp thuộc quyền quản lý của cấu trúc thư mục (directory) trỏ tới `inode` đó. Sự chia tách kiến trúc này vô cùng mạnh mẽ: nó cho phép một `inode` dữ liệu (một object) có thể sở hữu nhiều cái tên ở các thư mục hoàn toàn khác nhau thông qua cơ chế liên kết cứng (`hard link`). Có nghĩa là các file có tên khác nhau, nằm ở các thư mục khác nhau sẽ có cùng nội dung vì chúng trỏ đến cùng inode. Ví dụ:
+`docs/baocao.txt` → số inode 2004
+`Desktop/thuctap.txt` → số inode 2004
 
 ### 4.5 `inode number` không phải ID toàn hệ thống
 
