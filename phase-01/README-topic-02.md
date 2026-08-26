@@ -197,7 +197,7 @@ VFS là hạt nhân điều phối, `dentry` ánh xạ cấu trúc tên, còn `i
 
 `dentry` (Directory Entry) là đối tượng cấu trúc dữ liệu của **VFS**, đại diện cho **mối quan hệ giữa một cái tên cụ thể và một thư mục**. 
 
-*   Mô hình: `Parent directory + Tên tệp -> dentry -> inode`.
+*   Mô hình: `Parent directory + Tên tệp -> dentry -> inode` (`docs/baocao.txt`→ dentry → `số inode 2211`).
 *   Các đối tượng `dentry` được VFS duy trì và lưu vào bộ nhớ đệm (gọi là `dcache`) để giúp việc `pathname resolution` diễn ra nhanh chóng. *Lưu ý: Khái niệm `dentry` của VFS nằm trên RAM hoàn toàn khác với các bản ghi directory entry vật lý được ghi cứng trên đĩa của một filesystem cụ thể.*
 * Mô hình hoạt động: Khi bạn tìm đường dẫn `/home/user/a.txt`, Kernel sẽ ghép `Thư mục cha (/home/user/)` + `Tên tệp (a.txt)` để tạo ra một dentry, dentry này chỉ thẳng đến inode chứa dữ liệu thật của tệp `a.txt`.
 
