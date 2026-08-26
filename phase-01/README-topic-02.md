@@ -217,7 +217,7 @@ Siêu dữ liệu trong inode bao gồm:
 ### 4.4 `inode` không chứa pathname đầy đủ
 
 Tên tệp không nằm trong `inode`. Tên tệp thuộc quyền quản lý của cấu trúc thư mục (directory) trỏ tới `inode` đó. Sự chia tách kiến trúc này vô cùng mạnh mẽ: nó cho phép một `inode` dữ liệu (một object) có thể sở hữu nhiều cái tên ở các thư mục hoàn toàn khác nhau thông qua cơ chế liên kết cứng (`hard link`). Có nghĩa là các file có tên khác nhau, nằm ở các thư mục khác nhau sẽ có cùng nội dung vì chúng trỏ đến cùng inode. Ví dụ:
-`docs/baocao.txt` → số inode 2004
+`docs/baocao.txt` → số inode 2004,
 `Desktop/thuctap.txt` → số inode 2004
 
 ### 4.5 `inode number` không phải ID toàn hệ thống
