@@ -258,7 +258,7 @@ Là số byte dữ liệu mà tệp biểu diễn ra cho các lệnh đọc/ghi 
 
 Filesystem vật lý quản lý lưu trữ theo từng khối (Block) để tối ưu hiệu suất, ví dụ block size chuẩn thường là 4096 bytes (4KB).
 *   Một tệp có `logical size` 1000 bytes vẫn sẽ tiêu tốn 1 block (4096 bytes) dung lượng ổ cứng cấp phát do `filesystem overhead`.
-*   Trái lại, với tệp thưa (`sparse file`), một file ảo 1GB chứa toàn số không (0) có thể được filesystem khéo léo ánh xạ mà chỉ tốn vài KB dung lượng thật. Thay vì ghi hàng triệu số 0 xuống đĩa cứng, hệ thống tệp chỉ ghi nhận thông tin ánh xạ trong cấu trúc metadata của inode để đánh dấu vùng trống này là các lỗ hổng (holes). Khi có lệnh đọc, nhân hệ điều hành (Kernel) sẽ tự động tạo ra các số 0 trên RAM để trả về cho ứng dụng, giúp việc tạo file dung lượng lớn diễn ra ngay lập tức và tiết kiệm tối đa không gian lưu trữ thực tế.
+*   Trái lại, với tệp thưa (`sparse file`), một file ảo 1GB chứa toàn số không (0) có thể được filesystem khéo léo ánh xạ mà chỉ tốn vài KB dung lượng thật. Thay vì ghi hàng triệu số 0 xuống đĩa cứng, hệ thống tệp chỉ ghi nhận thông tin ánh xạ trong cấu trúc metadata (vài KB dung lượng) của inode để đánh dấu vùng trống này là các lỗ hổng (holes). Ví dụ: nó chỉ cần ghi một dòng "ghi chú" siêu ngắn gọn dạng như: "Từ vị trí byte thứ 0 đến byte thứ 1 tỷ là một khoảng trống toàn số 0". Khi có lệnh đọc, nhân hệ điều hành (Kernel) sẽ tự động tạo ra các số 0 trên RAM để trả về cho ứng dụng, giúp việc tạo file dung lượng lớn diễn ra ngay lập tức và tiết kiệm tối đa không gian lưu trữ thực tế.
 
 ### 5.3 `st_size`, `st_blocks`, `st_blksize` (Các trường trong cấu trúc `stat`)
 
