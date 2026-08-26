@@ -332,7 +332,7 @@ Ba System Call truy vấn siêu dữ liệu:
 
 ### 7.3 Siêu dữ liệu có tính biến động
 
-Hệ thống tệp là môi trường đa nhiệm. Giữa khoảnh khoắc chương trình của bạn lấy siêu dữ liệu từ `stat()` và thời điểm bạn thực sự mở file, một tiến trình khác hoàn toàn có thể đã thay đổi chủ sở hữu hoặc xóa file đó (Race condition - TOCTOU).
+Hệ thống tệp là môi trường đa nhiệm. Giữa khoảnh khoắc chương trình của bạn lấy siêu dữ liệu từ `stat()` và thời điểm bạn thực sự mở file, một tiến trình khác hoàn toàn có thể đã thay đổi chủ sở hữu hoặc xóa file đó (Race condition – TOCTOU). Lỗi TOCTOU nhắc nhở các lập trình viên rằng: Trong Linux, những gì bạn vừa kiểm tra cách đây 1 mili giây chưa chắc bây giờ đã đúng! Để giải quyết tận gốc vấn đề này, các lập trình viên Linux hiện đại không bao giờ dùng cặp lệnh stat() rồi mới open(). Thay vào đó, họ sẽ gộp hai bước làm một: Cứ đánh bạo open() file ra trước để lấy chiếc chìa khóa (File Descriptor), sau đó mới kiểm tra tệp dựa trên chính chiếc chìa khóa đó (dùng hàm fstat). Như vậy sẽ không ai có thể nhảy vào giữa để tráo file được nữa.
 
 ---
 
@@ -420,8 +420,9 @@ Giả sử bạn có thư mục `/mnt/sdcard`. Trước khi cắm thẻ nhớ, m
            /mnt/sdcard/
 ```
 
-Sau khi mount thẻ nhớ vào `/mnt/sdcard`, khi VFS phân giải pathname chạm đến nhánh `/mnt/sdcard`, nó sẽ lập tức "bẻ lái" sang gốc của filesystem mới (exFAT). 
-Nội dung cũ (`readme.txt`) không hề bị lệnh mount xóa đi; nó chỉ bị che lấp (shadowed) bởi không gian của thẻ nhớ mới, cho đến khi thẻ nhớ được tháo gỡ (unmount).
+Sau khi bạn thực hiện lệnh mount thẻ nhớ vào thư mục /mnt/sdcard, một cơ chế định tuyến thông minh sẽ được kích hoạt bên trong lớp VFS (Virtual File System) của Kernel. Kể từ khoảnh khắc này, mỗi khi hệ thống tiến hành phân giải đường dẫn (pathname resolution) và chạm đến nhánh thư mục /mnt/sdcard, VFS sẽ nhận diện được điểm gắn kết (mount point) này và lập tức "bẻ lái" luồng truy cập sang cấu trúc gốc của hệ thống tệp mới (ở đây là thẻ nhớ định dạng exFAT).
+Điều này dẫn đến một hiện tượng thú vị: toàn bộ nội dung cũ vốn có bên trong thư mục (ví dụ như tệp readme.txt) không hề bị lệnh mount xóa bỏ hay làm tổn hại; chúng vẫn nằm im và an toàn trên phân vùng ổ cứng chính. Tuy nhiên, do mảnh ghép hệ thống tệp exFAT mới đã được đặt đè lên trên, không gian dữ liệu của thẻ nhớ sẽ hoàn toàn che lấp (shadowed) nội dung cũ, khiến người dùng và các ứng dụng tạm thời không thể nhìn thấy hay tương tác với tệp readme.txt được nữa. Trạng thái che phủ này sẽ được duy trì liên tục cho đến khi bạn thực hiện thao tác tháo gỡ an toàn (unmount) thẻ nhớ ra khỏi hệ thống, lúc đó "tấm màn che" bị nhấc bỏ và các tệp tin cũ ngầm bên dưới lại lập tức hiện ra nguyên vẹn.
+
 
 ### 10.3 Thiết bị khối, Phân vùng, Hệ thống tệp, và Điểm gắn kết
 
