@@ -1,6 +1,6 @@
 # Chủ đề 9 — Socket Programming trong Linux
 
-> **Mục tiêu:** Hiểu bản chất Socket là gì; cách thức TCP Server/Client hình thành kết nối; sự khác biệt cốt lõi về mặt dữ liệu giữa TCP (luồng) và UDP (gói tin); cấu trúc địa chỉ `sockaddr` cùng khái niệm `network byte order`; và thấu hiểu cách một kết nối đóng lại chuẩn mực ở cấp độ giao thức.
+> **Mục tiêu:** Hiểu socket là gì; cách TCP server/client hình thành kết nối; sự khác biệt về mô hình dữ liệu giữa TCP (`byte stream`) và UDP (`datagram`); cấu trúc địa chỉ `sockaddr`, khái niệm `network byte order`; và cách một kết nối được đóng ở cấp độ giao thức.
 >
 > **Quy ước ngôn ngữ:** Phần giải thích dùng Tiếng Việt. Giữ nguyên các thuật ngữ mạng/socket chuẩn để dễ tra cứu quốc tế: `socket`, `server`, `client`, `endpoint`, `address family`, `socket address`, `network byte order`, `byte stream`, `datagram`, `message framing`, `backpressure`, `partial I/O`, `half-close`, `orderly shutdown` cùng tên các API, giao thức, cấu trúc, trạng thái TCP và mã lỗi.
 >
@@ -8,9 +8,9 @@
 >
 > Chương này là **lý thuyết nền tảng** chuẩn bị cho lập trình mạng. Không có bài thực hành. Các cơ chế nâng cao như `O_NONBLOCK`, `select()`, `poll()`, `epoll()` và vòng lặp sự kiện (Event loop) sẽ thuộc **Chủ đề 10**.
 
-Socket là điểm chạm giao tiếp do Kernel quản lý. Khi tạo một Socket, ứng dụng phải khai báo ba tham số cốt lõi: **Họ địa chỉ (Domain/Address family)**, **Kiểu truyền tải (Type)**, và **Giao thức (Protocol)**. Sau đó, Socket sẽ được gán một địa chỉ cục bộ hoặc kết nối tới một đầu cuối (`endpoint`) phụ thuộc vào vai trò của ứng dụng. 
+Socket là một `endpoint` giao tiếp do Kernel quản lý. Khi tạo một Socket, ứng dụng phải khai báo ba tham số cốt lõi: **Họ địa chỉ (Domain/Address family)**, **Kiểu truyền tải (Type)**, và **Giao thức (Protocol)**. Sau đó, Socket sẽ được gán một địa chỉ cục bộ hoặc kết nối tới một đầu cuối (`endpoint`) phụ thuộc vào vai trò của ứng dụng.
 
-Chương này sẽ đi theo vòng đời của một luồng mạng: từ lúc tạo `socket()`, gán tọa độ, thiết lập trạng thái bằng chuỗi `bind() → listen() → accept()` hoặc `connect()`. Quan trọng nhất, bạn sẽ nhận ra một điểm cốt lõi trong lập trình mạng: TCP cung cấp một luồng dữ liệu (Byte Stream) không tự bảo toàn ranh giới thông điệp của ứng dụng, trái ngược với mô hình truyền từng gói tin nguyên vẹn (Datagram) của UDP.
+Chương này đi theo vòng đời của một kênh giao tiếp: từ lúc tạo `socket()`, gán địa chỉ, thiết lập trạng thái bằng chuỗi `bind() → listen() → accept()` hoặc `connect()`. Quan trọng nhất, bạn sẽ nhận ra một điểm cốt lõi trong lập trình mạng: TCP cung cấp một luồng dữ liệu (Byte Stream) không tự bảo toàn ranh giới thông điệp của ứng dụng, trái ngược với mô hình truyền từng gói tin nguyên vẹn (Datagram) của UDP.
 
 ---
 
@@ -91,9 +91,9 @@ Cùng một bộ hàm C `socket()`, `bind()`, `read()`, `write()`, bạn có th�
 Không có các định nghĩa kiểu như `SOCK_CLIENT` hay `SOCK_SERVER` lúc tạo Socket.
 Vai trò được hình thành thông qua **chuỗi hành vi** của ứng dụng:
 
-*   **TCP Server:** Chủ động gắn với một địa chỉ/cổng và chờ kết nối. 
+*   **TCP Server:** Chủ động gắn với một địa chỉ/cổng và chờ kết nối.
     Chuỗi gọi hàm: `socket` -> `bind` -> `listen` -> `accept`.
-*   **TCP Client:** Chủ động kết nối tới một máy chủ. 
+*   **TCP Client:** Chủ động kết nối tới một máy chủ.
     Chuỗi gọi hàm: `socket` -> `connect`.
 
 *(Sau khi thiết lập kết nối xong, cả hai phía đều sở hữu một socket đã kết nối và đều có thể gọi `send`/`recv` một cách bình đẳng)*.
@@ -177,7 +177,7 @@ Giống như gửi thư cần có địa chỉ nhà, giao tiếp mạng yêu c�
 
 ### 4.1 Cấu trúc Địa chỉ tổng quát
 
-Vì API Socket dùng chung cho nhiều `address family` (IPv4, IPv6, Unix Domain), hệ thống sử dụng một cấu trúc dữ liệu tổng quát là `struct sockaddr` tại giao diện API. 
+Vì API Socket dùng chung cho nhiều `address family` (IPv4, IPv6, Unix Domain), hệ thống sử dụng một cấu trúc dữ liệu tổng quát là `struct sockaddr` tại giao diện API.
 Lập trình viên thường khởi tạo các cấu trúc đặc thù (như `sockaddr_in`), sau đó ép kiểu con trỏ về `struct sockaddr*` khi gọi hàm.
 
 ### 4.2 Cấu trúc IPv4: `sockaddr_in`
@@ -214,17 +214,17 @@ Do kích thước cấu trúc của từng `address family` là khác nhau, các
 
 Các hệ thống máy tính có kiến trúc vi xử lý khác nhau có thể lưu trữ các số nguyên nhiều byte theo các thứ tự khác nhau. Việc truyền dữ liệu thô (raw bytes) giữa các kiến trúc này mà không có quy ước chung sẽ dẫn đến sai lệch dữ liệu.
 
-### 5.1 Thế chiến giữa Little-endian và Big-endian
+### 5.1 Little-endian và Big-endian
 
 Giá trị 16-bit `0x1234` có thể được lưu trữ trên RAM:
 *   Kiểu **Little-endian** (thường thấy trên chip x86): Dạng `34 12`.
 *   Kiểu **Big-endian** (một số dòng chip mạng/nhúng): Dạng `12 34`.
 
-### 5.2 Ngôn ngữ ngoại giao: `Network Byte Order`
+### 5.2 `Network Byte Order`
 
-Các giao thức Internet quy định một số trường cấu trúc nhiều byte (như Port, IP address dạng số) bắt buộc phải sử dụng **Network Byte Order**, tương đương với thứ tự **Big-endian**. 
+Các giao thức Internet quy định một số trường cấu trúc nhiều byte (như Port, IP address dạng số) bắt buộc phải sử dụng **Network Byte Order**, tương đương với thứ tự **Big-endian**.
 
-### 5.3 Các hàm chuyển đổi kinh điển
+### 5.3 Các hàm chuyển đổi cơ bản
 
 Ứng dụng cung cấp các hàm dịch thuật để đồng bộ hóa `byte order`:
 *   `htons()` (Host To Network Short): Chuyển số nguyên 16-bit (như Port) từ kiến trúc máy sang chuẩn Mạng.
@@ -279,9 +279,9 @@ Sự kiện `getaddrinfo()` trả về danh sách địa chỉ chỉ chứng t�
 
 Một kết nối mạng được định hình bởi tập hợp các tọa độ gọi là Endpoint.
 
-### 7.1 Lãnh thổ của IP và Port
+### 7.1 Vai trò của IP và Port
 
-Về cơ bản: 
+Về cơ bản:
 *   **Địa chỉ IP:** Chỉ định giao diện mạng hoặc thiết bị máy chủ nào sẽ nhận gói tin.
 *   **Cổng (Port):** Quyết định dịch vụ giao vận (process/service) nào trên thiết bị đó sẽ xử lý gói tin.
 
@@ -290,7 +290,7 @@ Về cơ bản:
 Cổng (Port) là một giá trị 16-bit (từ `0` đến `65535`).
 Không gian cổng TCP và UDP là độc lập. Cổng `TCP 5000` và `UDP 5000` trên cùng một máy là hai `endpoint` hoàn toàn khác nhau.
 
-### 7.3 Bộ tứ Quyền lực (4-Tuple TCP Endpoint)
+### 7.3 TCP 4-tuple
 
 Một kết nối TCP (TCP connection) đầy đủ được hệ điều hành phân biệt duy nhất thông qua **Định danh 4 điểm (4-tuple)**:
 ```text
@@ -333,10 +333,10 @@ Lệnh `bind()` gán một cấu trúc địa chỉ Socket (IP + Cổng) cụ th
 
 **Client hiếm khi cần tự `bind()`**. Nếu Client không gọi `bind()`, Kernel sẽ tự động lựa chọn một IP nguồn hợp lệ và cấp một Cổng tạm thời (`ephemeral port`) ngay khi Client phát sinh truy cập truyền/kết nối.
 
-### 8.3 Cổng `0` và Cờ thu gom (Wildcard)
+### 8.3 Cổng `0` và địa chỉ wildcard
 
 *   **Cổng (Port) `0`:** Yêu cầu Kernel tự lựa chọn một cổng trống khả dụng từ dải cổng tạm thời (ephemeral ports) của hệ thống.
-*   **Địa chỉ `0.0.0.0` (INADDR_ANY):** Đây là địa chỉ `wildcard`, báo cho Kernel rằng Socket này muốn lắng nghe yêu cầu đến từ mọi giao diện mạng hiện có trên thiết bị, thay vì chỉ dính chặt vào một địa chỉ IP LAN duy nhất.
+*   **Địa chỉ `0.0.0.0` (INADDR_ANY):** Đây là địa chỉ `wildcard`, báo cho Kernel rằng Socket này muốn lắng nghe yêu cầu đến từ mọi giao diện mạng hiện có trên thiết bị, thay vì chỉ gắn với một địa chỉ IP cụ thể.
 
 ### 8.4 Giải mã lỗi `bind()`
 
@@ -375,7 +375,7 @@ sequenceDiagram
     S->>K: 1. socket() (Tạo Endpoint)
     S->>K: 2. bind(8080) (Gắn Cổng)
     S->>K: 3. listen() (Cấu hình Listening Socket)
-    C->>K: connect() 
+    C->>K: connect()
     K->>K: --- [ Bắt tay 3 bước TCP ] ---
     S->>K: 4. accept()
     K-->>S: Trả về Connected Socket FD mới
@@ -384,8 +384,8 @@ sequenceDiagram
 
 > **Đọc sơ đồ:**
 > Hàm `listen()` biến Socket ban đầu thành một **Listening Socket**. Tại đây, Kernel tiếp nhận các yêu cầu kết nối tới cổng dịch vụ và đưa vào hàng chờ.
-> Hàm `accept()` lôi kết nối đã hoàn thành bắt tay ra, và sinh ra một File Descriptor hoàn toàn mới: **Connected Socket**. 
-> Việc đọc/ghi dữ liệu với Client đó sẽ diễn ra trên `Connected Socket` này. Socket Lắng nghe (Listening Socket) ban đầu vẫn tồn tại và không bị thay thế, sẵn sàng tiếp tục `accept` các yêu cầu của Client khác. 
+> Hàm `accept()` lôi kết nối đã hoàn thành bắt tay ra, và sinh ra một File Descriptor hoàn toàn mới: **Connected Socket**.
+> Việc đọc/ghi dữ liệu với Client đó sẽ diễn ra trên `Connected Socket` này. Socket Lắng nghe (Listening Socket) ban đầu vẫn tồn tại và không bị thay thế, sẵn sàng tiếp tục `accept` các yêu cầu của Client khác.
 
 ### 10.2 Biến `backlog` trong `listen()`
 
@@ -400,7 +400,7 @@ Hàm `listen(fd, backlog)` thiết lập giới hạn cho **Hàng đợi các k�
 ```text
   [ Tên miền / Tên Dịch vụ ]
         |
-   getaddrinfo()  
+   getaddrinfo()
         |
         v
     socket()      (Khởi tạo Endpoint)
@@ -421,7 +421,7 @@ Khi `connect()` không trả về lỗi, nó chỉ báo hiệu quá trình thi�
 
 ## 12. Bắt tay TCP và các trạng thái quan trọng
 
-TCP hoạt động như một cỗ máy trạng thái (State Machine). 
+TCP hoạt động theo một `state machine`.
 
 ### 12.1 Bắt tay 3 bước (Three-way Handshake)
 
@@ -439,7 +439,7 @@ TCP hoạt động như một cỗ máy trạng thái (State Machine).
 
 Sự tương tác này đồng bộ hóa trạng thái sequence-number giữa hai thiết bị. Trong mô hình thông thường, sau khi cả hai chạm tới ngưỡng **`ESTABLISHED`**, luồng truyền tải byte mới sẵn sàng để ứng dụng thao tác.
 
-### 12.2 Cỗ máy Trạng thái TCP Rút gọn
+### 12.2 Mô hình trạng thái TCP rút gọn
 
 ```mermaid
 stateDiagram-v2
@@ -453,7 +453,7 @@ stateDiagram-v2
     ESTABLISHED --> CLOSE_WAIT: Nhận FIN (Bị động đóng)
 ```
 
-Sơ đồ giúp bạn hình dung các trạng thái xuất hiện khi gỡ lỗi thông qua lệnh `ss` hoặc `netstat`. 
+Sơ đồ giúp bạn hình dung các trạng thái xuất hiện khi gỡ lỗi thông qua lệnh `ss` hoặc `netstat`.
 
 ---
 
@@ -461,14 +461,14 @@ Sơ đồ giúp bạn hình dung các trạng thái xuất hiện khi gỡ lỗi
 
 Đây là nguyên tắc quan trọng bậc nhất của TCP Socket: **TCP bảo toàn thứ tự các byte trong dòng dữ liệu, nhưng KHÔNG bảo toàn ranh giới của các lệnh gửi (send).**
 
-### 13.1 Lầm tưởng của việc Gửi / Nhận 1:1
+### 13.1 Không thể giả định gửi / nhận 1:1
 
 Bạn không được phép suy diễn "1 lệnh send() = 1 lệnh recv()".
 
 Giả sử ứng dụng Server gọi lệnh Gửi:
 ```c
-send(fd, "DATA_1", 6, 0); 
-send(fd, "DATA_2", 6, 0); 
+send(fd, "DATA_1", 6, 0);
+send(fd, "DATA_2", 6, 0);
 ```
 Client khi gọi hàm `recv()` có thể nhận thành:
 ```text
@@ -480,11 +480,11 @@ recv lần 1 -> "DATA_"
 recv lần 2 -> "1DATA_2" (Phân mảnh đứt gãy)
 ```
 
-Cả hai cách nhận đều hợp lệ đối với TCP. TCP là dòng luồng byte, không phải là hệ thống đóng hộp văn bản. Do đó Receiver không được giả định rằng một thông điệp sẽ luôn đến nguyên vẹn trong một lần gọi `recv()`.
+Cả hai cách nhận đều hợp lệ đối với TCP. TCP là `byte stream`, không phải một cơ chế truyền thông điệp có sẵn ranh giới. Do đó Receiver không được giả định rằng một thông điệp sẽ luôn đến nguyên vẹn trong một lần gọi `recv()`.
 
 ### 13.2 Phân khung Thông điệp (Message Framing)
 
-Vì TCP không có khái niệm Thông điệp (Message), ứng dụng của bạn phải tự thiết kế một hệ quy ước (Protocol) để băm nhỏ luồng byte này ra.
+Vì TCP không có khái niệm Thông điệp (Message), ứng dụng phải tự thiết kế một giao thức (`protocol`) để phân tách luồng byte thành các thông điệp.
 Một trong các phương pháp phổ biến là **Length-Prefix Framing** (Chỉ định độ dài trước):
 
 ```text
@@ -506,17 +506,17 @@ Hiểu rõ hành vi trả về của hàm I/O.
 ### 14.1 Lệnh `send()` không bảo đảm Dữ liệu đã truyền đi
 
 ```text
-[ App gọi send(100 byte) ] 
+[ App gọi send(100 byte) ]
        |
        v
 [ Kernel chấp nhận chép 100 byte vào TCP Send Buffer Nội bộ ]
        |
        |----> TCP lo việc phân đoạn, đàm phán, gửi sang mạng...
        v
-[ Receive Buffer của máy Đích ] 
+[ Receive Buffer của máy Đích ]
        |
        v
-[ App Đích gọi recv() ] 
+[ App Đích gọi recv() ]
 ```
 
 Khi lệnh `send()` trả về số lượng byte hợp lệ, điều đó chứng tỏ lớp TCP Stack cục bộ đã tiếp nhận tiến trình gửi. Nó không chứng minh phần mềm đích đã thực sự nhận hoặc xử lý dữ liệu đó.
@@ -535,7 +535,7 @@ Ngữ nghĩa: **Toàn bộ dữ liệu tồn đọng trong luồng đã được
 
 ### 14.4 Backpressure do Bộ đệm hữu hạn
 
-Nếu tiến trình gửi bơm dữ liệu nhanh hơn tốc độ tiêu thụ/xử lý của đối tác, Send Buffer cục bộ dần bị lấp đầy. Lúc này, lệnh `send()` sẽ chuyển sang ngủ chờ không gian trống (trong chế độ chặn), hoặc báo lỗi chưa sẵn sàng (trong chế độ không chặn). Đây là cơ chế điều tiết tự nhiên của mạng.
+Nếu tiến trình gửi dữ liệu nhanh hơn tốc độ tiêu thụ/xử lý của đối tác, Send Buffer cục bộ dần bị lấp đầy. Lúc này, lệnh `send()` sẽ chuyển sang ngủ chờ không gian trống (trong chế độ chặn), hoặc báo lỗi chưa sẵn sàng (trong chế độ không chặn). Đây là cơ chế điều tiết tự nhiên của mạng.
 
 ---
 
@@ -545,22 +545,22 @@ Mạng TCP là giao thức hai chiều toàn phần (Full-duplex).
 
 ### 15.1 Hàm `shutdown()` khác `close()`
 
-*   `shutdown()`: Giao tiếp với Kernel để điều khiển hướng của luồng mạng. (Ngừng gửi `SHUT_WR`, Ngừng nhận `SHUT_RD` hoặc Ngừng cả hai). 
+*   `shutdown()`: Giao tiếp với Kernel để điều khiển hướng của luồng mạng. (Ngừng gửi `SHUT_WR`, Ngừng nhận `SHUT_RD` hoặc Ngừng cả hai).
 *   `close()`: Giải phóng `file descriptor` ở cấp độ Tiến trình. Nếu FD này có nhiều bản sao (qua lệnh `fork` / `dup`), một lệnh `close` không nhất thiết kích hoạt ngay việc phá hủy kết nối TCP phía dưới.
 
-### 15.2 Đóng Bán Khép Kín (Half-close)
+### 15.2 `Half-close` với `SHUT_WR`
 
-Hàm `shutdown(fd, SHUT_WR)` làm thay đổi trạng thái giao thức. Khẳng định với nội bộ TCP stack rằng ứng dụng sẽ không gửi thêm byte nào nữa. Kernel sẽ gửi cờ `FIN` thực hiện quy trình `orderly shutdown` hướng gửi. 
+Hàm `shutdown(fd, SHUT_WR)` làm thay đổi trạng thái giao thức. Khẳng định với nội bộ TCP stack rằng ứng dụng sẽ không gửi thêm byte nào nữa. Kernel sẽ gửi cờ `FIN` thực hiện quy trình `orderly shutdown` hướng gửi.
 Tuy nhiên, chiều nhận dữ liệu từ đối tác vẫn tồn tại (Half-close). Bạn vẫn có thể tiếp tục `recv()` phản hồi. Mô hình này rất hữu hiệu khi EOF được dùng làm mốc kết thúc Request nhưng Response vẫn đi ngược về sau đó.
 
 ### 15.3 `CLOSE_WAIT`
 
 Khi trạng thái mạng xuất hiện cờ `CLOSE_WAIT`, điều đó có nghĩa: Hệ thống đã nhận được cờ `FIN` từ Đối tác, nhưng tiến trình ứng dụng cục bộ chưa tiến hành xử lý vòng đời kết nối và chưa chịu gọi hàm `close()` phía mình. Nếu trạng thái này dồn ứ nhiều, đó là biểu hiện ứng dụng của bạn quản lý tài nguyên/FD tồi.
 
-### 15.4 Cạm bẫy `TIME_WAIT`
+### 15.4 `TIME_WAIT`
 
-Phía máy chủ thực hiện việc chủ động cắt cầu (Active close) thường đi qua trạng thái `TIME_WAIT`. Đây là trạng thái bình thường của TCP nhằm đảm bảo tính toàn vẹn của kết nối khi phải đối mặt với các gói tin lạc hậu đi muộn trên mạng và việc xử lý gói ACK cuối cùng.
-Có nhiều `TIME_WAIT` không tự động đồng nghĩa với việc rò rỉ Socket (Leak fd). 
+Phía thực hiện `active close` thường đi qua trạng thái `TIME_WAIT`. Đây là trạng thái bình thường của TCP nhằm đảm bảo tính toàn vẹn của kết nối khi phải đối mặt với các gói tin lạc hậu đi muộn trên mạng và việc xử lý gói ACK cuối cùng.
+Có nhiều `TIME_WAIT` không tự động đồng nghĩa với việc rò rỉ Socket (Leak fd).
 
 ### 15.5 Tín hiệu ngắt: `RST`
 
@@ -574,16 +574,16 @@ UDP không quản lý theo byte. Nó gửi các gói tin (Datagram) đóng gói 
 
 ### 16.1 Ranh giới bảo toàn
 
-*   Sender ném: Datagram A, Datagram B.
-*   Receiver khi gọi lệnh `recv` sẽ bóc ra được đúng gói A và B rời rạc (nếu không có sự cố mạng). UDP giữ ranh giới đóng gói, Kernel không ghép các Datagram thành một dòng `byte stream` như TCP. 
+*   Sender gửi: Datagram A, Datagram B.
+*   Receiver khi gọi lệnh `recv` sẽ bóc ra được đúng gói A và B rời rạc (nếu không có sự cố mạng). UDP giữ ranh giới đóng gói, Kernel không ghép các Datagram thành một dòng `byte stream` như TCP.
 
-### 16.2 Giao dịch Không Kết nối
+### 16.2 UDP không cần thiết lập kết nối
 
 Sender UDP không cần gọi:
 ```text
 SYN -> SYN/ACK -> ACK
 ```
-Bất kỳ lúc nào, nó cũng có thể ném một gói tin lên mạng. Đổi lại sự linh hoạt này, bạn không nhận được các bảo đảm về việc kết nối mạng đã thiết lập, việc truyền lại nếu thất lạc (Retransmission) hay tự động sắp xếp thứ tự như TCP.
+Sender có thể gửi một datagram mà không cần thực hiện TCP handshake trước. Đổi lại sự linh hoạt này, bạn không nhận được các bảo đảm về việc kết nối mạng đã thiết lập, việc truyền lại nếu thất lạc (Retransmission) hay tự động sắp xếp thứ tự như TCP.
 
 ### 16.3 Thiếu độ tin cậy
 
@@ -611,20 +611,20 @@ bind(Local Port)
 recvfrom() / sendto()
 ```
 
-UDP Server sẽ `bind` vào một Cổng cục bộ để đón các gói tin bay tới. Nó không có lệnh `listen()` hay đẻ ra FD nhánh mới (`accept()`). Một Socket UDP đã gắn Cổng có thể giao tiếp đồng thời với vô số đối tác khác nhau.
+UDP server sẽ `bind` vào một cổng cục bộ để nhận các datagram gửi tới. Nó không dùng `listen()` và không tạo connected FD riêng qua `accept()`. Một socket UDP đã gắn cổng có thể giao tiếp với nhiều đối tác khác nhau.
 
-### 17.2 Sự đa năng của `sendto()` và `recvfrom()`
+### 17.2 `sendto()` và `recvfrom()`
 
 *   `sendto()`: Gửi gói tin đi, luôn đính kèm địa chỉ Tọa độ Đích (IP:Port) trên mỗi lệnh gọi. Cho phép một UDP socket gửi datagram tới các đích khác nhau.
-*   `recvfrom()`: Hứng gói tin tới. Ngoài Payload dữ liệu, hàm này bóc ra được luôn cả Địa chỉ Nguồn của gói tin đó. Đây là cơ sở bắt buộc để Server UDP biết địa chỉ truy vết nhằm gửi phản hồi.
+*   `recvfrom()`: Nhận datagram và trả về cả payload lẫn địa chỉ nguồn của gói tin. Đây là cơ sở bắt buộc để Server UDP biết địa chỉ truy vết nhằm gửi phản hồi.
 
-### 17.3 Sức mạnh Lệnh `connect()` trong UDP
+### 17.3 `connect()` với UDP
 
 Bạn hoàn toàn có quyền gọi `connect()` lên một UDP Socket. Nhưng:
 Lệnh `connect()` ở đây KHÔNG HỀ phát sóng lên Internet để bắt tay kết nối như TCP. Nó thực hiện các thao tác quản lý dưới Kernel:
 1. Thiết lập Cấu hình Đích Mặc định (Default Destination).
 2. Cho phép Kernel gắn/lọc liên kết nhận, bỏ qua mọi gói tin không thuộc về Đối tác này.
-3. Cho phép bạn gọi `send()` và `recv()` mượt mà.
+3. Cho phép dùng trực tiếp `send()` và `recv()` với peer đã cấu hình.
 4. Giúp báo lỗi ICMP bất đồng bộ trên hệ thống Linux rõ ràng hơn đối với Socket cụ thể đó.
 
 *(Tất nhiên, cấu hình kiểu này không mang lại bất cứ tính an toàn nào của luồng TCP, nó vẫn là UDP).*
@@ -635,7 +635,7 @@ Lệnh `connect()` ở đây KHÔNG HỀ phát sóng lên Internet để bắt t
 
 Lựa chọn cặp hàm giao tiếp tùy thuộc vào Trạng thái của Socket.
 
-### 18.1 Nhóm Truyền: `send()` vs `sendto()`
+### 18.1 `send()` và `sendto()`
 
 *   Dùng `send()`: Phù hợp khi Socket đã xác định được Điểm đích (Peer). Ví dụ: TCP Connected socket hoặc UDP Socket đã chạy qua lệnh `connect()`.
 *   Dùng `sendto()`: Chuyên dùng để linh hoạt gửi mỗi Datagram cho một máy chủ đích độc lập thông qua một UDP Socket thuần.
@@ -654,12 +654,12 @@ Lập trình Mạng nhưng không cần ra khỏi Máy.
 
 ### 19.1 IPC qua mô hình Socket
 
-Socket API không chỉ dành cho mạng diện rộng (Internet). Bằng cách đổi Hệ quy chiếu (Address Family) sang `AF_UNIX` (hay `AF_LOCAL`), hệ điều hành biến bộ API này thành công cụ Giao tiếp Liên Tiến Trình (IPC) tốc độ cực đỉnh dành riêng cho nội bộ 1 máy tính duy nhất.
+Socket API không chỉ dành cho mạng IP. Với `AF_UNIX` (hay `AF_LOCAL`), cùng bộ API có thể được dùng cho giao tiếp liên tiến trình (IPC) cục bộ trên một hệ thống.
 
 ### 19.2 Tính tương đồng nhưng Bản chất khác biệt
 
 Mô hình thiết lập TCP Server: `socket(AF_UNIX) -> bind -> listen -> accept`.
-Tọa độ định tuyến của nó không phải là IP/Port, mà là một tệp (hoặc abstract namespace) trên hệ thống tệp, ví dụ: `/tmp/db_engine.sock`.
+Địa chỉ của nó không phải IP/Port; có thể là một pathname hoặc abstract namespace, ví dụ: `/tmp/db_engine.sock`.
 
 > Cùng bộ API, nhưng AF_UNIX khác AF_INET ở không gian tên địa chỉ, tính giới hạn trong nội bộ thiết bị (local-only), khả năng xác thực quyền (credentials/permissions) và cơ chế truyền tải của Kernel. Unix Domain Socket giúp bạn thiết kế giao thức linh hoạt mà không mở ranh giới phơi bày mạng.
 
@@ -667,7 +667,7 @@ Tọa độ định tuyến của nó không phải là IP/Port, mà là một t
 
 ## 20. Tư duy gỡ lỗi Socket theo từng lớp
 
-Khi gỡ lỗi socket, hãy đi theo từng lớp: địa chỉ/cổng → trạng thái socket → TCP/UDP → I/O → giao thức ứng dụng. Đừng gom mọi triệu chứng thành một kết luận mờ mịt là “mạng hỏng”.
+Khi gỡ lỗi socket, hãy đi theo từng lớp: địa chỉ/cổng → trạng thái socket → TCP/UDP → I/O → giao thức ứng dụng. Không nên gom mọi triệu chứng thành một kết luận chung chung là “mạng hỏng”.
 
 ### 20.1 Lỗi do `bind()`: `EADDRINUSE` vs `EADDRNOTAVAIL`
 
@@ -676,93 +676,93 @@ Khi gỡ lỗi socket, hãy đi theo từng lớp: địa chỉ/cổng → trạ
 
 ### 20.2 Lỗi do `connect()`: `ECONNREFUSED`
 
-Nếu đập vào lệnh `connect()` mà trả lỗi `ECONNREFUSED` (Bị Từ Chối), đó là tin mừng! Lỗi này chứng tỏ: Gói tin của bạn đã chạm được đến địa phận của Máy chủ đích, Máy đích còn sống, NHƯNG nó không hề có phần mềm (Listening socket) nào đang chực chờ mở cửa ở đúng cái Cổng (Port) mà bạn gõ.
+Nếu `connect()` trả về `ECONNREFUSED`, yêu cầu kết nối đã bị phía đích từ chối; một nguyên nhân thường gặp là không có `listening socket` phù hợp tại cổng đích.
 
-*(Phân biệt với lỗi Timeout: `ETIMEDOUT`. Xảy ra khi Máy đích sập nguồn, dứt cáp, hoặc bị Firewall chặn đứng gói tin giữa đường)*.
+*(Phân biệt với `ETIMEDOUT`, khi quá trình kết nối không nhận được phản hồi trong thời gian cho phép; nguyên nhân có thể nằm ở đường mạng, thiết bị đích hoặc firewall).*
 
-### 20.3 Hiện tượng Lệnh `accept()` Treo Vô Tận
+### 20.3 Khi `accept()` tiếp tục chờ
 
-Nghĩa là chưa có một Khách hàng nào đâm thủng được hàng đợi chờ của TCP. 
+Điều này thường có nghĩa là chưa có kết nối phù hợp sẵn sàng để `accept()` trả về.
 Hãy rà soát lại: Máy Khách đã gọi lệnh `connect()` chưa? Cổng Router có chặn Mạng tường lửa không? Hay có thể quá trình Bắt Tay 3 Bước (3-way handshake) còn dang dở?
 
-### 20.4 Sự bùng phát Ngắt tín hiệu `EINTR`
+### 20.4 `EINTR` khi thao tác blocking bị ngắt
 
-Khi ứng dụng gọi các lệnh làm ngưng đọng luồng hệ thống (Blocking) như `read()`, `write()`, `accept()`, một Tín hiệu hệ thống (Signal ở Topic 05) có thể văng tới và ngắt ngang lệnh đó. Hàm mạng lúc này sẽ trả về lỗi `-1` kèm `errno = EINTR`. 
+Khi ứng dụng gọi các lệnh làm ngưng đọng luồng hệ thống (Blocking) như `read()`, `write()`, `accept()`, một signal (Topic 05) có thể đến và ngắt thao tác đó. Hàm mạng lúc này sẽ trả về lỗi `-1` kèm `errno = EINTR`.
 Lập trình viên CẦN PHÂN TÍCH kỹ ngữ nghĩa của lệnh: Không nên viết vòng lặp `while(retry)` gọi lại hàm mù quáng khi gặp `EINTR`. Bạn phải kiểm tra ngữ nghĩa xem liệu Signal đó có phải là Tín hiệu Tắt Server hay không, cũng như lưu tâm đến số lượng byte I/O đã chạy dở dang (Partial I/O).
 
 ---
 
 ## 21. Liên hệ với Embedded Linux
 
-Không có một bo mạch IoT/Nhúng nào sống một mình. Nó sinh ra để đàm thoại với Vạn vật.
+Nhiều thiết bị Embedded Linux cần giao tiếp với dịch vụ mạng, gateway hoặc các thiết bị khác.
 
 ### 21.1 Thiết bị Nhúng đóng vai trò Client
 
 Khi là một thiết bị gọi API lên Cloud. Vòng đời Client phải đối mặt với độ trễ (latency) và bất ổn hạ tầng:
-Mất mạng WiFi / Ngắt mạng 4G? Hàm `getaddrinfo` Time-out. Lỗi Cáp bị tuột (Rớt kết nối)? Ứng dụng phải tự Code logic Back-off (Thử lại kết nối sau khoảng thời gian tăng dần, tránh đốt nóng CPU).
+Mất mạng WiFi / Ngắt mạng 4G? Hàm `getaddrinfo` Time-out. Lỗi Cáp bị tuột (Rớt kết nối)? Ứng dụng phải tự Code logic Back-off (Thử lại kết nối sau khoảng thời gian tăng dần, tránh retry quá dày).
 
-### 21.2 Nỗi ám ảnh Giới hạn Tài nguyên (Bounded Resources)
+### 21.2 Giới hạn tài nguyên (`bounded resources`)
 
-Mạch Nhúng (Ví dụ Camera IP) bị giới hạn khắt khe về RAM, Bộ đệm Socket, Số lượng Luồng và CPU.
+Thiết bị nhúng (ví dụ Camera IP) có giới hạn về RAM, socket buffer, số lượng luồng và CPU.
 Mỗi kết nối TCP đồng thời (Concurrent Connection) đều tiêu tốn một phần không gian lưu trữ trạng thái trong Linux Kernel. Việc quản lý kém vòng đời kết nối sẽ dẫn tới rò rỉ (leak) tài nguyên, sớm muộn cũng gây tình trạng cạn kiệt (Resource Exhaustion như `EMFILE` / `ENFILE`). Đừng lầm tưởng Leak FD sẽ đâm thẳng ra Kernel Panic ngay lập tức.
 
-### 21.3 Tái cấu trúc (Serialization) và Ranh giới giao thức
+### 21.3 `Serialization` và ranh giới giao thức
 
-Như phân tích ở Mục 5, thiết bị Nhúng sử dụng vô vàn các chủng loại chip khác nhau: `ARM`, `MIPS`, `x86`. 
-Nguyên tắc Bắt Buộc: **Giao thức phải định nghĩa rõ ràng về độ rộng của biến, kiến trúc `Endianness` (Quy ước Byte), và ranh giới đóng gói dữ liệu (Framing) độc lập với hệ điều hành**. 
-Tuyệt đối cấm sao chép cấu trúc `struct` bộ nhớ của C/C++ thành mảng Byte rồi gửi thẳng lên Cáp Mạng, vì hai con chip ngoại đạo sẽ không thể hiểu nhau. Hãy dùng các công cụ Serialization mạnh mẽ (như Protocol Buffers, JSON).
+Như phân tích ở Mục 5, thiết bị Nhúng sử dụng vô vàn các chủng loại chip khác nhau: `ARM`, `MIPS`, `x86`.
+Nguyên tắc quan trọng: **Giao thức phải định nghĩa rõ ràng về độ rộng của biến, kiến trúc `Endianness` (Quy ước Byte), và ranh giới đóng gói dữ liệu (Framing) độc lập với hệ điều hành**.
+Không nên sao chép trực tiếp cấu trúc `struct` trong bộ nhớ C/C++ thành mảng byte rồi dùng nó như wire format, vì các hệ thống có thể khác nhau về layout và biểu diễn dữ liệu. Hãy dùng một định dạng serialization được quy ước rõ ràng, chẳng hạn Protocol Buffers hoặc JSON.
 
-### 21.4 Tắt kết nối có kiểm soát (Graceful Shutdown)
+### 21.4 Graceful shutdown khi dừng service
 
 Khi một Dịch vụ (Service) nhận `SIGTERM` từ tiến trình `init` của hệ thống:
 Mô hình chuẩn: Nó ngừng nhận các kết nối mới, từ chối tải công việc mới, hoàn tất quá trình I/O đang dang dở, gọi `shutdown()` ngắt hướng truyền/nhận, đóng toàn bộ File Descriptor an toàn rồi mới thoát vòng lặp.
 
-### 21.5 Heartbeat (Nhịp tim) Ứng dụng khác Keepalive TCP
+### 21.5 Application heartbeat và TCP keepalive
 
-Cơ chế cấu hình `TCP keepalive` chỉ kiểm tra tính ổn định của đường truyền cáp và tầng TCP.
-Tuy nhiên, TCP Ping thông vẫn không thể bảo đảm Service nghiệp vụ của phía bên kia vẫn phản hồi bình thường. Một thiết kế nhúng chuẩn mực thường phải triển khai Heartbeat ở Tầng Ứng dụng (Application protocol) để xác minh xem bộ máy xử lý của đối tác có thực sự còn sống.
+`TCP keepalive` dùng để kiểm tra trạng thái kết nối TCP sau các khoảng không hoạt động.
+Điều đó không bảo đảm service ở tầng ứng dụng phía bên kia vẫn phản hồi bình thường. Một thiết kế nhúng chuẩn mực thường phải triển khai Heartbeat ở Tầng Ứng dụng (Application protocol) để xác minh xem bộ máy xử lý của đối tác có thực sự còn sống.
 
 ---
 
 ## 22. Tổng kết và mô hình tư duy
 
-Khắc sâu hệ trục xương sống của Giao tiếp mạng: 
+Có thể tóm tắt chương bằng mô hình sau:
 
-### 22.1 Vòng đời TCP Server/Client Cổ Điển
+### 22.1 Vòng đời TCP Server/Client cơ bản
 
 ```text
     [ MÁY CHỦ - SERVER ]                             [ MÁY KHÁCH - CLIENT ]
 
         socket()                                          socket()
            |                                                 |
-   bind() (Chiếm Cổng cục bộ)                                |
+   bind() (Gán cổng cục bộ)                                |
            |                                                 |
-  listen() (Chuyển thành Mở hàng chờ)                        |
+  listen() (Chuyển thành Listening Socket)                        |
            |                                                 |
-       accept()  <---------- (Bắt Tay 3 Bước TCP) ------- connect()
- (Trả ra FD mới theo Client)                                 |
+       accept()  <---------- (TCP handshake) ----------- connect()
+ (Trả về connected fd mới)                                 |
            |                                                 v
-    [ Kết nối được Mở (Connected Socket fd) ]        [ Kết nối được Mở ]
+    [ Connected Socket fd ]                         [ Connected Socket ]
            |                                                 |
-      recv() / read() <----- (Nhận Luồng Dữ liệu) ----- send() / write()
+      recv() / read() <------ (Nhận byte stream) ------ send() / write()
            |                                                 |
-      send() / write() ----> (Gửi Luồng Dữ liệu) -----> recv() / read()
+      send() / write() -----> (Gửi byte stream) ------> recv() / read()
            |                                                 |
-    shutdown() / close() <------- (Cờ FIN) -----------> shutdown() / close()
+    shutdown() / close() <--- (orderly shutdown) -----> shutdown() / close()
 ```
-> **Đọc sơ đồ:** Client bắt buộc phải gọi `socket()` trước tiên để thiết lập trạng thái Endpoint, sau đó mới kích hoạt TCP Establishment thông qua lệnh `connect()`. Phía Server phân lập rõ ràng giữa Listening Socket (Nhận Khách) và Connected Socket FD (Socket Mới trả ra dành riêng cho giao tiếp dữ liệu). Sự phân rã 2 loại Socket này đảm bảo các rủi ro kết nối cá nhân của 1 Client không phá hỏng khả năng tiếp đón của Listening Socket gốc.
+> **Đọc sơ đồ:** Client tạo socket trước khi gọi `connect()` để bắt đầu quá trình thiết lập kết nối TCP. Phía server giữ listening socket riêng; `accept()` trả về một connected socket mới cho kết nối vừa được chấp nhận. I/O với từng client diễn ra trên connected socket, trong khi listening socket tiếp tục chờ các kết nối khác.
 
-### 22.2 Top 10 Chân Lý Khắc Cốt Ghi Tâm
-1. Hàm `socket()` định hình phương thức giao tiếp; trả về `File Descriptor` đại diện cho một Endpoint cấu trúc phức tạp.
-2. Lệnh `bind()` neo Socket vào Địa chỉ IP và Số Cổng (Tọa độ vật lý/logic).
-3. Lệnh `accept()` nhặt yêu cầu kết nối từ Hàng đợi và **sinh ra một FD hoàn toàn MỚI** để chuyên phục vụ đàm thoại với đúng Khách hàng đó. Socket Tổng đài vẫn tiếp tục Lắng nghe.
-4. TCP là luồng nước (`Byte stream`): Không có chuyện Gửi 1 - Nhận 1. Ứng dụng phải tự chế tác Thuật toán bóc tách khung dữ liệu (Framing).
-5. UDP là Hộp quà rời rạc (`Datagram`): Giữ nguyên ranh giới đóng gói, nhưng có tỷ lệ rớt hàng, lặp hàng, lộn xộn dọc đường.
-6. Lệnh `send()` trả báo cáo Thành công chỉ biểu thị Dữ liệu đã hạ cánh vào Vùng Đệm RAM của Kernel Nội bộ, không chứng minh đối tác phía bên kia bán cầu đã kịp nuốt dữ liệu.
-7. `recv() == 0` trên TCP là Dấu chấm hết. Cột mốc thông báo: Luồng giao tiếp từ đối tác đã chốt sổ (EOF).
-8. Lệnh `shutdown()` điều khiển hướng của luồng mạng, cho phép ngắt truyền (SHUT_WR) nhưng vẫn đón nhận (SHUT_RD). Lệnh `close()` xóa sổ cuống vé tham chiếu.
-9. Lệnh `connect()` ở thế giới UDP không bắt tay mạng; Nó giúp chốt tọa độ đích cục bộ, tối ưu hàm Send và khoanh vùng báo lỗi ICMP.
-10. Hàm `getaddrinfo()` giúp phân giải Đa nền tảng Cả Tên miền IPv4 lẫn IPv6 cực kỳ mềm dẻo. Sống chết phải dùng Mạng Đảo Byte (`network byte order` - Big-Endian) để thao tác tọa độ Số Cổng trước khi gửi đi.
+### 22.2 Các điểm cần nhớ
+1. `socket()` tạo một communication endpoint và trả về `file descriptor` để tiến trình tham chiếu tới endpoint đó.
+2. `bind()` gán local address/port cho socket theo address family tương ứng.
+3. `accept()` lấy một kết nối từ hàng đợi và trả về **một FD mới** cho connected socket; listening socket ban đầu vẫn tiếp tục lắng nghe.
+4. TCP là `byte stream`: không có quan hệ gửi 1 lần - nhận 1 lần. Ứng dụng phải tự thiết kế cơ chế `framing`.
+5. UDP truyền các `datagram` rời rạc và giữ ranh giới từng datagram, nhưng không bảo đảm delivery, thứ tự hoặc loại bỏ duplicate.
+6. `send()` trả về thành công chỉ cho biết local socket stack đã chấp nhận số byte tương ứng; điều đó không chứng minh peer application đã nhận hoặc xử lý dữ liệu.
+7. `recv() == 0` trên TCP biểu thị EOF ở chiều nhận: peer đã thực hiện orderly shutdown hướng gửi.
+8. `shutdown(fd, SHUT_WR)` ngừng hướng gửi nhưng vẫn cho phép tiếp tục nhận; `close()` giải phóng file descriptor của tiến trình.
+9. `connect()` với UDP không tạo TCP handshake; nó thiết lập default peer, cho phép dùng `send()`/`recv()` và giúp liên kết một số lỗi mạng với socket cụ thể.
+10. `getaddrinfo()` hỗ trợ phân giải địa chỉ theo cách ít phụ thuộc vào riêng IPv4 hoặc IPv6; các trường yêu cầu `network byte order` phải được chuyển đổi đúng theo ngữ nghĩa của API.
 
 ---
 

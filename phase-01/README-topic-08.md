@@ -1,6 +1,6 @@
 # Chủ đề 8 — Giao tiếp liên tiến trình (IPC) trong Linux
 
-> **Mục tiêu:** Hiểu vì sao các tiến trình cần IPC, phân biệt rạch ròi các cơ chế `pipe`, `FIFO`, `POSIX Message Queue` và `POSIX Shared Memory` dựa trên mô hình dữ liệu, cách định danh, vòng đời và trách nhiệm đồng bộ hóa.
+> **Mục tiêu:** Hiểu vì sao các tiến trình cần IPC, phân biệt rõ các cơ chế `pipe`, `FIFO`, `POSIX Message Queue` và `POSIX Shared Memory` dựa trên mô hình dữ liệu, cách định danh, vòng đời và trách nhiệm đồng bộ hóa.
 >
 > **Quy ước ngôn ngữ:** Phần giải thích dùng Tiếng Việt. Giữ nguyên tên cơ chế và thuật ngữ chuẩn như `IPC`, `Pipe`, `FIFO`, `POSIX Message Queue`, `POSIX Shared Memory`, `byte stream`, `message boundary`, `framing`, `backpressure`, `mapping`, `kernel persistence`, cùng tên API, kiểu dữ liệu, cờ và mã lỗi để đối chiếu với tài liệu Linux/POSIX.
 >
@@ -8,9 +8,9 @@
 >
 > Chương này là **lý thuyết nền tảng** chuẩn bị cho kiến trúc đa tiến trình, không có bài thực hành. (Unix Domain Socket sẽ thuộc **Chủ đề 9 — Socket Programming**).
 
-Các tiến trình bình thường có không gian bộ nhớ ảo hoàn toàn cách ly, do đó một tiến trình không thể trực tiếp đọc/ghi biến của tiến trình khác. Giao tiếp liên tiến trình (Inter-Process Communication - IPC) là việc hệ điều hành tạo ra **một kênh truyền tải hoặc một đối tượng dùng chung** để hai bên có thể phối hợp hoạt động. 
+Các tiến trình bình thường có không gian bộ nhớ ảo hoàn toàn cách ly, do đó một tiến trình không thể trực tiếp đọc/ghi biến của tiến trình khác. Giao tiếp liên tiến trình (Inter-Process Communication - IPC) là việc hệ điều hành tạo ra **một kênh truyền tải hoặc một đối tượng dùng chung** để hai bên có thể phối hợp hoạt động.
 
-Điều cốt lõi trong IPC không phải là học thuộc các hàm gọi, mà là thấu hiểu **mô hình dữ liệu** của từng cơ chế: `Pipe/FIFO` là luồng byte tuôn chảy (`byte stream`), `POSIX Message Queue` duy trì ranh giới từng bức thư (`discrete messages`), còn `Shared Memory` cho phép nhiều tiến trình cùng ánh xạ một vùng nhớ.
+Điều cốt lõi trong IPC không phải là học thuộc các hàm gọi, mà là hiểu **mô hình dữ liệu** của từng cơ chế: `Pipe/FIFO` cung cấp `byte stream`, `POSIX Message Queue` duy trì ranh giới từng thông điệp (`discrete messages`), còn `Shared Memory` cho phép nhiều tiến trình cùng ánh xạ một vùng nhớ.
 
 ---
 
@@ -76,7 +76,7 @@ Không phải cơ chế IPC nào cũng phù hợp cho cả hai mục đích này
 
 ### 1.4 Phân biệt Đối tượng IPC và `handle`
 
-Cần phân biệt rõ giữa đối tượng IPC thực sự nằm trong hệ thống và cái "cuống vé" tham chiếu (`handle`) mà tiến trình đang sử dụng:
+Cần phân biệt rõ giữa đối tượng IPC trong hệ thống và `handle` mà tiến trình sử dụng để tham chiếu tới đối tượng đó:
 *   **Pipe:** Đối tượng là vùng đệm trong Kernel; Handle là 2 `file descriptor` ở đầu đọc/ghi.
 *   **POSIX Message Queue:** Đối tượng là hàng đợi trong Kernel; Handle là biến kiểu `mqd_t`.
 *   **POSIX Shared Memory:** Đối tượng là bộ nhớ dùng chung; Handle là `fd` từ `shm_open()` và ánh xạ từ `mmap()`.
@@ -153,7 +153,7 @@ Sau `fork()`, cả tiến trình cha và con đều sở hữu các file descrip
 
 ### 3.3 Thiết lập giao thức luồng dữ liệu
 
-Để truyền dữ liệu từ Cha -> Con một chiều cho đúng ngữ nghĩa, hai bên bắt buộc phải đóng các đầu ống không sử dụng:
+Để truyền dữ liệu từ Cha -> Con một chiều theo đúng ngữ nghĩa, hai bên cần đóng các đầu ống không sử dụng:
 *   **Cha:** Đóng đầu đọc `fd[0]`, chỉ giữ `fd[1]` để ghi.
 *   **Con:** Đóng đầu ghi `fd[1]`, chỉ giữ `fd[0]` để đọc.
 
@@ -172,7 +172,7 @@ write(fd, "DEF", 3);
 ```
 Người đọc có thể nhận được chuỗi `"ABCDEF"` trong một lần `read`, hoặc nhận làm hai lần `"AB"` và `"CDEF"`, tùy thuộc vào kích thước bộ đệm và thời điểm thực thi. Pipe không lưu lại thông tin siêu dữ liệu để đánh dấu lần ghi số 1 kết thúc ở đâu. Nếu ứng dụng cần phân định thông điệp, nó phải tự triển khai giao thức phân khung (framing) như cố định độ dài, hoặc dùng ký tự phân cách (delimiter).
 
-### 4.2 Thứ tự byte được bảo toàn tuyệt đối
+### 4.2 Pipe bảo toàn thứ tự byte trong luồng
 
 Pipe bảo toàn thứ tự byte trong luồng. Ghi `A B C D E F` thì người đọc sẽ lấy ra đúng theo thứ tự đó, không bị đảo lộn thành `A C B D F E`.
 
@@ -192,14 +192,14 @@ Nếu tiến trình đã cấu hình lờ đi (ignore) `SIGPIPE`, hàm `write()`
 
 ### 4.5 Backpressure (Áp lực dội ngược)
 
-Bộ đệm của Pipe trong Kernel có kích thước hữu hạn. 
+Bộ đệm của Pipe trong Kernel có kích thước hữu hạn.
 Nếu Producer ghi dữ liệu nhanh hơn tốc độ Consumer đọc ra, lượng dữ liệu chờ sẽ tăng cho tới khi bộ đệm đầy. Lúc này, lệnh `write()` (ở chế độ blocking) sẽ buộc phải chờ, hoặc (ở chế độ non-blocking) sẽ trả về trạng thái báo hiệu chưa thể ghi thêm (như `EAGAIN`).
 Cơ chế này được gọi là `Backpressure` (Áp lực dội ngược). Nó giúp điều tiết tốc độ giữa hai phía, đảm bảo hệ thống không tiêu thụ RAM vô hạn khi tải tăng cao.
 
 ### 4.6 Giới hạn nguyên tử `PIPE_BUF`
 
 Dung lượng tổng (Capacity) của Pipe và `PIPE_BUF` là hai khái niệm hoàn toàn khác biệt.
-`PIPE_BUF` (thường là 4096 bytes trên Linux) là một hạn mức đảm bảo tính nguyên tử (atomic) do chuẩn POSIX quy định. 
+`PIPE_BUF` (thường là 4096 bytes trên Linux) là một hạn mức đảm bảo tính nguyên tử (atomic) do chuẩn POSIX quy định.
 Nếu nhiều tiến trình cùng ghi vào 1 Pipe, các thao tác ghi có kích thước **nhỏ hơn hoặc bằng `PIPE_BUF`** sẽ được bảo đảm ghi nguyên vẹn, không bị đan xen vào nhau. Nếu `write()` ghi khối dữ liệu lớn hơn `PIPE_BUF`, các khối byte có thể bị cắt mảnh và xen kẽ với dữ liệu từ các `writer` khác.
 
 ---
@@ -210,7 +210,7 @@ FIFO giống hệt Pipe về mặt ngữ nghĩa I/O, nhưng nó được cấp m
 
 ### 5.1 FIFO là một `special file` (tệp đặc biệt)
 
-Đường dẫn `/run/myapp.fifo` là một tệp đặc biệt trong không gian tên (namespace) của hệ thống tệp, dùng làm mục tiêu định tuyến. Dữ liệu thực tế truyền qua FIFO đi qua đối tượng Pipe và bộ đệm trong Kernel, KHÔNG hề được lưu xuống thiết bị lưu trữ vật lý như một tệp văn bản thông thường. 
+Đường dẫn `/run/myapp.fifo` là một tệp đặc biệt trong không gian tên (namespace) của hệ thống tệp, dùng làm mục tiêu định tuyến. Dữ liệu thực tế truyền qua FIFO đi qua đối tượng Pipe và bộ đệm trong Kernel, không được lưu xuống thiết bị lưu trữ vật lý như một tệp văn bản thông thường.
 
 ### 5.2 Điểm hẹn của các tiến trình
 
@@ -241,7 +241,7 @@ Với cờ `O_NONBLOCK`, hành vi mở sẽ thay đổi. Ví dụ điển hình 
 
 ## 6. POSIX Message Queue: gửi từng thông điệp riêng
 
-`Message Queue` (MQ) giải quyết điểm yếu của Pipe/FIFO bằng cách duy trì ranh giới của từng thông điệp. 
+`Message Queue` (MQ) khác Pipe/FIFO ở chỗ nó duy trì ranh giới của từng thông điệp.
 
 ### 6.1 Mô hình Thông điệp
 
@@ -313,7 +313,7 @@ Tiến trình A                     Tiến trình B
              +--------------------+
 ```
 
-> **Đọc sơ đồ:** Hai tiến trình có không gian địa chỉ ảo khác nhau, nhưng Kernel cho phép ánh xạ (mapping) của chúng trỏ về chung một đối tượng lưu trữ (backing object) vật lý phía dưới. Địa chỉ ảo ở A và B không cần giống nhau, điều được chia sẻ là các trang nhớ vật lý. 
+> **Đọc sơ đồ:** Hai tiến trình có không gian địa chỉ ảo khác nhau, nhưng Kernel cho phép ánh xạ (mapping) của chúng trỏ về chung một đối tượng lưu trữ (backing object) vật lý phía dưới. Địa chỉ ảo ở A và B không cần giống nhau, điều được chia sẻ là các trang nhớ vật lý.
 
 ### 7.2 Khởi tạo và Ánh xạ
 
@@ -323,7 +323,7 @@ Tiến trình A                     Tiến trình B
 
 *(Lưu ý: Trên Linux, POSIX SHM thường được hỗ trợ bởi hệ thống tệp `tmpfs` và hiển thị tại `/dev/shm`, nhưng không nên coi nó như một tệp lưu trữ lâu dài trên đĩa cứng).*
 
-### 7.3 Rủi ro con trỏ: Không dùng địa chỉ tuyệt đối
+### 7.3 Địa chỉ tuyệt đối trong Shared Memory
 
 Hai tiến trình có thể ánh xạ cùng một đối tượng Shared Memory nhưng nhận các địa chỉ ảo khác nhau (Ví dụ: Tiến trình A nhận địa chỉ gốc `0x70000000`, B nhận `0x50000000`).
 Việc lưu một con trỏ địa chỉ ảo tuyệt đối (raw pointer) của A vào vùng dùng chung rồi hy vọng B sử dụng nguyên giá trị đó là một lỗi thiết kế nghiêm trọng, vì địa chỉ đó không có ý nghĩa tương ứng trong B. Thay vào đó, hãy sử dụng **độ lệch (offset)** tính từ địa chỉ gốc của vùng ánh xạ, hoặc các chỉ mục (index).
@@ -340,7 +340,7 @@ Shared Memory chỉ cung cấp cơ chế để các tiến trình cùng thấy m
 
 ### 8.1 Truy cập đồng thời cần giao thức bảo vệ
 
-Việc hai tiến trình cùng ánh xạ và nhìn thấy dữ liệu không đảm bảo tính an toàn. Nếu tiến trình A đang cập nhật cấu trúc dữ liệu và tiến trình B nhảy vào đọc, B có thể đọc được dữ liệu bị xé rách hoặc sai lệch (Data Race). Các thao tác truy cập đồng thời vào trạng thái có thể thay đổi (concurrent mutable access) bắt buộc phải có một cơ chế đồng bộ hóa hoặc giao thức sở hữu (ownership protocol) đi kèm.
+Việc hai tiến trình cùng ánh xạ và nhìn thấy dữ liệu không đảm bảo tính an toàn. Nếu tiến trình A đang cập nhật cấu trúc dữ liệu trong khi tiến trình B đọc đồng thời, B có thể đọc được dữ liệu bị xé rách hoặc sai lệch (Data Race). Các thao tác truy cập đồng thời vào trạng thái có thể thay đổi (concurrent mutable access) bắt buộc phải có một cơ chế đồng bộ hóa hoặc giao thức sở hữu (ownership protocol) đi kèm.
 
 ### 8.2 Tích hợp Đối tượng Đồng bộ vào SHM
 
@@ -358,7 +358,7 @@ Control Plane:
   Semaphore / Mutex / Message Queue (Chứa Thông tin trạng thái điều phối)
 ```
 
-Ví dụ: Producer ghi một khối dữ liệu lớn vào Shared Memory (tránh sao chép tốn kém), sau đó sử dụng một tín hiệu Semaphore nhỏ gọn để thông báo cho Consumer rằng "khung dữ liệu mới đã sẵn sàng". Sự kết hợp này mang lại tối đa hiệu suất.
+Ví dụ: Producer ghi một khối dữ liệu lớn vào Shared Memory (tránh sao chép tốn kém), sau đó sử dụng một tín hiệu Semaphore nhỏ gọn để thông báo cho Consumer rằng "khung dữ liệu mới đã sẵn sàng". Mô hình này phù hợp với các hệ thống cần trao đổi payload lớn và điều phối truy cập riêng.
 
 ---
 
@@ -396,7 +396,7 @@ Không có cơ chế IPC nào là "tốt nhất" cho mọi bài toán. Lựa ch�
 | **Unnamed Pipe** | `byte stream` | Không | Không | Đơn giản, phù hợp khi `fd` được kế thừa tự nhiên qua `fork()`. Rất tốt để đẩy lệnh hoặc gom bắt Log `stdout`. |
 | **FIFO (Named pipe)**| `byte stream` | Có | Không | Dành cho các tiến trình độc lập cần điểm hẹn trong hệ thống tệp và chung ngữ nghĩa luồng byte. |
 | **POSIX MQ** | Thông điệp rời rạc | Có | Có | Truyền các Lệnh (Command/Event). Có ưu tiên Priority. Tránh được việc tự `framing` dữ liệu. |
-| **Shared Memory** | Khối vùng nhớ chung | Có | Ứng dụng tự lo | Payload cực lớn (Video, AI Tensor). Cần giảm việc sao chép. Yêu cầu thiết kế đồng bộ và quy tắc vòng đời riêng biệt. |
+| **Shared Memory** | Khối vùng nhớ chung | Có | Ứng dụng tự lo | Payload lớn (Video, AI Tensor). Cần giảm việc sao chép. Yêu cầu thiết kế đồng bộ và quy tắc vòng đời riêng biệt. |
 
 ---
 
@@ -431,13 +431,13 @@ Nguyên nhân thường do: Vẫn còn một tiến trình (có thể là một 
 
 ### 11.3 Tên IPC (MQ/SHM/FIFO) tồn tại không có nghĩa đối tác đang sống
 
-Sự tồn tại của một mục FIFO trong thư mục, hay tên một MQ, chỉ chứng minh đối tượng hoặc tên đó tồn tại. Nó KHÔNG chứng minh đối tác của bạn đang mở kết nối, có đủ quyền, hay tiến trình đó còn sống.
+Sự tồn tại của một mục FIFO trong thư mục, hay tên một MQ, chỉ chứng minh đối tượng hoặc tên đó tồn tại. Điều này không chứng minh đối tác của bạn đang mở kết nối, có đủ quyền, hay tiến trình đó còn sống.
 
 ---
 
 ## 12. Liên hệ với Embedded Linux
 
-Kiến trúc Embedded Linux chuyên nghiệp luôn chia nhỏ hệ thống thành các tiến trình độc lập (như sensor, logger, UI, daemon) và sử dụng IPC để kết nối chúng.
+Nhiều hệ thống Embedded Linux tách chức năng thành các tiến trình độc lập (như sensor, logger, UI, daemon) và sử dụng IPC để kết nối chúng.
 
 ### 12.1 Unnamed Pipe cho kiến trúc Supervisor - Worker
 
@@ -475,21 +475,21 @@ Khi một dịch vụ (Service) bị crash, không giống như unnamed pipe (t�
  Pipe    FIFO            POSIX MQ              POSIX SHM
 ```
 
-Bản đồ này cho thấy không có một cơ chế IPC nào là vạn năng. Pipe/FIFO xử lý luồng dữ liệu liên tục; POSIX MQ bảo toàn ranh giới của từng gói lệnh nhỏ; POSIX SHM tối ưu bộ nhớ cho dữ liệu khổng lồ nhưng phó thác việc đồng bộ lại cho ứng dụng. Việc lựa chọn phải xuất phát từ bài toán thiết kế dữ liệu thực tế.
+Bản đồ này cho thấy không có một cơ chế IPC nào phù hợp với mọi bài toán. Pipe/FIFO xử lý luồng dữ liệu liên tục; POSIX MQ bảo toàn ranh giới của từng gói lệnh nhỏ; POSIX SHM phù hợp với dữ liệu lớn nhưng yêu cầu ứng dụng tự quản lý việc đồng bộ. Việc lựa chọn phải xuất phát từ bài toán thiết kế dữ liệu thực tế.
 
-### 13.2 Những điểm phải nhớ
+### 13.2 Các điểm cần nhớ
 
 1. IPC dùng để giao tiếp/phối hợp giữa các tiến trình có không gian bộ nhớ cách ly.
-2. Cần phân biệt rõ bản thân đối tượng IPC (trong Kernel) và cuống vé tham chiếu (`handle` / `fd`) ở không gian tiến trình.
+2. Cần phân biệt rõ bản thân đối tượng IPC (trong Kernel) và `handle` / `fd` mà tiến trình dùng để tham chiếu tới nó.
 3. Pipe là `byte stream` (không có ranh giới thông điệp), thiết kế 1 chiều, phù hợp tự nhiên khi `fd` được kế thừa qua `fork()`.
 4. EOF của pipe chỉ xuất hiện khi mọi `writer` tham chiếu đã biến mất và dữ liệu cũ đã được đọc hết.
 5. Ghi vào ống khi không còn `reader` sẽ nhận tín hiệu `SIGPIPE` hoặc lỗi `EPIPE`.
 6. `PIPE_BUF` liên quan đến giới hạn ghi nguyên tử (atomic write), không phải là tổng dung lượng Pipe.
 7. FIFO (Named pipe) là một `special file` (tệp đặc biệt) trong không gian hệ thống tệp, dữ liệu của nó không lưu trên đĩa.
-8. POSIX MQ giữ vững `message boundary`, hỗ trợ độ ưu tiên (priority) và được Kernel quản lý hàng đợi.
+8. POSIX MQ giữ `message boundary`, hỗ trợ độ ưu tiên (priority) và được Kernel quản lý hàng đợi.
 9. POSIX Shared Memory cho nhiều tiến trình ánh xạ cùng một đối tượng lưu trữ bên dưới.
 10. Lệnh `shm_unlink()` xóa tên đối tượng, nhưng ánh xạ (`mapping`) đang tồn tại có vòng đời độc lập và chỉ bị hủy khi tham chiếu cuối cùng kết thúc.
-11. Không nên giả định cùng một địa chỉ ảo tuyệt đối (raw pointer) khi sử dụng Shared Memory giữa các tiến trình; hãy dùng Offset.
+11. Không nên giả định cùng một địa chỉ ảo tuyệt đối (`raw pointer`) khi sử dụng Shared Memory giữa các tiến trình; nên dùng `offset` hoặc `index`.
 12. Shared Memory yêu cầu cơ chế đồng bộ (Mutex/Semaphore) và quy ước sở hữu dữ liệu từ phía ứng dụng đối với các truy cập thay đổi đồng thời (concurrent mutable access).
 13. Chế độ `nonblocking` không loại bỏ được bài toán điều tiết lưu lượng (`backpressure`).
 14. Sự tồn tại của tên IPC (MQ/SHM/FIFO) không chứng minh tiến trình đối tác còn sống hay hoạt động bình thường.
