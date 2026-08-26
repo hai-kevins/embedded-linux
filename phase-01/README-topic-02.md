@@ -203,7 +203,7 @@ VFS là hạt nhân điều phối, `dentry` ánh xạ cấu trúc tên, còn `i
 
 ### 4.3 `inode` là gì?
 
-`inode` (Index Node) là hạt nhân lưu trữ của mọi đối tượng tệp tin. Nó chứa toàn bộ **siêu dữ liệu (metadata)** và bản đồ ánh xạ tới các block dữ liệu thực tế, **NGOẠI TRỪ TÊN TỆP**. Việc dữ liệu thực tế không năm ở inode bởi vì dữ liệu thực tế quá lớn, inode chỉ cung cấp cho bạn các con trở tới các block dữ liệu đó trên ổ cứng. Khi bạn mở tệp, các dữ liệu sẽ được ghép lại hoàn chỉnh.
+`inode` (Index Node) là hạt nhân lưu trữ của mọi đối tượng tệp tin. Nó chứa toàn bộ **siêu dữ liệu (metadata)** và bản đồ ánh xạ tới các block dữ liệu thực tế, **NGOẠI TRỪ TÊN TỆP**. Việc dữ liệu thực tế không năm ở inode bởi vì dữ liệu thực tế quá lớn, inode chỉ cung cấp cho bạn các con trỏ tới các block dữ liệu đó trên ổ cứng. Khi bạn mở tệp, các dữ liệu sẽ được ghép lại hoàn chỉnh.
 
 Siêu dữ liệu trong inode bao gồm:
 *   Loại tệp (file type).
@@ -258,7 +258,7 @@ Là số byte dữ liệu mà tệp biểu diễn ra cho các lệnh đọc/ghi 
 
 Filesystem vật lý quản lý lưu trữ theo từng khối (Block) để tối ưu hiệu suất, ví dụ block size chuẩn thường là 4096 bytes (4KB).
 *   Một tệp có `logical size` 1000 bytes vẫn sẽ tiêu tốn 1 block (4096 bytes) dung lượng ổ cứng cấp phát do `filesystem overhead`.
-*   Trái lại, với tệp thưa (`sparse file`), một file ảo 1GB chứa toàn số không (0) có thể được filesystem khéo léo ánh xạ mà chỉ tốn vài KB dung lượng thật. Thay vì ghi hàng triệu số 0 xuống đĩa cứng, hệ thống tệp chỉ ghi nhận thông tin ánh xạ trong cấu trúc metadata (vài KB dung lượng) của inode để đánh dấu vùng trống này là các lỗ hổng (holes). Ví dụ: vài KB dung lượng đó có nội dung như: "Từ vị trí byte thứ 0 đến byte thứ 1 tỷ là một khoảng trống toàn số 0". Khi có lệnh đọc, nhân hệ điều hành (Kernel) sẽ tự động tạo ra các số 0 trên RAM để trả về cho ứng dụng, giúp việc tạo file dung lượng lớn diễn ra ngay lập tức và tiết kiệm tối đa không gian lưu trữ thực tế.
+*   Trái lại, với tệp thưa (`sparse file`), một file ảo 1GB chứa toàn số không (0) có thể được filesystem khéo léo ánh xạ mà chỉ tốn vài KB dung lượng thật. Thay vì cấp phát và ghi hàng triệu số 0 xuống các block dữ liệu trên đĩa cứng, hệ thống tệp chỉ ghi nhận thông tin ánh xạ ngay trong cấu trúc metadata của inode trên ổ cứng để đánh dấu vùng trống này là các lỗ hổng (holes). Ví dụ: vài KB dung lượng metadata đó có nội dung ghi chú như: "Từ vị trí byte thứ 0 đến byte thứ 1 tỷ là một khoảng trống toàn số 0". Khi có lệnh đọc, nhân hệ điều hành (Kernel) sẽ tự động tạo ra các số 0 trên RAM để trả về cho ứng dụng, giúp việc tạo file dung lượng lớn diễn ra ngay lập tức và tiết kiệm tối đa không gian lưu trữ thực tế.
 
 ### 5.3 `st_size`, `st_blocks`, `st_blksize` (Các trường trong cấu trúc `stat`)
 
