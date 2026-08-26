@@ -278,7 +278,10 @@ Là tệp chứa nội dung dữ liệu (văn bản, nhị phân, ảnh, databas
 
 ### 6.2 `directory` (Thư mục)
 
-Thư mục chính nó là một loại tệp đặc biệt. Nhiệm vụ của nó là ánh xạ (map) các cái tên (filename) thành số thứ tự của các đối tượng (inode number) bên trong không gian tên đó.
+Thư mục chính nó là một loại tệp đặc biệt. Nhiệm vụ của nó là ánh xạ (map) các cái tên (filename) thành số thứ tự của các đối tượng (inode number) bên trong không gian tên đó. Tại sao gọi là tệp đặc biệt? Vì bạn không thể dùng các phần mềm thông thường để mở và tự do gõ chữ vào tệp thư mục này. Chỉ có hệ điều hành (Kernel) mới có quyền ghi dữ liệu vào đây khi bạn tạo file mới, đổi tên hoặc xóa file. Ví dụ:
+nội dung của thư mục phase-01:
+README-topic-01.md → số inode 1000,
+README-topic-02.md → số inode 2026
 
 ### 6.3 `symbolic link` (Liên kết mềm)
 
