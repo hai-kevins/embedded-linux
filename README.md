@@ -1,6 +1,6 @@
 # Embedded Linux Roadmap — Fresher Level
 
-Roadmap này tập trung vào **kiến thức cốt lõi mà một Fresher Embedded Linux theo hướng BSP / Kernel / Driver nên nắm**.  
+Roadmap này tập trung vào **kiến thức cốt lõi mà một Fresher Embedded Linux theo hướng BSP / Kernel / Device Driver nên nắm**.  
 Mục tiêu là hiểu được một hệ thống Embedded Linux xuyên suốt **Hardware / SoC → Bootloader → Kernel / Driver / BSP → RootFS / Build System → System Services / Middleware → Product / Application**, đồng thời có đủ kỹ năng thực hành để build, boot, tích hợp và debug trên board thật.
 
 ## Quy ước môi trường thực hành
