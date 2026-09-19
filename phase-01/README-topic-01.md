@@ -127,10 +127,10 @@ Khi bạn gõ: `echo "$HOME" | grep home > result.txt`
 
 Ký tự nháy quyết định phần văn bản nào được Shell giữ nguyên và phần nào được can thiệp (mở rộng). Shell có một số ký tự đặc biệt như khoảng trắng (để tách từ), `*`, `?`, `$`.
 
-*   **4.1 Nháy đơn (`' '`):** Ngăn chặn hoàn toàn mọi phép mở rộng. Chuỗi `'$HOME'` sẽ được truyền nguyên vẹn thành `$HOME` cho chương trình.
-*   **4.2 Nháy kép (`" "`):** Ngăn chặn việc tách từ bằng khoảng trắng (word splitting), nhưng vẫn cho phép Shell dịch biến (Parameter expansion) và thay thế lệnh (Command substitution). Chuỗi `"$HOME"` sẽ được dịch thành `/home/user`.
-*   **4.3 Command substitution (`$(cmd)`):** Chạy lệnh bên trong, thu thập kết quả (stdout) và chèn ngược lại vào dòng lệnh cha trước khi thực thi. Ví dụ: `echo "Xin chao $(whoami)"` ra output `echo "Xin chao ngocchien"`.
-*   **4.4 Globbing (`*`, `?`):** Cơ chế khớp tên file của Shell. Ký tự `*.c` sẽ được Shell tự động mở rộng thành một danh sách các file C hiện có trong thư mục. Khác với Regular Expression (biểu thức chính quy) của lệnh `grep` thường dùng để so khớp luồng văn bản, Globbing chỉ dành cho việc phân giải đường dẫn (pathname).
+*   **4.1 Nháy đơn (`' '`):** Yêu cầu Shell giữ nguyên nội dung bên trong, không thực hiện các phép mở rộng như thay thế biến hay command substitution. Ví dụ, khi viết `'$HOME'`, Shell không thay `$HOME` bằng giá trị thực mà truyền nguyên chuỗi `$HOME` cho chương trình.
+*   **4.2 Nháy kép (`" "`):** Giữ nội dung bên trong thành một đối số thống nhất, nên khoảng trắng không làm chuỗi bị tách thành nhiều từ. Tuy nhiên, Shell vẫn thực hiện một số phép mở rộng như thay thế biến và command substitution. Ví dụ, `"$HOME"` sẽ được Shell thay bằng giá trị của biến `HOME`, chẳng hạn `/home/user`.
+*   **4.3 Command substitution (`$(cmd)`):** Cho phép lấy kết quả đầu ra của một lệnh rồi chèn kết quả đó vào vị trí `$(cmd)` trong dòng lệnh hiện tại. Ví dụ, với `echo "Xin chao $(whoami)"`, Shell chạy `whoami` trước, lấy kết quả của lệnh này, rồi dùng kết quả đó để tạo đối số cho `echo`.
+*   **4.4 Globbing (`*`, `?`):** Là cơ chế để Shell mở rộng mẫu tên file thành các pathname thực tế trước khi chạy chương trình. Ví dụ, `*.c` có thể được mở rộng thành `main.c util.c driver.c` nếu các file đó tồn tại trong thư mục hiện tại. Trong globbing, `*` khớp với một chuỗi ký tự bất kỳ còn `?` khớp với một ký tự. Globbing khác Regular Expression của các công cụ như `grep`: globbing chủ yếu dùng để khớp tên file và đường dẫn, còn Regular Expression thường dùng để khớp nội dung văn bản.
 
 ---
 
