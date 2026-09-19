@@ -118,7 +118,7 @@ Khi bạn gõ: `echo "$HOME" | grep home > result.txt`
 
 ### 3.2 Builtin (Lệnh tích hợp) và Chương trình ngoài
 
-*   **Builtin:** Là các tính năng nằm ngay trong mã nguồn của Shell. Ví dụ quan trọng nhất là `cd`. Việc thay đổi thư mục (`chdir`) chỉ ảnh hưởng đến tiến trình hiện tại. Nếu `cd` là một chương trình ngoài, Shell sẽ phải tạo một tiến trình con, tiến trình con đổi thư mục xong rồi thoát, và Shell cha vẫn đứng ở thư mục cũ. Vì vậy `cd` phải do chính Shell tự thực thi (builtin).
+*   **Builtin:** Là các lệnh được tích hợp trực tiếp bên trong Shell thay vì tồn tại như một chương trình riêng bên ngoài. Ví dụ điển hình là `cd`. Mỗi tiến trình trong Linux có một thư mục làm việc hiện tại (Current Working Directory - CWD) riêng, vì vậy khi một tiến trình thay đổi thư mục bằng `chdir()`, chỉ thư mục làm việc của chính tiến trình đó thay đổi. Nếu `cd` là một chương trình ngoài, Shell sẽ phải tạo một tiến trình con để chạy nó; tiến trình con có thể chuyển sang thư mục mới nhưng sau đó sẽ kết thúc, trong khi Shell cha vẫn giữ nguyên thư mục làm việc ban đầu. Vì vậy, `cd` phải là một builtin để chính Shell thay đổi CWD của mình, nhờ đó các lệnh tiếp theo cũng được thực thi trong thư mục mới.
 *   **Chương trình ngoài:** Các công cụ như `ls`, `grep` nằm trong hệ thống tệp (ví dụ `/bin/ls` hoặc `/usr/bin/grep`). Shell sẽ tìm đường dẫn phù hợp và khởi chạy chương trình. Thông thường việc này liên quan đến tạo tiến trình con rồi thực thi chương trình mới; chi tiết `fork/exec` sẽ được học ở chủ đề quản lý tiến trình.
 
 ---
