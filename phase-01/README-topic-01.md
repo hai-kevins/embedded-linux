@@ -102,7 +102,7 @@ Khi bạn gõ: `echo "$HOME" | grep home > result.txt`
 "echo $HOME | grep home > result.txt"
            |
            v
-[ 1. Parse (Tách từ)     ]  Tách cú pháp: 'echo', '|', 'grep', 'home', '> result.txt'.
+[ 1. Parse (Phân tích cú pháp) ]  Nhận diện tên lệnh, đối số và các toán tử như '|', '>'.
            |
            v
 [ 2. Expand (Mở rộng)    ]  Dịch biến '$HOME' thành giá trị thực (vd: /home/ngocchien).
@@ -139,17 +139,44 @@ Ký tự nháy quyết định phần văn bản nào được Shell giữ nguy�
 Khi bạn gõ lệnh như `gcc`, làm sao hệ điều hành biết công cụ đó nằm ở đâu để thực thi?
 
 ### 5.1 Biến môi trường PATH
-`PATH` là một chuỗi chứa danh sách các thư mục, cách nhau bởi dấu hai chấm `:`. Khi nhận một lệnh không chứa dấu `/`, Shell sẽ rà soát tuần tự từng thư mục trong `PATH`.
+`PATH` là danh sách các thư mục mà Shell sẽ lần lượt kiểm tra khi bạn nhập tên một chương trình mà không ghi rõ đường dẫn. Các thư mục trong `PATH` được ngăn cách bằng dấu hai chấm `:`.
 
-```text
-Lệnh: gcc
-  |
-  +---> Tìm ở /usr/local/bin/gcc ? ---> (Không thấy)
-  |
-  +---> Tìm ở /usr/bin/gcc ?       ---> (CÓ! Bắt đầu chạy)
+Ví dụ:
+
+```bash
+echo $PATH
 ```
 
-> **Đọc sơ đồ:** Quá trình tra cứu diễn ra nghiêm ngặt từ trái sang phải. Shell sẽ ghép tên lệnh `gcc` vào từng thư mục và gọi Kernel kiểm tra xem tệp thực thi đó có tồn tại hay không. Ngay khi tìm thấy kết quả hợp lệ đầu tiên (ví dụ ở `/usr/bin/gcc`), Shell dừng tìm kiếm và tiến hành khởi chạy. Nếu cấu hình `PATH` sai thứ tự, một phiên bản phần mềm cũ nằm ở đầu danh sách có thể bị gọi nhầm.
+có thể cho kết quả:
+
+```text
+/usr/local/bin:/usr/bin:/bin
+```
+
+Chuỗi trên được hiểu là ba thư mục theo thứ tự:
+
+```text
+1. /usr/local/bin
+2. /usr/bin
+3. /bin
+```
+
+Nếu bạn gõ:
+
+```bash
+gcc
+```
+
+Shell sẽ tìm lần lượt:
+
+```text
+/usr/local/bin/gcc  ---> không có
+/usr/bin/gcc        ---> có
+```
+
+Khi tìm thấy chương trình phù hợp đầu tiên, Shell dừng tìm kiếm và khởi chạy chương trình đó.
+
+> **Đọc sơ đồ:** Có thể hình dung `PATH` như một danh sách các địa điểm mà Shell biết để đi tìm chương trình. Thứ tự từ trái sang phải rất quan trọng vì nếu có nhiều chương trình cùng tên ở các thư mục khác nhau, chương trình được tìm thấy trước sẽ được sử dụng.
 
 ### 5.2 Vì sao thư mục hiện tại (`.`) thường không nằm sẵn trong PATH?
 Nếu thư mục hiện tại luôn được ưu tiên tìm kiếm, một tệp thực thi trùng tên với lệnh hệ thống (ví dụ: một tệp độc hại tên là `ls` trong thư mục tải xuống) có thể bị chạy nhầm. Khi cần chạy phần mềm tại thư mục hiện hành, bạn phải dùng đường dẫn rõ ràng: `./app`.
@@ -169,7 +196,7 @@ Mỗi tiến trình (bao gồm cả tiến trình Shell) đều duy trì một t
 ## 7. Shell variable, environment variable và `argv`
 
 ### 7.1 Shell Variable (Biến cục bộ)
-Các biến định nghĩa thông thường (`VAR=123`) là trạng thái nội bộ của phiên Shell đó. Các tiến trình con không thể truy cập biến này.
+Các biến định nghĩa thông thường như `VAR=123` thuộc trạng thái nội bộ của Shell. Khi Shell chạy một chương trình ngoài, biến này không được truyền cho chương trình đó thông qua environment trừ khi nó được đánh dấu bằng `export`. Ví dụ, sau `VAR=123`, Shell biết giá trị của `VAR`, nhưng một chương trình ngoài được chạy sau đó sẽ không nhận được biến này qua environment nếu bạn chưa dùng `export VAR`.
 
 ### 7.2 Environment Variable (Biến môi trường)
 Khi sử dụng `export VAR=123`, biến này sẽ được đánh dấu để sao chép vào bộ nhớ môi trường của tiến trình con. Khi một tiến trình con được tạo ra, hệ điều hành tuân theo luồng một chiều từ cha sang con: Cha sẽ sao chép toàn bộ các biến môi trường của mình vào bộ nhớ môi trường của con. Tiến trình con có quyền tự do chỉnh sửa các biến đó trong bộ nhớ môi trường của nó, nhưng mọi thay đổi đó hoàn toàn không ảnh hưởng hay dội ngược lại về tiến trình cha.
@@ -189,7 +216,7 @@ Các tiến trình được Shell khởi chạy thông thường sẽ kế thừ
 
 **Chuyển hướng (Redirection):**
 Chuyển hướng thực chất là việc Shell yêu cầu Kernel nối lại các File Descriptor trước khi chạy chương trình.
-Thứ tự chuyển hướng cực kỳ quan trọng vì quá trình sao chép fd phụ thuộc vào trạng thái tại thời điểm phân tích.
+Thứ tự các redirection rất quan trọng vì Shell áp dụng chúng theo thứ tự, và mỗi redirection hoạt động dựa trên trạng thái của các file descriptor tại thời điểm nó được áp dụng.
 
 ```text
 (Trạng thái mặc định)
