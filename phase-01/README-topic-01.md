@@ -46,12 +46,12 @@ Dòng lệnh là cách bạn yêu cầu Linux làm việc thông qua ngôn ngữ
 
 ```text
 GUI:  Người dùng ---> [Tương tác qua đồ họa] ---> Ứng dụng
-CLI:  Người dùng ---> [Nhập chuỗi văn bản] ---> Shell ---> Chương trình / System call
+CLI:  Người dùng ---> [Nhập chuỗi văn bản] ---> Shell ---> Builtin / Chương trình ---> Kernel (system call)
 ```
 
 ### 1.2 Dòng lệnh không phải `system call`
 
-Khi bạn gõ `ls -l /etc`, bản thân Linux kernel không nhận nguyên chuỗi này để "hiểu lệnh". Kernel chỉ cung cấp các system call (như đọc file, tạo tiến trình). `Shell` mới là thành phần đọc chuỗi văn bản đó, phân tích cú pháp để biết lệnh là `ls`, các đối số là `-l` và `/etc`, sau đó Shell mới gọi system call để thực thi chương trình.
+Khi bạn gõ `ls -l /etc`, bản thân Linux kernel không nhận nguyên chuỗi này để "hiểu lệnh". Kernel chỉ cung cấp các cơ chế và system call để tiến trình tương tác với hệ thống, chẳng hạn đọc file, tạo tiến trình hoặc thực thi chương trình. `Shell` mới là thành phần đọc chuỗi văn bản đó, phân tích cú pháp để biết lệnh là `ls`, các đối số là `-l` và `/etc`, rồi chuẩn bị và khởi chạy chương trình tương ứng. Cả Shell lẫn chương trình được chạy đều tương tác với Kernel thông qua system call khi cần.
 
 ---
 
@@ -61,28 +61,32 @@ Khi bạn gõ `ls -l /etc`, bản thân Linux kernel không nhận nguyên chu�
 
 *   **2.1 Terminal:** Thiết bị nhập/xuất vật lý hoặc một ứng dụng phần mềm (Terminal Emulator) chạy ở tầng user-space như GNOME Terminal.
 *   **2.2 TTY (Teletype):** Lớp trừu tượng (subsystem) của Linux Kernel quản lý dòng dữ liệu văn bản. Nó xử lý các tính năng như hiển thị lại phím gõ (echo) và phát tín hiệu ngắt (SIGINT) khi bấm Ctrl+C.
-*   **2.3 PTY (Pseudo-Terminal):** Một cặp thiết bị giả lập gồm Master và Slave. Các ứng dụng như SSH server hay `tmux` dùng PTY để cung cấp một môi trường TTY đầy đủ cho Shell bên trong nó.
+*   **2.3 PTY (Pseudo-Terminal):** Một terminal giả do Kernel cung cấp để kết nối các chương trình user-space với Shell như thể đang làm việc qua một terminal thật. Về mặt triển khai, PTY gồm hai phía `master` và `slave`; trong chủ đề này chỉ cần hiểu PTY là cơ chế giúp Terminal Emulator, SSH hoặc `tmux` cung cấp môi trường terminal cho Shell.
 *   **2.4 Shell:** Trình thông dịch (như Bash, sh). Shell hoạt động như một tiến trình đọc ký tự từ TTY/PTY, diễn giải cú pháp và gọi các chương trình khác.
 
 **2.5 Quan hệ tổng thể:**
 
 ```text
-[ Bàn phím ] 
+[ Bàn phím ]
       |
       v
 [ Terminal Emulator (User-space) ] (Ví dụ: GNOME Terminal, VS Code)
       |
       v
-[ TTY / PTY Subsystem (Kernel) ]   (Lớp trừu tượng quản lý luồng I/O và tín hiệu)
+[ TTY / PTY (Kernel) ]             (Cơ chế terminal quản lý luồng I/O)
       |
       v
-[ Shell (User-space) ]             (Tiến trình phân tích ngôn ngữ lệnh)
+[ Shell (User-space) ]             (Đọc và phân tích ngôn ngữ lệnh)
       |
-      v
-[ Chương trình ngoài ]             (Thực hiện tác vụ thông qua System Call)
+      +----> [ Builtin ]
+      |
+      +----> [ Chương trình ngoài ]
+                    |
+                    v
+              [ Kernel / System call ]
 ```
 
-> **Đọc sơ đồ:** Luồng dữ liệu bắt đầu từ phím bấm đi vào Terminal Emulator. Tuy nhiên, Terminal Emulator không truyền thẳng ký tự đó cho Shell mà đẩy xuống TTY/PTY subsystem nằm sâu trong Kernel. Kernel xử lý các tác vụ như tạo tín hiệu ngắt hoặc cấu hình luồng, rồi mới chuyển các byte hợp lệ lên cho tiến trình Shell đọc. Sau khi phân tích hiểu ý người dùng, Shell yêu cầu Kernel tạo một tiến trình con mới để xử lý tác vụ thực tế.
+> **Đọc sơ đồ:** Luồng dữ liệu bắt đầu từ phím bấm đi vào Terminal Emulator, sau đó đi qua cơ chế TTY/PTY của Kernel để Shell có thể đọc như một luồng terminal. Shell phân tích nội dung người dùng nhập và quyết định tự thực thi một `builtin` hoặc khởi chạy một chương trình ngoài. Khi cần thao tác với tài nguyên hệ thống, cả Shell và chương trình đều thực hiện thông qua các system call do Kernel cung cấp. Sơ đồ này là mô hình khái quát; chi tiết triển khai của PTY sẽ được học ở chủ đề chuyên sâu hơn.
 
 ---
 
@@ -107,16 +111,15 @@ Khi bạn gõ: `echo "$HOME" | grep home > result.txt`
 [ 3. Prepare (Chuẩn bị)  ]  Phân tích cấu trúc pipeline, yêu cầu Kernel tạo Pipe.
            |
            v
-[ 4. Fork & Exec         ]  Tạo process con, nối fd vào pipe/file, rồi gọi execve().
+[ 4. Run command         ]  Tạo tiến trình con khi cần, cấu hình fd rồi thực thi lệnh.
 ```
 
-> **Đọc sơ đồ:** Sơ đồ này cho thấy quá trình Shell xử lý một dòng lệnh từ trên xuống dưới. Shell đọc toàn bộ dòng lệnh và tách thành các từ khóa, chuỗi và toán tử riêng biệt: echo, "$HOME", |, grep, home, >, result.txt. Tại đây, nó nhận diện | là toán tử đường ống (pipeline) và > là toán tử chuyển hướng đầu ra (redirection). Shell phát hiện $HOME nằm trong dấu ngoặc kép " ", nên nó tiến hành nội suy (interpolate) và thay thế biến này bằng giá trị môi trường thực tế đang lưu trong hệ thống (Ví dụ: /home/ngocchien). Dựa vào cú pháp đã phân tích ở bước 1, Shell nhận ra đây là một chuỗi lệnh (pipeline). Nó gọi Kernel để tạo sẵn một bộ nhớ đệm luồng (Pipe) chuẩn bị cho việc đẩy dữ liệu từ echo sang grep. Ở bước 4, Shell thực hiện các thao tác: Fork (Nhân bản): Tạo ra các tiến trình con (child processes) riêng biệt cho echo và grep. Cấu hình luồng (File Descriptors): Trỏ Standard Output (Đầu ra) của echo vào Pipe. Trỏ Standard Input (Đầu vào) của grep từ Pipe. Đồng thời, Shell cố gắng mở file result.txt để chuẩn bị ghi dữ liệu.
-Execve (Thực thi): Nếu mọi thứ thiết lập thành công, Shell gọi hàm execve() để thay thế tiến trình con bằng mã thực thi của echo và grep.
+> **Đọc sơ đồ:** Sơ đồ này cho thấy quá trình Shell xử lý một dòng lệnh từ trên xuống dưới. Shell đọc dòng lệnh và nhận diện các từ, chuỗi và toán tử riêng biệt: `echo`, `"$HOME"`, `|`, `grep`, `home`, `>` và `result.txt`. Nó nhận ra `|` là toán tử pipeline và `>` là toán tử redirection. Shell tiếp tục thực hiện các phép mở rộng cần thiết, ví dụ thay `$HOME` bằng giá trị hiện tại của biến. Sau đó Shell chuẩn bị pipeline, yêu cầu Kernel tạo pipe, mở file `result.txt` và cấu hình các file descriptor phù hợp. Cuối cùng, Shell thực thi từng lệnh trong pipeline: builtin có thể được Shell xử lý trực tiếp trong ngữ cảnh phù hợp, còn chương trình ngoài thường được chạy trong tiến trình con. Ở mức Chủ đề 1, chỉ cần nắm rằng Shell chịu trách nhiệm **parse → expand → chuẩn bị I/O → chạy lệnh**; chi tiết chính xác của `fork()` và `execve()` sẽ được học ở phần quản lý tiến trình.
 
 ### 3.2 Builtin (Lệnh tích hợp) và Chương trình ngoài
 
 *   **Builtin:** Là các tính năng nằm ngay trong mã nguồn của Shell. Ví dụ quan trọng nhất là `cd`. Việc thay đổi thư mục (`chdir`) chỉ ảnh hưởng đến tiến trình hiện tại. Nếu `cd` là một chương trình ngoài, Shell sẽ phải tạo một tiến trình con, tiến trình con đổi thư mục xong rồi thoát, và Shell cha vẫn đứng ở thư mục cũ. Vì vậy `cd` phải do chính Shell tự thực thi (builtin).
-*   **Chương trình ngoài:** Các công cụ như `ls`, `grep` nằm trong hệ thống tệp (như `/bin/ls`). Shell sẽ tìm đường dẫn của chúng và yêu cầu Kernel tạo một tiến trình mới (fork/exec) để chạy.
+*   **Chương trình ngoài:** Các công cụ như `ls`, `grep` nằm trong hệ thống tệp (ví dụ `/bin/ls` hoặc `/usr/bin/grep`). Shell sẽ tìm đường dẫn phù hợp và khởi chạy chương trình. Thông thường việc này liên quan đến tạo tiến trình con rồi thực thi chương trình mới; chi tiết `fork/exec` sẽ được học ở chủ đề quản lý tiến trình.
 
 ---
 
@@ -180,7 +183,7 @@ Khi bạn gõ lệnh, Shell sẽ kiểm tra và chia các từ vào từng 'chi�
 
 Các tiến trình được Shell khởi chạy thông thường sẽ kế thừa 3 luồng dữ liệu chuẩn (Standard Streams) được quản lý bởi File Descriptor (fd). *(Lưu ý: Một số tiến trình nền như daemon có thể chủ động đóng hoặc nối lại các luồng này).*
 
-*   **`stdin` (fd 0):** Luồng dữ liệu vào (mặc định nối với bàn phím).
+*   **`stdin` (fd 0):** Luồng dữ liệu vào. Trong một Shell tương tác, nó thường nhận dữ liệu từ terminal; khi redirection hoặc pipeline được dùng, nguồn dữ liệu có thể là file, pipe hoặc đối tượng I/O khác.
 *   **`stdout` (fd 1):** Luồng dữ liệu ra thông thường (mặc định nối với terminal).
 *   **`stderr` (fd 2):** Luồng lỗi. Việc tách riêng `stdout` và `stderr` giúp Shell có thể điều hướng dữ liệu sạch vào file, đồng thời vẫn giữ được thông báo lỗi hiện lên màn hình.
 
@@ -192,12 +195,12 @@ Thứ tự chuyển hướng cực kỳ quan trọng vì quá trình sao chép f
 (Trạng thái mặc định)
 [ Terminal ] <--- (stderr 2) ---+
                                 |
-[ Terminal ] <--- (stdout 1) ---+--- [ Chương trình ] <--- (stdin 0) <--- [ Bàn phím ]
+[ Terminal ] <--- (stdout 1) ---+--- [ Chương trình ] <--- (stdin 0) <--- [ Terminal ]
 
 (Sau khi áp dụng cú pháp "> output.txt")
 [ Terminal ] <--- (stderr 2) ---+
                                 |
-[ output.txt ] <--- (stdout 1) -+--- [ Chương trình ] <--- (stdin 0) <--- [ Bàn phím ]
+[ output.txt ] <--- (stdout 1) -+--- [ Chương trình ] <--- (stdin 0) <--- [ Terminal ]
 ```
 
 > **Đọc sơ đồ:** Sơ đồ trên mô phỏng sự can thiệp của Shell vào luồng dữ liệu. Ban đầu, `stdout` (fd 1) trỏ thẳng ra màn hình. Khi có toán tử `>`, Shell yêu cầu Kernel mở tệp `output.txt`, sau đó sao chép (nối lại) `fd 1` để nó trỏ vào tệp này thay vì màn hình. Chương trình khi chạy vẫn ghi dữ liệu vào `fd 1`; nó không cần biết `fd 1` hiện đang tham chiếu tới terminal, regular file, pipe hay một đối tượng I/O khác.
@@ -238,7 +241,7 @@ Shell cung cấp các toán tử để phản ứng với `exit status` này:
 
 ## 11. `foreground`, `background` và `job control`
 
-*   **Foreground (Tiền cảnh):** Trong một terminal tương tác, nhóm tiến trình tiền cảnh là nhóm nhận tín hiệu trực tiếp từ bàn phím. Khi bạn nhấn `Ctrl+C`, một tín hiệu `SIGINT` được gửi tới nhóm tiền cảnh để ngắt công việc.
+*   **Foreground (Tiền cảnh):** Trong một terminal tương tác, nhóm tiến trình tiền cảnh là nhóm đang được terminal ưu tiên tương tác. Khi bạn nhấn `Ctrl+C`, cơ chế terminal của hệ thống có thể phát sinh tín hiệu `SIGINT` cho nhóm tiến trình tiền cảnh để yêu cầu ngắt công việc.
 *   **Background (Nền):** Tiến trình chạy ở chế độ nền (bằng cách thêm dấu `&` ở cuối lệnh) sẽ chạy ngầm dưới hệ thống. Tuy nhiên, theo nguyên tắc, chỉ nhóm tiến trình tiền cảnh mới được quyền đọc trực tiếp từ controlling terminal. Nếu một tiến trình nền cố tình đọc dữ liệu từ terminal, Kernel sẽ gửi cho nó tín hiệu `SIGTTIN` để đình chỉ hoạt động.
 *   **Job Control:** Các tính năng của Shell tương tác giúp di chuyển tiến trình qua lại giữa foreground và background (`fg`, `bg`, `Ctrl+Z`).
 
@@ -312,24 +315,28 @@ Thêm vào đó, để tối ưu dung lượng lưu trữ, hệ thống nhúng t
 Hãy lưu giữ mô hình vận hành duy nhất này trong tư duy:
 
 ```text
-Người dùng nhập chuỗi 
+Người dùng nhập chuỗi
    |
-Terminal/TTY truyền dữ liệu 
+Terminal/TTY truyền dữ liệu
    |
-Shell phân tích (Parse) 
+Shell phân tích (Parse)
    |
-Shell mở rộng cú pháp (Expand) 
+Shell mở rộng cú pháp (Expand)
    |
-Shell chuẩn bị luồng I/O (Redirection/Pipe) 
+Shell chuẩn bị luồng I/O (Redirection/Pipe)
    |
-Shell tra cứu lệnh (PATH) 
+Shell tra cứu và chọn cách chạy lệnh
    |
-Kernel tạo tiến trình (Fork/Execve) 
+Builtin: Shell tự xử lý
+hoặc
+Chương trình ngoài: Shell khởi chạy tiến trình phù hợp
    |
-Tiến trình chạy và báo cáo (Exit status)
+Chương trình tương tác với Kernel qua system call
+   |
+Tiến trình kết thúc và trả về Exit status
 ```
 
-> **Đọc sơ đồ:** Đọc chuỗi này từ trên xuống dưới, ta thấy rõ trách nhiệm của từng thành phần. Terminal/TTY làm nhiệm vụ dẫn truyền tín hiệu thô; Shell đóng vai trò như một bộ não trung tâm chuyên dịch cú pháp, thiết lập môi trường và cấu hình các File Descriptor/Pipe; cuối cùng, Kernel đảm nhiệm vai trò cung cấp tài nguyên, tạo tiến trình và thực thi công việc thực tế. Khi đối mặt với một chuỗi lệnh phức tạp bị lỗi, hãy bóc tách tuần tự theo lớp: Lỗi đang xảy ra ở khâu cấu hình chuẩn bị của Shell, hay ở khâu chạy của bản thân chương trình?
+> **Đọc sơ đồ:** Đọc chuỗi này từ trên xuống dưới, ta thấy rõ trách nhiệm của từng thành phần. Terminal/TTY cung cấp đường giao tiếp cho luồng nhập/xuất; Shell phân tích cú pháp, thực hiện expansion, chuẩn bị redirection/pipeline và quyết định chạy builtin hay chương trình ngoài; còn Kernel cung cấp các cơ chế hệ thống mà các tiến trình sử dụng thông qua system call. Khi một chuỗi lệnh phức tạp bị lỗi, hãy bóc tách theo từng lớp: lỗi nằm ở cú pháp/expansion của Shell, ở cấu hình I/O, ở việc tìm và chạy chương trình, hay ở chính chương trình đang thực thi?
 
 ---
 
