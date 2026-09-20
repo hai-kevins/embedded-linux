@@ -1043,17 +1043,131 @@ Kích thước logic mà bạn nhìn thấy và dung lượng vật lý thực s
 
 Là số byte dữ liệu mà tệp biểu diễn ra cho các lệnh đọc/ghi API (như khi bạn chạy lệnh `ls -l` hoặc hàm `stat()`). Ví dụ tệp ghi là 1000 bytes.
 
-### 5.2 Dung lượng được cấp phát (Allocated size)
+### 5.2 Dung lượng được cấp phát (`allocated size`)
 
-Filesystem vật lý quản lý lưu trữ theo từng khối (Block) để tối ưu hiệu suất, ví dụ block size chuẩn thường là 4096 bytes (4KB).
-*   Một tệp có `logical size` 1000 bytes vẫn sẽ tiêu tốn 1 block (4096 bytes) dung lượng ổ cứng cấp phát do `filesystem overhead`.
-*   Trái lại, với tệp thưa (`sparse file`), một file ảo 1GB chứa toàn số không (0) có thể được filesystem khéo léo ánh xạ mà chỉ tốn vài KB dung lượng thật. Thay vì cấp phát và ghi hàng triệu số 0 xuống các block dữ liệu trên đĩa cứng, hệ thống tệp chỉ ghi nhận thông tin ánh xạ ngay trong cấu trúc metadata của inode trên ổ cứng để đánh dấu vùng trống này là các lỗ hổng (holes). Ví dụ: vài KB dung lượng metadata đó có nội dung ghi chú như: "Từ vị trí byte thứ 0 đến byte thứ 1 tỷ là một khoảng trống toàn số 0". Khi có lệnh đọc, nhân hệ điều hành (Kernel) sẽ tự động tạo ra các số 0 trên RAM để trả về cho ứng dụng, giúp việc tạo file dung lượng lớn diễn ra ngay lập tức và tiết kiệm tối đa không gian lưu trữ thực tế.
+Filesystem thường quản lý không gian lưu trữ theo các đơn vị cấp phát như block. Vì vậy, **kích thước logic của tệp (`logical size`) và dung lượng lưu trữ thực sự được cấp phát (`allocated size`) không nhất thiết giống nhau**.
+
+Ví dụ, với filesystem có block size 4096 byte, một tệp thông thường có `logical size` chỉ 1000 byte vẫn có thể cần một block dữ liệu được cấp phát.
+
+Ở chiều ngược lại, một **tệp thưa (`sparse file`)** có thể có kích thước logic rất lớn nhưng chỉ chiếm một lượng nhỏ dung lượng lưu trữ thực tế.
+
+#### `sparse file` và `hole`
+
+Một `sparse file` có thể chứa những vùng trong không gian logic của tệp chưa được ánh xạ tới data block vật lý. Những vùng như vậy được gọi là **`hole`**.
+
+Ví dụ:
+
+```text
+Không gian logic của file:
+
+0                                                1 GiB
+|--------------------------------------------------|
+| DATA |        HOLE        | DATA |      HOLE     |
+|------|--------------------|------|---------------|
+   │                           │
+   ▼                           ▼
+data block                 data block
+đã cấp phát                đã cấp phát
+```
+
+Các vùng `DATA` có data block thực sự được cấp phát trên storage.
+
+Ngược lại, các vùng `HOLE` vẫn thuộc phạm vi logic của file nhưng **không có data block tương ứng được cấp phát**.
+
+Có thể hình dung data mapping như sau:
+
+```text
+Logical blocks:
+
+0      1      2      3      4      5
+│      │      │      │      │      │
+▼      ▼      ▼      ▼      ▼      ▼
+100   101    HOLE   HOLE   500    HOLE
+```
+
+Trong đó `100`, `101`, `500` đại diện cho các block vật lý đã được cấp phát, còn `HOLE` biểu thị những vùng logic không có block vật lý tương ứng.
+
+Khi ứng dụng đọc một vùng `hole`, Kernel/filesystem trả về các byte có giá trị `0`. Vì vậy, từ góc nhìn của ứng dụng, vùng đó hoạt động giống như một vùng dữ liệu chứa toàn số `0`, mặc dù filesystem không cần lưu các block toàn số `0` xuống storage.
+
+```text
+Application
+    ↓
+read()
+    ↓
+VFS
+    ↓
+Filesystem implementation
+    ↓
+Data mapping
+    ↓
+phát hiện vùng HOLE
+    ↓
+trả về các byte 0
+```
+
+Do đó, một `sparse file` có thể có:
+
+```text
+logical size:      1 GiB
+allocated size:    chỉ một phần nhỏ của 1 GiB
+```
+
+Dung lượng thực tế phụ thuộc vào filesystem, kích thước block, metadata và số vùng dữ liệu thực sự đã được cấp phát.
+
+Điểm cần ghi nhớ:
+
+```text
+HOLE
+≠ các block toàn số 0 đã được lưu trên storage
+
+HOLE
+= vùng trong không gian logic của file chưa được ánh xạ
+  tới data block vật lý; khi đọc sẽ nhận về các byte 0
+```
+
+Vì vậy:
+
+```text
+logical size ≠ allocated size
+```
 
 ### 5.3 `st_size`, `st_blocks`, `st_blksize` (Các trường trong cấu trúc `stat`)
 
-*   `st_size`: Kích thước logic (1000 bytes).
-*   `st_blocks`: Số lượng block lưu trữ 512-byte đã thực sự được cấp phát (8 blocks).
-*   `st_blksize`: Kích thước block tối ưu (preferred I/O block size) để ứng dụng nên dùng khi đọc/ghi file này (vd 4096 bytes). 
+* **`st_size`**: Kích thước logic của file, tính bằng byte. Với `sparse file`, giá trị này **bao gồm cả các vùng `hole`**.
+* **`st_blocks`**: Số đơn vị 512 byte đã thực sự được cấp phát cho file theo giao diện `stat`. Vì vậy, một `sparse file` có thể có `st_size` rất lớn nhưng `st_blocks` nhỏ.
+* **`st_blksize`**: Kích thước block I/O được filesystem khuyến nghị cho các thao tác đọc/ghi hiệu quả; đây **không phải** là số block đã cấp phát cho file.
+
+Ví dụ về mặt khái niệm:
+
+```text
+Sparse file:
+
+st_size   = 1 GiB
+st_blocks = nhỏ hơn rất nhiều so với kích thước logic
+
+→ file có không gian logic 1 GiB
+→ nhưng phần lớn không gian đó có thể là HOLE
+→ storage không cần cấp phát 1 GiB data block
+```
+
+Có thể nối ba khái niệm như sau:
+
+```text
+logical size
+    ↓
+bao gồm toàn bộ phạm vi logic của file
+    ↓
+có thể chứa DATA + HOLE
+
+allocated size
+    ↓
+chỉ phản ánh phần storage thực sự được cấp phát
+
+stat()
+    ↓
+st_size   → kích thước logic
+st_blocks → lượng block đã được cấp phát
+```
 
 ---
 
