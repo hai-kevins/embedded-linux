@@ -1300,52 +1300,228 @@ Chuyển giao quyền chủ sở hữu hoặc nhóm UID/GID (vd `chown root:admi
 
 ## 10. `mount`: ghép nhiều filesystem vào một cây
 
-Lệnh `mount` đóng vai trò như việc ghép những mảnh ghép của các bộ lego (filesystem) độc lập vào một mô hình kiến trúc duy nhất (Cây namespace Linux).
+`mount` là cơ chế đưa một filesystem vào cây namespace mà tiến trình nhìn thấy. Thay vì mỗi thiết bị hoặc filesystem xuất hiện như một “ổ” riêng biệt, Linux ghép chúng vào các vị trí khác nhau trong cùng một cây bắt đầu từ `/`.
 
-### 10.1 Khái niệm Mount Point (Điểm gắn kết)
+Điểm cần phân biệt ngay từ đầu:
 
 ```text
-(Trước khi Mount)
+mkfs
+→ tạo một filesystem on-disk trên vùng lưu trữ
+
+mount
+→ làm một filesystem xuất hiện tại một vị trí trong namespace
+```
+
+Nói ngắn gọn:
+
+> **`mkfs` trả lời câu hỏi “filesystem được tạo và tổ chức trên storage như thế nào?”, còn `mount` trả lời câu hỏi “filesystem đó xuất hiện ở đâu trong namespace mà process nhìn thấy?”.**
+
+### 10.1 `mount point` (Điểm gắn kết)
+
+Giả sử `/mnt/sdcard` đang là một thư mục bình thường thuộc filesystem hiện đang chứa nhánh `/mnt`:
+
+```text
+(Trước khi mount)
+
 /mnt/sdcard/
-   ├── readme.txt   (Thuộc filesystem hiện tại)
+└── readme.txt
 ```
 
-Giả sử bạn có thư mục `/mnt/sdcard`. Trước khi cắm thẻ nhớ, mọi tên tệp bạn tạo ra ở đây vẫn được ghi lên filesystem hiện tại (ổ cứng chính). `/mnt/sdcard` lúc này chỉ là một thư mục (Directory) bình thường.
+Tệp `readme.txt` thuộc filesystem đang chứa thư mục `/mnt/sdcard`. Nó không liên quan đến thẻ nhớ chỉ vì pathname có chữ `sdcard`.
 
-### 10.2 Quá trình che phủ (Over-mounting)
+Nếu một thẻ SD được phát hiện là block device `/dev/mmcblk0`, có partition `/dev/mmcblk0p1`, và partition đó chứa một filesystem exFAT, ta có thể mount filesystem đó tại `/mnt/sdcard`:
 
-```text
-(Thực hiện lệnh mount: mount /dev/mmcblk0p1 /mnt/sdcard)
-
-[ Gốc của Filesystem thẻ nhớ exFAT ]
-                  |
-                  v (Đè lên)
-           /mnt/sdcard/
+```bash
+mount -t exfat /dev/mmcblk0p1 /mnt/sdcard
 ```
 
-Sau khi bạn thực hiện lệnh mount thẻ nhớ vào thư mục /mnt/sdcard, một cơ chế định tuyến thông minh sẽ được kích hoạt bên trong lớp VFS (Virtual File System) của nhân Linux. Kể từ khoảnh khắc này, mỗi khi hệ thống tiến hành phân giải đường dẫn (pathname resolution) và chạm đến nhánh thư mục /mnt/sdcard, VFS sẽ nhận diện được điểm gắn kết (mount point) này và lập tức "bẻ lái" luồng truy cập sang cấu trúc gốc của hệ thống tệp mới (ở đây là thẻ nhớ định dạng exFAT).
-Điều này dẫn đến một hiện tượng thú vị: toàn bộ nội dung cũ vốn có bên trong thư mục (ví dụ như tệp readme.txt) không hề bị lệnh mount xóa bỏ hay làm tổn hại; chúng vẫn nằm im và an toàn trên phân vùng ổ cứng chính. Tuy nhiên, do mảnh ghép hệ thống tệp exFAT mới đã được đặt đè lên trên, không gian dữ liệu của thẻ nhớ sẽ hoàn toàn che lấp (shadowed) nội dung cũ, khiến người dùng và các ứng dụng tạm thời không thể nhìn thấy hay tương tác với tệp readme.txt được nữa. Trạng thái che phủ này sẽ được duy trì liên tục cho đến khi bạn thực hiện thao tác tháo gỡ an toàn (unmount) thẻ nhớ ra khỏi hệ thống, lúc đó "tấm màn che" bị nhấc bỏ và các tệp tin cũ ngầm bên dưới lại lập tức hiện ra nguyên vẹn.
-Chính vì mối quan hệ gắn kết chặt chẽ này, thư mục /mnt/sdcard lúc này đóng vai trò giống như một "cửa sổ điều khiển" trực tiếp của thiết bị vật lý /dev/mmcblk0p1. Mọi hành động thêm, sửa hoặc xóa file tại thư mục này đều được VFS bẻ hướng và ra lệnh cho trình điều khiển hệ thống tệp ghi trực tiếp dữ liệu xuống các khối nhớ vật lý của thẻ nhớ . Do đó, nếu bạn thêm một tệp tin mới vào /mnt/sdcard, tệp tin đó đồng thời sẽ được lưu giữ thực tế trên /dev/mmcblk0p1. Ngược lại, khi bạn rút chiếc thẻ nhớ này ra và cắm sang một thiết bị khác, tất cả dữ liệu bạn đã thao tác qua thư mục mount trước đó đều sẽ xuất hiện nguyên vẹn trong thẻ nhớ. Bạn không thể thêm file trực tiếp vào tệp thiết bị /dev/mmcblk0p1 mà không qua bước mount, bởi vì bản thân file thiết bị khối đó chỉ là phần cứng thô (Raw Data) gồm các ô nhớ byte khô khan, hoàn toàn không có khái niệm về quản lý tên tệp hay thư mục. Bước mount là bắt buộc để hệ thống tệp (Filesystem) đứng ra làm biên dịch viên, tạo dựng bảng mục lục và siêu dữ liệu (metadata) nhằm biến các khối nhớ thô kệch thành các tệp tin ngăn nắp cho con người sử dụng.
+Lúc này `/mnt/sdcard` trở thành một `mount point` — vị trí trong namespace tại đó root của filesystem exFAT được gắn vào.
 
-
-### 10.3 Thiết bị khối, phân vùng, thực thể filesystem và điểm gắn kết
-
-Các khái niệm này thường bị gọi chung là “ổ đĩa”, nhưng chúng nằm ở các lớp khác nhau. Với một filesystem lưu trên thiết bị khối, mô hình thường gặp là:
+Cần tách biệt hai sự kiện:
 
 ```text
-[ Thiết bị khối - Block Device ]
+Cắm thẻ nhớ
+    ↓
+Kernel phát hiện thiết bị / block device
+
+mount filesystem
+    ↓
+Filesystem xuất hiện trong namespace
+```
+
+Việc cắm thiết bị không đồng nghĩa filesystem trên thiết bị đó đã được mount.
+
+### 10.2 Quá trình che phủ khi mount (`over-mount`)
+
+Giả sử trước khi mount ta có:
+
+```text
+Filesystem A
+/
+└── mnt
+    └── sdcard
+        └── readme.txt
+```
+
+Trong khi filesystem exFAT trên `/dev/mmcblk0p1` có cây riêng:
+
+```text
+Filesystem B
+/
+├── photo.jpg
+└── data.txt
+```
+
+Khi thực hiện:
+
+```bash
+mount -t exfat /dev/mmcblk0p1 /mnt/sdcard
+```
+
+thì trong `mount namespace` hiện tại, root của Filesystem B xuất hiện tại `/mnt/sdcard`:
+
+```text
+Namespace sau khi mount
+/
+└── mnt
+    └── sdcard          ← mount point
+        ├── photo.jpg
+        └── data.txt
+```
+
+Khi `pathname resolution` đi tới `/mnt/sdcard`, VFS nhận biết đây là một `mount point` và tiếp tục quá trình phân giải từ root của filesystem đã được mount tại đó:
+
+```text
+Filesystem A
+      │
+      │ /mnt/sdcard
+      ▼
+  mount point
+      │
+      ▼
+root của Filesystem B
+```
+
+Tệp `readme.txt` ban đầu **không bị xóa**. Nó vẫn tồn tại trong directory `/mnt/sdcard` của Filesystem A nhưng bị filesystem mới che khỏi đường truy cập pathname thông thường qua `/mnt/sdcard`.
+
+Khi unmount:
+
+```bash
+umount /mnt/sdcard
+```
+
+Filesystem B không còn xuất hiện ở vị trí đó nữa và nội dung ban đầu của `/mnt/sdcard` trong Filesystem A lại nhìn thấy được.
+
+#### `mount` không tạo filesystem
+
+Một lỗi tư duy thường gặp là cho rằng `mount` biến raw storage thành cây file/directory. Với filesystem on-disk như `ext4`, `F2FS`, `XFS` hay FAT, việc tạo các cấu trúc filesystem được thực hiện **trước đó** bằng công cụ tạo filesystem thích hợp, ví dụ:
+
+```bash
+mkfs.ext4 /dev/mmcblk0p1
+```
+
+Luồng tư duy:
+
+```text
+Block device / partition
+        ↓
+       mkfs
+        ↓
+Filesystem instance được tạo
+        ↓
+       mount
+        ↓
+Filesystem xuất hiện tại mount point
+        ↓
+Userspace truy cập qua pathname
+```
+
+Vì vậy `mount` không tạo `superblock`, inode table, bitmap, journal hay các cấu trúc on-disk của `ext4`. Những cấu trúc đó đã được tạo khi filesystem được khởi tạo bằng `mkfs.ext4`.
+
+Với các filesystem runtime như `tmpfs`, `procfs` hoặc `sysfs`, không có bước `mkfs` trên block device. Khi có yêu cầu `mount`, Kernel dùng filesystem implementation tương ứng để tạo hoặc thiết lập filesystem instance tại runtime, như đã trình bày ở mục 1.3.
+
+#### Truy cập dữ liệu sau khi mount
+
+Sau khi filesystem được mount, một thao tác file không đi “thẳng” từ mount point xuống thiết bị vật lý. Luồng tổng quát với filesystem dùng block device là:
+
+```text
+Process
+   ↓
+System call
+   ↓
+VFS
+   ↓
+Filesystem implementation
+   ↓
+Filesystem instance
+   ↓
+Cache / Block I/O layer
+   ↓
+Device driver
+   ↓
+Storage
+```
+
+Ví dụ với `ext4` trên eMMC:
+
+```text
+/data/a.txt
+    ↓
+VFS
+    ↓
+ext4 implementation
+    ↓
+ext4 filesystem instance trên /dev/mmcblk0p1
+    ↓
+Block I/O layer
+    ↓
+MMC/eMMC driver
+    ↓
+eMMC
+```
+
+Do có cache và cơ chế writeback, thao tác `write()` của ứng dụng cũng **không đồng nghĩa dữ liệu đã được ghi ngay lập tức xuống phần cứng**. Vì vậy trước khi tháo thiết bị lưu trữ rời cần thực hiện `umount` an toàn hoặc bảo đảm dữ liệu đã được đồng bộ đầy đủ.
+
+#### `mount` hoạt động trong `mount namespace`
+
+Các mount mà một tiến trình nhìn thấy thuộc `mount namespace` của tiến trình đó. Vì vậy hai tiến trình nằm trong các `mount namespace` khác nhau có thể nhìn thấy cây mount khác nhau dù đang chạy trên cùng một Kernel.
+
+Mô hình:
+
+```text
+Process A
+   ↓
+Mount Namespace A
+   ↓
+/mnt/sdcard có Filesystem B
+
+Process B
+   ↓
+Mount Namespace B
+   ↓
+Có thể nhìn thấy cấu trúc mount khác
+```
+
+Khái niệm này là nền tảng cho container và các cơ chế cô lập filesystem trong Linux.
+
+### 10.3 Thiết bị khối, phân vùng, thực thể filesystem và `mount point`
+
+Các khái niệm này thường bị gọi chung là “ổ đĩa”, nhưng chúng nằm ở các lớp khác nhau. Với một filesystem lưu trên block device, mô hình thường gặp là:
+
+```text
+[ Block Device - Thiết bị khối ]
 Ví dụ: /dev/nvme0n1
                 |
                 v
-[ Phân vùng - Partition ]
+[ Partition - Phân vùng ]
 Ví dụ: /dev/nvme0n1p1
                 |
                 v
-[ Thực thể filesystem ]
+[ Filesystem instance - Thực thể filesystem ]
 Ví dụ: một filesystem được tạo theo định dạng ext4
                 |
                 v
-[ Mount Point - Điểm gắn kết ]
+[ Mount point - Điểm gắn kết ]
 Ví dụ: /home
                 |
                 v
@@ -1353,9 +1529,27 @@ Ví dụ: /home
 Ví dụ: /home/user/a.txt
 ```
 
-> **Đọc sơ đồ:** `/dev/nvme0n1` là block device mà Kernel cung cấp cho thiết bị lưu trữ. Một partition như `/dev/nvme0n1p1` là một vùng logic bên trong block device; partition không phải điều kiện bắt buộc vì filesystem cũng có thể được tạo trực tiếp trên toàn bộ block device trong một số trường hợp. Lệnh kiểu `mkfs.ext4` tạo một **thực thể filesystem theo định dạng `ext4`** trên vùng lưu trữ đã chọn. `mount` không “biến partition thành ext4”; nó gắn thực thể filesystem đã tồn tại vào một `mount point` trong namespace để userspace truy cập qua pathname.
+> **Đọc sơ đồ:** `/dev/nvme0n1` là block device mà Kernel cung cấp cho thiết bị lưu trữ. Một partition như `/dev/nvme0n1p1` là một vùng logic bên trong block device; partition không phải điều kiện bắt buộc vì filesystem cũng có thể được tạo trực tiếp trên toàn bộ block device trong một số trường hợp. Lệnh kiểu `mkfs.ext4` tạo một **thực thể filesystem theo định dạng `ext4`** trên vùng lưu trữ đã chọn. `mount` không “biến partition thành ext4”; nó gắn filesystem instance đã tồn tại vào một `mount point` trong namespace để userspace truy cập qua pathname.
 
-Mục 1.3 đã phân biệt **định dạng filesystem**, **filesystem type**, **phần hiện thực filesystem trong Kernel** và **thực thể filesystem**. Mục này chỉ tập trung vào bước ghép thực thể đó vào namespace bằng `mount`.
+Mục 1.3 đã phân biệt **định dạng filesystem**, **filesystem type**, **phần hiện thực filesystem trong Kernel** và **thực thể filesystem**. Mục này chỉ tập trung vào bước đưa thực thể filesystem đó vào namespace bằng `mount`.
+
+Có thể cô đọng toàn bộ quan hệ thành:
+
+```text
+Block device
+    ↓
+Partition                  (có thể có hoặc không)
+    ↓
+mkfs                       (với filesystem on-disk)
+    ↓
+Filesystem instance
+    ↓
+mount
+    ↓
+Mount point
+    ↓
+Pathname mà process nhìn thấy
+```
 
 ---
 
