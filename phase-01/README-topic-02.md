@@ -1480,29 +1480,154 @@ MMC/eMMC driver
 eMMC
 ```
 
-Do có cache và cơ chế writeback, thao tác `write()` của ứng dụng cũng **không đồng nghĩa dữ liệu đã được ghi ngay lập tức xuống phần cứng**. Vì vậy trước khi tháo thiết bị lưu trữ rời cần thực hiện `umount` an toàn hoặc bảo đảm dữ liệu đã được đồng bộ đầy đủ.
+#### `write()` thành công chưa chắc dữ liệu đã nằm trên thiết bị vật lý
+
+Khi ứng dụng gọi `write()`, Linux thường không bắt buộc phải ghi ngay các byte đó xuống SSD, eMMC, thẻ SD hoặc thiết bị lưu trữ khác. Dữ liệu có thể trước tiên được ghi vào `page cache` trong RAM của Kernel. Những phần dữ liệu trong RAM đã thay đổi nhưng chưa được ghi trở lại storage được gọi là **dirty data** (hoặc dirty pages).
+
+Mô hình đơn giản:
+
+```text
+Application
+    ↓
+write()
+    ↓
+Kernel / page cache trong RAM
+    ↓
+dữ liệu trở thành dirty
+    ↓
+writeback diễn ra sau
+    ↓
+Filesystem / Block I/O
+    ↓
+Device driver
+    ↓
+SSD / eMMC / SD card / ...
+```
+
+Vì vậy, khi `write()` trả về thành công, điều đó thường có nghĩa Kernel đã chấp nhận dữ liệu của ứng dụng; **nó không nhất thiết có nghĩa dữ liệu đã được lưu bền vững trên thiết bị vật lý**. Kernel có thể ghi các dirty pages xuống storage sau đó thông qua cơ chế `writeback`. Cách này giúp giảm số lần I/O nhỏ lẻ và cải thiện hiệu năng.
+
+Nếu thiết bị bị rút hoặc hệ thống mất nguồn trước khi writeback hoàn tất, phần dữ liệu vẫn chỉ tồn tại trong RAM có thể bị mất. Đây là lý do đặc biệt quan trọng trong Embedded Linux, nơi mất nguồn đột ngột là tình huống thực tế cần tính đến.
+
+Khi cần yêu cầu đồng bộ dữ liệu của một file đang mở, ứng dụng có thể sử dụng các cơ chế như `fsync()`. Lệnh `sync` ở userspace yêu cầu Kernel bắt đầu đồng bộ các dữ liệu filesystem đang chờ ghi. Tuy nhiên, trước khi tháo một thiết bị lưu trữ rời, thao tác đúng vẫn là `umount` filesystem tương ứng. Khi `umount` hoàn tất thành công, Kernel đã thực hiện các bước cần thiết để đồng bộ và tháo filesystem khỏi mount point một cách có kiểm soát.
+
+Có thể ghi nhớ:
+
+```text
+write()
+    → dữ liệu đã được Kernel chấp nhận
+    → chưa chắc đã nằm trên storage vật lý
+
+fsync()
+    → yêu cầu đồng bộ dữ liệu của file xuống storage
+
+umount
+    → đồng bộ các thay đổi cần thiết và tháo filesystem khỏi namespace
+```
+
+> **Lưu ý:** Đây là mô hình nền tảng cho I/O có cache thông thường. Các chế độ như `O_SYNC`, `O_DSYNC`, direct I/O hoặc một số filesystem/storage cụ thể có thể có semantics khác.
 
 #### `mount` hoạt động trong `mount namespace`
 
-Các mount mà một tiến trình nhìn thấy thuộc `mount namespace` của tiến trình đó. Vì vậy hai tiến trình nằm trong các `mount namespace` khác nhau có thể nhìn thấy cây mount khác nhau dù đang chạy trên cùng một Kernel.
+`mount namespace` quyết định **một tiến trình nhìn thấy những filesystem nào đang được mount tại những vị trí nào trong cây thư mục**. Nói cách khác, nó là “bản đồ mount” mà tiến trình sử dụng khi Kernel thực hiện `pathname resolution`.
 
-Mô hình:
+Điểm quan trọng là **cùng một Kernel không có nghĩa mọi tiến trình bắt buộc phải nhìn thấy cùng một cây mount**. Nhiều tiến trình bình thường có thể cùng chia sẻ một `mount namespace`, nhưng Linux cũng cho phép tạo các `mount namespace` khác nhau để cô lập góc nhìn về filesystem.
+
+Ví dụ, ban đầu hai nhóm tiến trình có thể nhìn thấy cấu trúc tương tự nhau:
 
 ```text
-Process A
-   ↓
-Mount Namespace A
-   ↓
-/mnt/sdcard có Filesystem B
+Mount Namespace A                  Mount Namespace B
 
-Process B
-   ↓
-Mount Namespace B
-   ↓
-Có thể nhìn thấy cấu trúc mount khác
+/                                  /
+├── home                            ├── home
+├── tmp                             ├── tmp
+└── mnt                             └── mnt
+    └── sdcard                          └── sdcard
 ```
 
-Khái niệm này là nền tảng cho container và các cơ chế cô lập filesystem trong Linux.
+Sau đó, trong `Mount Namespace A`, một filesystem trên thẻ nhớ được mount vào `/mnt/sdcard`:
+
+```text
+/dev/mmcblk0p1
+      ↓
+filesystem trên thẻ nhớ
+      ↓
+mount tại /mnt/sdcard
+```
+
+Khi đó các tiến trình thuộc `Mount Namespace A` có thể nhìn thấy:
+
+```text
+/
+├── home
+├── tmp
+└── mnt
+    └── sdcard
+        ├── photo.jpg
+        └── data.txt
+```
+
+Trong khi các tiến trình thuộc `Mount Namespace B` có thể vẫn nhìn thấy:
+
+```text
+/
+├── home
+├── tmp
+└── mnt
+    └── sdcard
+```
+
+Tức là:
+
+```text
+Cùng Kernel
+Cùng máy
+Cùng block device tồn tại
+
+nhưng:
+
+Process thuộc Namespace A → nhìn thấy filesystem được mount
+Process thuộc Namespace B → có thể không nhìn thấy mount đó
+```
+
+Điều này **không tạo ra một block device hoặc filesystem mới**. Nó chỉ thay đổi cách các tiến trình trong namespace đó nhìn thấy các mount trong cây thư mục.
+
+Cũng cần lưu ý rằng **không phải mỗi tiến trình đều có một `mount namespace` riêng**. Nhiều tiến trình có thể cùng chia sẻ một namespace:
+
+```text
+Process A ─┐
+Process B ─┼──→ cùng Mount Namespace
+Process C ─┘
+```
+
+Khi một tiến trình thực hiện `mount` trong namespace này, các tiến trình khác cùng chia sẻ namespace thường cũng nhìn thấy thay đổi đó. Ngược lại, nếu một tiến trình nằm trong `mount namespace` khác, cây mount mà nó nhìn thấy có thể khác.
+
+Có thể ghi nhớ:
+
+```text
+mount
+→ gắn một filesystem vào một vị trí trong cây namespace
+
+mount namespace
+→ quyết định một tiến trình nhìn thấy “bản đồ mount” nào
+```
+
+Mô hình tổng quát:
+
+```text
+                    Linux Kernel
+                         │
+             ┌───────────┴───────────┐
+             │                       │
+         Process/Host            Process/Container
+             │                       │
+             ▼                       ▼
+     Mount Namespace A        Mount Namespace B
+             │                       │
+             ▼                       ▼
+       cây mount A              cây mount B
+```
+
+Đây là một trong những cơ chế nền tảng giúp container cô lập góc nhìn filesystem: container vẫn dùng chung Linux Kernel với host nhưng có thể nhìn thấy một cây mount khác với host.
 
 ### 10.3 Thiết bị khối, phân vùng, thực thể filesystem và `mount point`
 
@@ -1555,42 +1680,223 @@ Pathname mà process nhìn thấy
 
 ## 11. `/dev`, `/proc`, `/sys`: những hệ thống tệp đặc biệt
 
-Không phải filesystem nào cũng lưu xuống chip nhớ vật lý. Linux tận dụng VFS để biến dữ liệu cấu trúc nội bộ của Kernel thành các thư mục ảo, giúp userspace thao tác quản trị bằng những lệnh `cat`, `echo` cực kỳ quen thuộc.
+Không phải filesystem nào trong Linux cũng dùng để lưu dữ liệu trên thiết bị lưu trữ. Linux còn sử dụng giao diện filesystem để đưa các tài nguyên, trạng thái và đối tượng của Kernel vào namespace mà userspace có thể truy cập bằng `pathname` và các system call quen thuộc.
 
-### 11.1 `/dev` (devtmpfs)
-
-Lưu trữ các `device node` đại diện cho phần cứng (loa, chuột, cổng serial). Khi phần cứng cắm vào, Kernel thông qua `devtmpfs` tạo một entry tại đây. 
-
-### 11.2 `/proc` (procfs)
-
-`procfs` không cần một filesystem on-disk được tạo trước bằng `mkfs`. Khi có yêu cầu mount, Kernel thiết lập thực thể `procfs` tại runtime để biểu diễn trạng thái và dữ liệu nội bộ của Kernel trong namespace.
-
-Hệ thống tệp ảo trên RAM, là cửa sổ phơi bày trạng thái động của hệ điều hành.
-*   Chứa thông tin tiến trình (`/proc/[PID]/`).
-*   Thông số tài nguyên (`/proc/meminfo`, `/proc/cpuinfo`).
-*   Cấu hình runtime của Kernel (`/proc/sys/`).
-*   Nội dung trong `procfs` thường là số không tròn trĩnh (size 0) và được Kernel sinh/tổng hợp động theo thời gian thực (real-time) ngay khi có ứng dụng gọi hàm `read()`.
-
-### 11.3 `/sys` (sysfs)
-
-Tương tự `procfs`, `sysfs` không cần được tạo trước bằng `mkfs`; Kernel thiết lập thực thể `sysfs` khi filesystem type này được mount.
-
-`sysfs` là mô hình cây ảo phân cấp rõ ràng mô tả cách các thiết bị (devices), trình điều khiển (drivers), bus, và firmware kết nối với nhau.
-Với dân lập trình Embedded Linux, `/sys` là tài nguyên số 1 để quan sát cấu trúc vật lý và các thuộc tính phần cứng ngoại vi.
-
-### 11.4 Bản chất giao diện ảo
+Ba ví dụ rất quan trọng là `/dev`, `/proc` và `/sys`. Tuy đều xuất hiện dưới dạng cây thư mục, bản chất và mục đích của chúng khác nhau:
 
 ```text
-[ Lệnh: cat /proc/cpuinfo ] 
-          |
-[ VFS gọi driver procfs ] 
-          |
-[ Kernel truy vấn cấu trúc dữ liệu CPU ] 
-          |
-[ Kernel chuyển số liệu CPU thành dạng Text và trả lại User ]
+/dev   → cung cấp các device node để userspace truy cập device interface/driver
+/proc  → cung cấp thông tin về process, trạng thái Kernel và một số tham số runtime
+/sys   → biểu diễn các kernel object, device model và thuộc tính của chúng
 ```
 
-> **Đọc sơ đồ:** Dù bạn dùng công cụ đọc file truyền thống (`cat`), nhưng bản chất dòng văn bản in ra màn hình từ `/proc` không hề tồn tại dưới dạng một file `.txt` trên ổ cứng. Đây là cơ chế Kernel dùng interface hệ thống tệp (VFS API) để giao tiếp, mô phỏng (fake) các cấu trúc RAM thành dạng file đọc được cho con người.
+### 11.1 `/dev` và `devtmpfs`
+
+`/dev` là nơi userspace thường nhìn thấy các **device node**. Device node là một đối tượng trong filesystem namespace dùng làm điểm truy cập tới một device interface/driver trong Kernel.
+
+Ví dụ với một cổng UART:
+
+```text
+Userspace
+    ↓
+/dev/ttyS0
+    ↓
+device node
+(major + minor)
+    ↓
+device driver
+    ↓
+UART hardware
+```
+
+Khi chương trình gọi các system call như `open()`, `read()` hoặc `write()` trên một device node, VFS dựa vào thông tin của node để định tuyến thao tác tới phần driver tương ứng.
+
+Không phải mọi device node đều đại diện trực tiếp cho một phần cứng vật lý. Ví dụ:
+
+```text
+/dev/null
+/dev/zero
+/dev/loop0
+/dev/pts/...
+```
+
+cũng xuất hiện dưới `/dev`, nhưng có thể đại diện cho các thiết bị hoặc giao diện do Kernel cung cấp bằng phần mềm.
+
+Trên nhiều hệ thống Linux hiện đại, `devtmpfs` được mount tại `/dev`. Khi một device phù hợp được Kernel đăng ký, `devtmpfs` có thể cung cấp device node tương ứng. Sau đó, một thành phần userspace như `udev` trên desktop/server hoặc `mdev` trên một số hệ thống Embedded Linux có thể tiếp tục xử lý tên, permission, symbolic link và các chính sách quản lý thiết bị.
+
+Có thể ghi nhớ:
+
+```text
+/dev
+ ↓
+device node
+ ↓
+major/minor
+ ↓
+device driver
+ ↓
+device hoặc device interface
+```
+
+### 11.2 `/proc` và `procfs`
+
+`procfs` không cần một filesystem on-disk được tạo trước bằng `mkfs`. Khi `procfs` được mount, Kernel thiết lập một filesystem instance tại runtime để cung cấp giao diện tới trạng thái và dữ liệu nội bộ của hệ thống đang chạy.
+
+`procfs` là một **pseudo filesystem**, không nên hiểu đơn giản là một filesystem "chứa file trên RAM" giống `tmpfs`.
+
+Một số nhóm thông tin quan trọng trong `/proc`:
+
+* **Thông tin process:** `/proc/[PID]/`
+* **Thông tin hệ thống:** `/proc/meminfo`, `/proc/cpuinfo`, `/proc/uptime`, ...
+* **Tham số runtime của Kernel:** `/proc/sys/`
+
+Ví dụ:
+
+```text
+cat /proc/meminfo
+        ↓
+       VFS
+        ↓
+procfs implementation
+        ↓
+đọc trạng thái Kernel hiện tại
+        ↓
+tạo dữ liệu trả về userspace
+```
+
+Các entry trong `procfs` không nhất thiết có kích thước tệp mang ý nghĩa giống một regular file. Nội dung của nhiều entry được tạo hoặc tổng hợp dựa trên trạng thái Kernel tại thời điểm userspace gọi `read()`.
+
+Một số entry, đặc biệt dưới `/proc/sys`, còn có thể được ghi để thay đổi tham số runtime của Kernel. Vì vậy `/proc` không chỉ dùng để quan sát mà còn có thể là giao diện cấu hình.
+
+Điểm cần nhớ:
+
+```text
+/proc
+  ↓
+procfs
+  ↓
+thông tin process + trạng thái/cấu hình runtime của Kernel
+```
+
+### 11.3 `/sys` và `sysfs`
+
+Tương tự `procfs`, `sysfs` không cần được tạo trước bằng `mkfs`. Khi `sysfs` được mount, Kernel thiết lập filesystem instance tương ứng tại runtime.
+
+`sysfs` được thiết kế để **export các kernel object, thuộc tính và quan hệ giữa chúng ra userspace**. Nó gắn chặt với mô hình thiết bị của Kernel, vì vậy rất quan trọng trong Embedded Linux khi cần quan sát device, driver, bus, class hoặc các thuộc tính phần cứng.
+
+Có thể hình dung:
+
+```text
+Kernel device model
+        ↓
+devices / drivers / buses / classes
+        ↓
+      sysfs
+        ↓
+/sys/devices/
+/sys/class/
+/sys/bus/
+/sys/firmware/
+...
+```
+
+Một số thư mục thường gặp:
+
+* **`/sys/devices/`**: biểu diễn cây thiết bị mà Kernel đang quản lý.
+* **`/sys/bus/`**: tổ chức device và driver theo bus.
+* **`/sys/class/`**: nhóm các device theo lớp chức năng.
+* **`/sys/firmware/`**: cung cấp một số thông tin liên quan firmware/platform khi có hỗ trợ.
+
+Nhiều file trong `sysfs` biểu diễn một thuộc tính của kernel object. Một số thuộc tính chỉ đọc, trong khi một số khác có thể ghi để thay đổi cấu hình hoặc trạng thái của driver/device.
+
+Ví dụ về mặt khái niệm:
+
+```text
+cat /sys/.../attribute
+        ↓
+       VFS
+        ↓
+sysfs implementation
+        ↓
+đọc thuộc tính của kernel object
+        ↓
+trả giá trị về userspace
+```
+
+hoặc với một thuộc tính cho phép ghi:
+
+```text
+echo value > /sys/.../attribute
+        ↓
+       VFS
+        ↓
+sysfs implementation
+        ↓
+chuyển yêu cầu tới callback của subsystem/driver
+        ↓
+thay đổi trạng thái hoặc cấu hình tương ứng
+```
+
+Ở giai đoạn này chỉ cần hiểu `sysfs` là giao diện filesystem giúp userspace quan sát và, với các thuộc tính cho phép, tương tác với các object và device model của Kernel. Chưa cần đi sâu vào `kobject`, `kset` hoặc cách driver tự tạo sysfs attribute.
+
+### 11.4 Bản chất của các giao diện filesystem do Kernel cung cấp
+
+Ví dụ khi chạy:
+
+```bash
+cat /proc/cpuinfo
+```
+
+luồng khái niệm là:
+
+```text
+[ cat /proc/cpuinfo ]
+          │
+          │ read()
+          ▼
+[ VFS ]
+          │
+          │ dispatch
+          ▼
+[ procfs implementation ]
+          │
+          │ lấy thông tin từ Kernel
+          ▼
+[ Trạng thái / dữ liệu Kernel ]
+          │
+          │ tạo dữ liệu trả về
+          ▼
+[ userspace ]
+```
+
+> **Đọc sơ đồ:** Dòng văn bản mà `cat` nhận được từ `/proc/cpuinfo` không phải một file `.txt` đã được lưu sẵn trên SSD/eMMC. Kernel sử dụng filesystem interface để **export** thông tin runtime thành các entry mà userspace có thể truy cập bằng pathname và File API quen thuộc.
+
+Điều tương tự áp dụng cho `sysfs`, nhưng dữ liệu mà `sysfs` biểu diễn tập trung vào các kernel object, thuộc tính và quan hệ trong device model.
+
+Riêng `/dev` có vai trò khác: các device node chủ yếu đóng vai trò điểm truy cập từ filesystem namespace tới device interface/driver.
+
+### 11.5 So sánh nhanh `/dev`, `/proc`, `/sys`
+
+| Đường dẫn | Filesystem thường gặp | Mục đích chính |
+|---|---|---|
+| `/dev` | `devtmpfs` | Cung cấp `device node` để userspace truy cập device interface/driver |
+| `/proc` | `procfs` | Cung cấp thông tin process, trạng thái Kernel và một số tham số runtime |
+| `/sys` | `sysfs` | Export kernel object, device model, thuộc tính và quan hệ device/driver/bus |
+
+Mô hình ghi nhớ:
+
+```text
+/dev
+  device node → device driver → device/device interface
+
+/proc
+  pathname → procfs → Kernel runtime information
+
+/sys
+  pathname → sysfs → kernel object / device model
+```
+
+Ba cây này đều tận dụng mô hình filesystem của Linux, nhưng **không nên xem chúng là ba thư mục có cùng bản chất**.
 
 ---
 
