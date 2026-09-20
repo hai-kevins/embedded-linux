@@ -310,7 +310,111 @@ Hai phân vùng khác nhau đều có thể được format `ext4`; khi đó ch�
 
 Với `tmpfs`, `procfs` hoặc `sysfs`, Kernel có thể tạo một thực thể filesystem khi filesystem type tương ứng được mount; chúng không cần một filesystem on-disk đã được tạo trước bằng `mkfs`.
 
-#### 1.3.5 Ghép các khái niệm lại với nhau
+#### 1.3.5 Không phải filesystem nào cũng cần `mkfs`
+
+Không phải mọi filesystem đều phải được tạo trước trên thiết bị lưu trữ bằng một công cụ `mkfs`. Có thể chia thành hai trường hợp chính.
+
+**Trường hợp 1 — Filesystem có định dạng lưu trữ trên thiết bị (`on-disk filesystem`)**
+
+Các filesystem như `ext4`, `F2FS`, `XFS` hoặc FAT thường tồn tại dưới dạng các cấu trúc dữ liệu được ghi trên một block device hoặc partition.
+
+Ví dụ với `ext4`:
+
+```text
+/dev/mmcblk0p1
+        ↓
+    mkfs.ext4
+        ↓
+tạo các cấu trúc ext4
+(superblock, inode, bitmap, journal, ...)
+        ↓
+một thực thể ext4 tồn tại trên thiết bị
+        ↓
+       mount
+        ↓
+      /data
+```
+
+Ở trường hợp này, `mkfs` có nhiệm vụ **tạo filesystem trước**, còn `mount` đưa filesystem đã tồn tại đó vào namespace của Linux.
+
+Có thể ghi nhớ:
+
+```text
+Block device → mkfs → thực thể filesystem tồn tại → mount → namespace
+```
+
+**Trường hợp 2 — Filesystem được tạo hoặc thiết lập khi hệ thống đang chạy**
+
+Các filesystem như `tmpfs`, `procfs` và `sysfs` không cần một filesystem đã được tạo trước trên block device bằng `mkfs`.
+
+Ví dụ:
+
+```bash
+mount -t tmpfs tmpfs /tmp
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+```
+
+Khi có yêu cầu `mount`, Kernel sử dụng phần hiện thực filesystem tương ứng để tạo hoặc thiết lập thực thể filesystem cần thiết trong lúc hệ thống đang chạy.
+
+```text
+Yêu cầu mount
+      ↓
+Kernel
+      ↓
+phần hiện thực filesystem
+(tmpfs / procfs / sysfs)
+      ↓
+tạo hoặc thiết lập thực thể filesystem tại runtime
+      ↓
+mount vào namespace
+```
+
+Ví dụ:
+
+```text
+tmpfs
+  ↓
+thực thể filesystem sử dụng bộ nhớ
+  ↓
+/tmp
+```
+
+```text
+procfs
+  ↓
+thực thể filesystem biểu diễn dữ liệu Kernel
+  ↓
+/proc
+```
+
+```text
+sysfs
+  ↓
+thực thể filesystem biểu diễn Kernel device model
+  ↓
+/sys
+```
+
+Do đó, không nên ghi nhớ máy móc rằng:
+
+```text
+Filesystem → phải mkfs → mới mount được
+```
+
+Quy tắc chính xác hơn là:
+
+```text
+Filesystem on-disk:
+Block device → mkfs → thực thể filesystem → mount
+
+Filesystem runtime:
+yêu cầu mount → Kernel tạo/thiết lập thực thể filesystem → mount
+```
+
+> **Lưu ý:** Kernel không nhất thiết tự ý mount `tmpfs`, `procfs` hoặc `sysfs`. Thông thường một thành phần userspace như `init`, `systemd` hoặc script khởi động sẽ yêu cầu thao tác `mount`; Kernel sau đó thực hiện việc tạo hoặc thiết lập thực thể filesystem tương ứng.
+
+#### 1.3.6 Ghép các khái niệm lại với nhau
 
 Ví dụ đầy đủ với `ext4`:
 
@@ -770,6 +874,8 @@ Lưu trữ các `device node` đại diện cho phần cứng (loa, chuột, c�
 
 ### 11.2 `/proc` (procfs)
 
+`procfs` không cần một filesystem on-disk được tạo trước bằng `mkfs`. Khi có yêu cầu mount, Kernel thiết lập thực thể `procfs` tại runtime để biểu diễn trạng thái và dữ liệu nội bộ của Kernel trong namespace.
+
 Hệ thống tệp ảo trên RAM, là cửa sổ phơi bày trạng thái động của hệ điều hành.
 *   Chứa thông tin tiến trình (`/proc/[PID]/`).
 *   Thông số tài nguyên (`/proc/meminfo`, `/proc/cpuinfo`).
@@ -778,7 +884,9 @@ Hệ thống tệp ảo trên RAM, là cửa sổ phơi bày trạng thái độ
 
 ### 11.3 `/sys` (sysfs)
 
-Tương tự `procfs`, `sysfs` là mô hình cây ảo phân cấp rõ ràng mô tả cách các thiết bị (devices), trình điều khiển (drivers), bus, và firmware kết nối với nhau.
+Tương tự `procfs`, `sysfs` không cần được tạo trước bằng `mkfs`; Kernel thiết lập thực thể `sysfs` khi filesystem type này được mount.
+
+`sysfs` là mô hình cây ảo phân cấp rõ ràng mô tả cách các thiết bị (devices), trình điều khiển (drivers), bus, và firmware kết nối với nhau.
 Với dân lập trình Embedded Linux, `/sys` là tài nguyên số 1 để quan sát cấu trúc vật lý và các thuộc tính phần cứng ngoại vi.
 
 ### 11.4 Bản chất giao diện ảo
