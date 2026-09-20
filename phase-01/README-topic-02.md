@@ -2,7 +2,7 @@
 
 > **Mục tiêu:** Hiểu rõ cách Linux tổ chức, phân giải và quản lý tài nguyên thông qua hệ thống tệp: từ cây thư mục `/`, đường dẫn, quá trình `pathname resolution`, `inode`, `dentry`, quyền truy cập, cơ chế `mount` cho tới các hệ thống tệp giao diện như `/dev`, `/proc`, `/sys`.
 >
-> **Quy ước ngôn ngữ:** Phần giải thích dùng Tiếng Việt. Các tên/thuật ngữ kỹ thuật cốt lõi chuẩn theo tài liệu Linux/POSIX như `filesystem`, `VFS`, `pathname`, `pathname resolution`, `dentry`, `inode`, `symbolic link`, `hard link`, `mount point`, `device node`, `procfs`, `sysfs`, `devtmpfs`, `open file description` được giữ nguyên bằng tiếng Anh để đảm bảo tính toàn vẹn ngữ nghĩa và dễ dàng tra cứu.
+> **Quy ước ngôn ngữ:** Phần giải thích ưu tiên Tiếng Việt khi có cách dịch sát nghĩa và không làm sai khái niệm. Các thuật ngữ, tên định danh và tên cơ chế chuẩn của Linux/POSIX như `filesystem`, `VFS`, `pathname`, `pathname resolution`, `dentry`, `inode`, `symbolic link`, `hard link`, `mount`, `mount point`, `device node`, `procfs`, `sysfs`, `devtmpfs`, `tmpfs`, `open file description` được giữ nguyên để đảm bảo đúng ngữ nghĩa kỹ thuật và thuận tiện tra cứu tài liệu quốc tế. Khi cần, bản dịch Tiếng Việt sẽ được đặt bên cạnh ở lần xuất hiện đầu tiên.
 >
 > **Phạm vi:** Cây không gian tên (namespace), chuẩn FHS, đường dẫn, quá trình phân giải đường dẫn, `VFS`, `dentry`, `inode`, block lưu trữ, các loại tệp (file types), siêu dữ liệu (metadata), quyền `r/w/x`, các tiện ích cấu hình (`chmod`, `chown`, `umask`), cơ chế mount, các filesystem đặc biệt (`/dev`, `/proc`, `/sys`), công cụ quan sát (`df`, `du`).
 >
@@ -65,12 +65,14 @@ Một cách đơn giản để hình dung filesystem trong Linux là tách quá 
 ```text
 Nguồn lưu trữ / nguồn cung cấp dữ liệu
                 ↓
-            Filesystem
+        Thực thể filesystem
                 ↓
             Mount point
                 ↓
    Pathname mà userspace nhìn thấy
 ```
+
+Với filesystem nằm trên thiết bị khối, thực thể filesystem thường được tạo theo một **loại/định dạng filesystem** cụ thể như `ext4`, `FAT32`, `F2FS` hoặc `XFS`.
 
 Ví dụ với một phân vùng trên SSD:
 
@@ -79,9 +81,11 @@ SSD
  ↓
 /dev/nvme0n1p2
  ↓
-chứa filesystem ext4
+được tạo filesystem theo định dạng ext4
  ↓
-ext4 được mount tại /
+một thực thể ext4 tồn tại trên phân vùng
+ ↓
+mount tại /
  ↓
 /home/user/a.txt
 ```
@@ -93,35 +97,33 @@ SD card
  ↓
 /dev/mmcblk0p1
  ↓
-chứa filesystem FAT32
+được tạo filesystem theo định dạng FAT32
  ↓
-FAT32 được mount tại /mnt/sdcard
+một thực thể FAT32 tồn tại trên phân vùng
+ ↓
+mount tại /mnt/sdcard
  ↓
 /mnt/sdcard/photo.jpg
 ```
 
-Linux có thể lấy dữ liệu từ nhiều nguồn khác nhau như SSD, eMMC, thẻ nhớ, RAM hoặc các cấu trúc dữ liệu nội bộ của Kernel. Một filesystem sẽ tổ chức hoặc biểu diễn nguồn dữ liệu đó, sau đó filesystem được `mount` vào một vị trí trong cây namespace chung bắt đầu từ `/`.
-
-Ví dụ:
+Linux cũng có các filesystem không cần một định dạng dữ liệu cố định trên thiết bị khối. Ví dụ `tmpfs` lưu dữ liệu trong bộ nhớ ảo, còn `procfs` và `sysfs` biểu diễn dữ liệu do Kernel cung cấp.
 
 ```text
-Nguồn dữ liệu     Filesystem     Mount point      Pathname ví dụ
------------------------------------------------------------------------
-SSD / partition   ext4           /                /home/user/a.txt
-RAM               tmpfs          /tmp             /tmp/a.txt
-SD card           FAT32          /mnt/sdcard      /mnt/sdcard/photo.jpg
-Kernel            procfs         /proc            /proc/cpuinfo
-Kernel            sysfs          /sys             /sys/class/...
+Nguồn/cơ chế       Loại filesystem     Mount point      Pathname ví dụ
+-------------------------------------------------------------------------
+SSD / partition    ext4                /                /home/user/a.txt
+RAM / swap         tmpfs               /tmp             /tmp/a.txt
+SD card            FAT32               /mnt/sdcard      /mnt/sdcard/photo.jpg
+Kernel             procfs              /proc            /proc/cpuinfo
+Kernel             sysfs               /sys             /sys/class/...
 ```
 
-Điểm quan trọng là **filesystem được mount vào cây namespace**, chứ không phải filesystem được “mount vào thiết bị lưu trữ”.
-
-Với filesystem nằm trên block device, quan hệ thường là:
+Điểm quan trọng là **filesystem được gắn (`mount`) vào cây namespace**, chứ không phải filesystem được “mount vào thiết bị lưu trữ”. Với trường hợp `ext4`, `FAT32`, `F2FS`... trên thiết bị khối, thiết bị hoặc phân vùng là nơi chứa thực thể filesystem; `mount` chỉ làm cho thực thể đó xuất hiện tại một vị trí trong namespace.
 
 ```text
 Thiết bị / phân vùng
         ↓
-chứa filesystem
+chứa một thực thể filesystem
         ↓
 filesystem được mount vào một mount point
         ↓
@@ -133,23 +135,13 @@ Ví dụ:
 ```text
 /dev/nvme0n1p2
        │
-       │ chứa
+       │ chứa một thực thể ext4
        ▼
       ext4
        │
        │ mount
        ▼
        /
-```
-
-Không phải filesystem nào cũng có một thiết bị lưu trữ vật lý phía sau:
-
-```text
-ext4    → thường nằm trên SSD, eMMC hoặc block device khác
-F2FS    → nằm trên block device, thường dùng cho flash-based storage
-tmpfs   → sử dụng RAM và có thể dùng swap nếu hệ thống được cấu hình phù hợp
-procfs  → biểu diễn dữ liệu do Kernel cung cấp động
-sysfs   → biểu diễn các object và thuộc tính của Kernel/device model
 ```
 
 Do đó, từ góc nhìn userspace, các nguồn dữ liệu rất khác nhau vẫn xuất hiện trong cùng một cây pathname:
@@ -164,12 +156,201 @@ Do đó, từ góc nhìn userspace, các nguồn dữ liệu rất khác nhau v�
 Mô hình cần ghi nhớ:
 
 ```text
-Nguồn dữ liệu → Filesystem → Mount point → Pathname
+Nguồn dữ liệu → Thực thể filesystem → Mount point → Pathname
 ```
 
-Cây thư mục Linux chính là namespace thống nhất giúp userspace truy cập các filesystem khác nhau mà không cần biết ngay dữ liệu phía dưới thực sự đến từ SSD, RAM, thiết bị ngoài hay Kernel.
+Riêng với filesystem nằm trên thiết bị khối, có thể mở rộng thành:
 
-### 1.3 Linux cho nhiều filesystem cùng xuất hiện trong một cây
+```text
+Block device / partition
+        ↓
+Định dạng filesystem (ví dụ ext4, FAT32)
+        ↓
+Thực thể filesystem
+        ↓
+Mount point
+        ↓
+Pathname
+```
+
+### 1.3 Phân biệt định dạng, filesystem type, phần hiện thực và thực thể filesystem
+
+Từ `filesystem` thường được dùng ở nhiều mức khác nhau. Đây là nguyên nhân khiến các câu như “`ext4` là filesystem”, “phân vùng này được format `ext4`” hoặc “Linux mount FAT32 bằng `vfat`” dễ gây nhầm lẫn. Để hiểu chính xác, nên tách bốn khái niệm sau.
+
+#### 1.3.1 Filesystem format — định dạng filesystem
+
+**Filesystem format** mô tả cách dữ liệu và metadata được bố trí và biểu diễn trên nơi lưu trữ. Với filesystem lưu trên block device, đây thường là **định dạng trên thiết bị lưu trữ (on-disk format)**.
+
+Ví dụ:
+
+```text
+ext4
+FAT32
+F2FS
+XFS
+```
+
+Định dạng `ext4` quy định các cấu trúc như:
+
+```text
+superblock
+block group
+inode table
+block/inode bitmap
+directory entry
+extent
+journal
+...
+```
+
+Khi chạy:
+
+```bash
+mkfs.ext4 /dev/nvme0n1p2
+```
+
+công cụ `mkfs.ext4` tạo các cấu trúc cần thiết trên `/dev/nvme0n1p2` để vùng lưu trữ đó chứa một filesystem theo định dạng `ext4`.
+
+```text
+/dev/nvme0n1p2
+       │
+       │ mkfs.ext4
+       ▼
+┌──────────────────────────────┐
+│ một thực thể ext4            │
+│                              │
+│ superblock                   │
+│ inode tables                 │
+│ bitmaps                      │
+│ extents                      │
+│ directory entries            │
+│ data blocks                  │
+│ journal                      │
+│ ...                          │
+└──────────────────────────────┘
+```
+
+Ở mức này, `ext4` không phải ổ cứng hay phân vùng. Nó là **định dạng filesystem** quy định cách các cấu trúc được bố trí và diễn giải.
+
+`FAT32` cũng là một định dạng filesystem, nhưng sử dụng cách tổ chức khác, chẳng hạn FAT, cluster và directory entry.
+
+> **Lưu ý:** Không phải filesystem nào cũng có một định dạng on-disk. `tmpfs`, `procfs`, `sysfs` không cần một cấu trúc filesystem bền vững được ghi sẵn trên SSD/eMMC như `ext4`.
+
+#### 1.3.2 Filesystem type — tên loại filesystem mà Kernel đăng ký với VFS
+
+Trong Linux, một phần hiện thực filesystem đăng ký một **filesystem type** với `VFS`. Tên này là tên mà Kernel dùng để nhận diện loại filesystem khi mount.
+
+Ví dụ thường gặp:
+
+```text
+Filesystem format     Filesystem type thường thấy trên Linux
+-------------------------------------------------------------
+ext4                  ext4
+FAT32                 vfat
+F2FS                  f2fs
+XFS                   xfs
+-                     tmpfs
+-                     proc
+-                     sysfs
+```
+
+Với `ext4`, tên định dạng và filesystem type đều là `ext4`, nên hai khái niệm dễ bị xem là một.
+
+Với FAT thì sự khác biệt dễ thấy hơn. Một phân vùng có thể được định dạng **FAT32**, nhưng trên Linux bạn thường mount nó bằng filesystem type `vfat`, ví dụ:
+
+```bash
+mount -t vfat /dev/mmcblk0p1 /mnt/sdcard
+```
+
+Vì vậy:
+
+```text
+FAT32  → nói chủ yếu về định dạng dữ liệu trên thiết bị
+vfat   → filesystem type/implementation mà Linux dùng để truy cập họ FAT có tên dài
+```
+
+#### 1.3.3 Filesystem implementation — phần hiện thực filesystem trong Kernel
+
+Kernel cần có **phần hiện thực filesystem** tương ứng để biết cách đọc, ghi và quản lý filesystem đó. Đây là phần mã trong Kernel thực thi các thao tác mà `VFS` yêu cầu.
+
+Ví dụ:
+
+```text
+Ứng dụng
+   ↓
+VFS
+   ↓
+phần hiện thực ext4 trong Kernel
+   ↓
+thực thể ext4 trên /dev/nvme0n1p2
+```
+
+`VFS` cung cấp giao diện chung; phần hiện thực cụ thể xử lý ngữ nghĩa riêng của `ext4`, `vfat`, `tmpfs`, `procfs`, `sysfs`...
+
+Nếu một thiết bị chứa filesystem theo định dạng `ext4` nhưng Kernel không có hỗ trợ `ext4`, Kernel vẫn có thể nhận ra block device, nhưng không có phần hiện thực cần thiết để diễn giải các block đó thành file và thư mục `ext4` để mount theo cách thông thường.
+
+#### 1.3.4 Filesystem instance — thực thể filesystem cụ thể
+
+**Thực thể filesystem** là một filesystem cụ thể đang tồn tại, thay vì chỉ là tên của định dạng hoặc filesystem type.
+
+Ví dụ:
+
+```text
+/dev/nvme0n1p2  → một thực thể ext4
+/dev/sda1        → một thực thể ext4 khác
+/dev/mmcblk0p1   → một thực thể FAT32
+```
+
+Hai phân vùng khác nhau đều có thể được format `ext4`; khi đó chúng là **hai thực thể filesystem khác nhau**, mặc dù cùng sử dụng định dạng và filesystem type `ext4`.
+
+```text
+/dev/nvme0n1p2 ──→ thực thể ext4 A
+/dev/sda1      ──→ thực thể ext4 B
+```
+
+Với `tmpfs`, `procfs` hoặc `sysfs`, Kernel có thể tạo một thực thể filesystem khi filesystem type tương ứng được mount; chúng không cần một filesystem on-disk đã được tạo trước bằng `mkfs`.
+
+#### 1.3.5 Ghép các khái niệm lại với nhau
+
+Ví dụ đầy đủ với `ext4`:
+
+```text
+SSD
+ ↓
+/dev/nvme0n1
+ ↓
+partition /dev/nvme0n1p2
+ ↓
+mkfs.ext4
+ ↓
+định dạng ext4 được ghi lên phân vùng
+ ↓
+một thực thể ext4 tồn tại trên phân vùng
+ ↓
+filesystem type ext4 + phần hiện thực ext4 trong Kernel
+ ↓
+VFS
+ ↓
+mount tại /home
+ ↓
+/home/user/a.txt
+```
+
+Bảng phân biệt:
+
+| Khái niệm | Ví dụ | Ý nghĩa |
+|---|---|---|
+| Thiết bị khối (`block device`) | `/dev/nvme0n1` | Giao diện thiết bị lưu trữ dạng block |
+| Phân vùng (`partition`) | `/dev/nvme0n1p2` | Một vùng logic của block device; không phải lúc nào cũng bắt buộc phải có |
+| Định dạng filesystem | `ext4`, `FAT32`, `F2FS` | Quy định cách dữ liệu/metadata được bố trí trên nơi lưu trữ |
+| Filesystem type | `ext4`, `vfat`, `tmpfs`, `proc`, `sysfs` | Tên loại filesystem mà Kernel/VFS dùng để nhận diện khi mount |
+| Phần hiện thực filesystem | mã `ext4`, `vfat`, `tmpfs`... trong Kernel | Mã thực thi giúp Kernel thao tác loại filesystem tương ứng |
+| Thực thể filesystem | `ext4` trên `/dev/nvme0n1p2` | Một filesystem cụ thể đang tồn tại |
+| `mount point` | `/home`, `/mnt/sdcard` | Vị trí mà thực thể filesystem xuất hiện trong namespace |
+
+> **Ghi nhớ:** Khi nói ngắn gọn “`ext4` là một filesystem”, ngữ cảnh có thể đang nói về **định dạng**, **filesystem type**, **phần hiện thực**, hoặc một **thực thể ext4 cụ thể**. Với `ext4`, nhiều lớp trùng tên nên thường không gây vấn đề. Với FAT32/`vfat`, sự khác nhau hiện ra rõ hơn, vì tên định dạng trên thiết bị và filesystem type của Linux không nhất thiết giống nhau.
+
+### 1.4 Linux cho nhiều filesystem cùng xuất hiện trong một cây
 
 Khác với Windows thường chia thành ổ C:, D: rời rạc, Linux cung cấp một ảo giác về một cây thư mục duy nhất. Trong đó:
 
@@ -182,7 +363,7 @@ Khác với Windows thường chia thành ổ C:, D: rời rạc, Linux cung c�
 
 Người dùng (và chương trình) chỉ việc đi theo nhánh thư mục, Linux Kernel sẽ tự biết khi nào bạn "bước" qua ranh giới từ filesystem này sang filesystem khác thông qua cơ chế `mount`.
 
-### 1.4 Không nên hiểu quá máy móc câu “everything is a file”
+### 1.5 Không nên hiểu quá máy móc câu “everything is a file”
 
 "Mọi thứ đều là tệp" là triết lý UNIX, nghĩa là Kernel cố gắng cung cấp một bộ API chung (`open`, `read`, `write`, `close`) để tương tác với đa dạng tài nguyên: tệp tin, thiết bị, tiến trình, socket. 
 
@@ -548,21 +729,34 @@ Sau khi bạn thực hiện lệnh mount thẻ nhớ vào thư mục /mnt/sdcard
 Chính vì mối quan hệ gắn kết chặt chẽ này, thư mục /mnt/sdcard lúc này đóng vai trò giống như một "cửa sổ điều khiển" trực tiếp của thiết bị vật lý /dev/mmcblk0p1. Mọi hành động thêm, sửa hoặc xóa file tại thư mục này đều được VFS bẻ hướng và ra lệnh cho trình điều khiển hệ thống tệp ghi trực tiếp dữ liệu xuống các khối nhớ vật lý của thẻ nhớ . Do đó, nếu bạn thêm một tệp tin mới vào /mnt/sdcard, tệp tin đó đồng thời sẽ được lưu giữ thực tế trên /dev/mmcblk0p1. Ngược lại, khi bạn rút chiếc thẻ nhớ này ra và cắm sang một thiết bị khác, tất cả dữ liệu bạn đã thao tác qua thư mục mount trước đó đều sẽ xuất hiện nguyên vẹn trong thẻ nhớ. Bạn không thể thêm file trực tiếp vào tệp thiết bị /dev/mmcblk0p1 mà không qua bước mount, bởi vì bản thân file thiết bị khối đó chỉ là phần cứng thô (Raw Data) gồm các ô nhớ byte khô khan, hoàn toàn không có khái niệm về quản lý tên tệp hay thư mục. Bước mount là bắt buộc để hệ thống tệp (Filesystem) đứng ra làm biên dịch viên, tạo dựng bảng mục lục và siêu dữ liệu (metadata) nhằm biến các khối nhớ thô kệch thành các tệp tin ngăn nắp cho con người sử dụng.
 
 
-### 10.3 Thiết bị khối, Phân vùng, Hệ thống tệp, và Điểm gắn kết
+### 10.3 Thiết bị khối, phân vùng, thực thể filesystem và điểm gắn kết
 
-Đây là bốn khái niệm cấu trúc phân tầng thường bị gọi chung chung là "ổ đĩa". 
+Các khái niệm này thường bị gọi chung là “ổ đĩa”, nhưng chúng nằm ở các lớp khác nhau. Với một filesystem lưu trên thiết bị khối, mô hình thường gặp là:
 
 ```text
-[ Thiết bị khối - Block Device ]     (Phần cứng vật lý: Ổ SSD /dev/nvme0n1)
+[ Thiết bị khối - Block Device ]
+Ví dụ: /dev/nvme0n1
                 |
-[ Phân vùng - Partition ]            (Chia tách không gian: Phân vùng số 1 /dev/nvme0n1p1)
+                v
+[ Phân vùng - Partition ]
+Ví dụ: /dev/nvme0n1p1
                 |
-[ Hệ thống tệp - Filesystem Format ] (Cấu trúc tổ chức: Định dạng ext4 trên phân vùng)
+                v
+[ Thực thể filesystem ]
+Ví dụ: một filesystem được tạo theo định dạng ext4
                 |
-[ Mount Point - Điểm gắn kết ]       (Gắn kết không gian tên: Ánh xạ ext4 vào thư mục "/home")
+                v
+[ Mount Point - Điểm gắn kết ]
+Ví dụ: /home
+                |
+                v
+[ Pathname trong namespace ]
+Ví dụ: /home/user/a.txt
 ```
 
-> **Đọc sơ đồ:** Hardware cung cấp block device. Quản trị viên cắt nó thành các partition. Để sử dụng, cần format thành một filesystem để tạo cấu trúc `inode`/metadata. Cuối cùng, để phần mềm tương tác được với đống cấu trúc đó, bạn phải đưa nó vào không gian tên của hệ điều hành thông qua Mount Point. Vì thế, lỗi "không thấy file" ở Mount Point có thể xuất phát từ việc mount bị rớt, chứ không có nghĩa là Block Device vật lý đã hỏng.
+> **Đọc sơ đồ:** `/dev/nvme0n1` là block device mà Kernel cung cấp cho thiết bị lưu trữ. Một partition như `/dev/nvme0n1p1` là một vùng logic bên trong block device; partition không phải điều kiện bắt buộc vì filesystem cũng có thể được tạo trực tiếp trên toàn bộ block device trong một số trường hợp. Lệnh kiểu `mkfs.ext4` tạo một **thực thể filesystem theo định dạng `ext4`** trên vùng lưu trữ đã chọn. `mount` không “biến partition thành ext4”; nó gắn thực thể filesystem đã tồn tại vào một `mount point` trong namespace để userspace truy cập qua pathname.
+
+Mục 1.3 đã phân biệt **định dạng filesystem**, **filesystem type**, **phần hiện thực filesystem trong Kernel** và **thực thể filesystem**. Mục này chỉ tập trung vào bước ghép thực thể đó vào namespace bằng `mount`.
 
 ---
 
@@ -738,6 +932,10 @@ Phần này liệt kê nguồn chuẩn để tra cứu chi tiết về filesyste
 
 - Filesystem Hierarchy Standard: https://refspecs.linuxfoundation.org/FHS_3.0/fhs/index.html
 - Linux VFS documentation: https://docs.kernel.org/filesystems/vfs.html
+- Linux ext4 on-disk format documentation: https://docs.kernel.org/filesystems/ext4/about.html
+- Linux ext4 high-level design: https://docs.kernel.org/filesystems/ext4/overview.html
+- Linux VFAT documentation: https://docs.kernel.org/filesystems/vfat.html
+- Linux tmpfs documentation: https://docs.kernel.org/filesystems/tmpfs.html
 - Linux pathname lookup documentation: https://docs.kernel.org/filesystems/path-lookup.html
 - `path_resolution(7)`: https://man7.org/linux/man-pages/man7/path_resolution.7.html
 - `inode(7)`: https://man7.org/linux/man-pages/man7/inode.7.html
