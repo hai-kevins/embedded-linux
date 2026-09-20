@@ -610,7 +610,7 @@ Chuỗi này có 4 thành phần (component): `home`, `user`, `docs` và tệp �
 
 ### 3.4 `pathname resolution` (Phân giải đường dẫn)
 
-Đây là quy trình Kernel diễn giải một pathname thành một đối tượng hệ thống thực sự.
+Đây là quy trình Kernel diễn giải một `pathname` thành đối tượng mà hệ thống có thể thao tác. VFS tra cứu từng thành phần của đường dẫn và tận dụng `dcache` để tránh phải thực hiện lại những phép tra cứu tên đã biết.
 
 ```text
 [ Process (Tiến trình) ]
@@ -619,28 +619,66 @@ Chuỗi này có 4 thành phần (component): `home`, `user`, `docs` và tệp �
       v
 [ VFS (Virtual File System) ]
       |
-      | 1. Bắt đầu từ gốc "/" (hoặc CWD).
-      | 2. Hỏi dcache (Dentry cache): Tìm thư mục "a".
-      +---> [ dcache ] ---> Trả về dentry "a"
+      | 1. Bắt đầu từ gốc "/" (hoặc CWD với đường dẫn tương đối).
       |
-      | 3. Từ "a", tìm thư mục "b".
-      +---> [ dcache ] ---> Trả về dentry "b"
+      | 2. Tra cứu thành phần "a".
+      +----> [ dcache ]
       |
-      | 4. Từ "b", tìm tên "c".
-      +---> [ dcache ] ---> Cache Miss (Chưa có trong RAM!)
+      | 3. Từ "a", tra cứu thành phần "b".
+      +----> [ dcache ]
       |
-      | 5. Vì Cache Miss, gọi driver của Filesystem bên dưới.
+      | 4. Từ thư mục "b", tra cứu tên "c".
+      +----> [ dcache ]
+      |
+      | Nếu dcache chưa có câu trả lời cho "c":
+      | VFS phải thực hiện slow lookup.
+      |
+      | 5. VFS gọi phép lookup do filesystem implementation
+      |    đang quản lý thư mục "b" cung cấp.
       v
-[ Filesystem Driver (vd: ext4) ]
+[ Filesystem Implementation, ví dụ ext4 ]
       |
-      +---> [ Lưu trữ vật lý ] ---> Đọc đĩa, tìm kiếm tên "c" trong thư mục "b".
+      | Hiểu cách directory, inode và các cấu trúc của ext4
+      | được tổ chức để tìm entry có tên "c".
       |
-      | 6. Filesystem trả về Inode của "c". VFS tạo Dentry mới lưu vào dcache trên RAM.
+      +----> [ Cache dữ liệu filesystem trong RAM ]
+      |             |
+      |             | Nếu dữ liệu cần thiết chưa có trong RAM
+      |             v
+      |       [ Block I/O Layer ]
+      |             |
+      |             v
+      |       [ Device Driver ]
+      |       (NVMe / MMC / SATA / ...)
+      |             |
+      |             v
+      |       [ SSD / eMMC / ... ]
+      |
+      | 6. Nếu tìm thấy "c", filesystem implementation
+      |    lấy hoặc tạo VFS inode tương ứng.
       v
-[ Trả đối tượng (Object) về cho Process ]
+[ VFS liên kết dentry "c" với inode ]
+      |
+      | dentry được đưa vào dcache
+      v
+[ Pathname resolution tiếp tục hoặc hoàn tất ]
 ```
 
-> **Đọc sơ đồ:** Tiến trình không cung cấp một "tọa độ" vật lý cho Kernel, nó chỉ đưa một chuỗi pathname. VFS phải xẻ chuỗi `/a/b/c` ra và tra cứu từng nấc. Để tăng tốc, VFS dùng một bộ nhớ đệm là `dcache` chứa các đối tượng `dentry`. Nếu Kernel tìm thấy đường đi trong bộ đệm (Cache Hit), tốc độ sẽ cực nhanh. Nếu một nấc bị thiếu (Cache Miss), VFS buộc phải gọi xuống filesystem driver (ví dụ ext4) để đọc thư mục trên ổ cứng. Do cơ chế dò từng nấc này, một pathname dài có thể gặp lỗi ở **bất kỳ một thư mục trung gian nào**, chứ không nhất thiết là lỗi do bản thân tệp đích `c` gây ra.
+> **Đọc sơ đồ:** Tiến trình chỉ đưa cho Kernel một `pathname`, ví dụ `/a/b/c`. VFS phân giải đường dẫn theo từng thành phần `a` → `b` → `c` và sử dụng `dcache` để tăng tốc tra cứu tên. Nếu thông tin về một thành phần chưa có trong `dcache`, điều đó **không có nghĩa là tệp không tồn tại**, cũng không có nghĩa Kernel chắc chắn phải đọc ngay thiết bị lưu trữ vật lý. VFS sẽ gọi phép `lookup` do `filesystem implementation` đang quản lý thư mục hiện tại cung cấp.
+>
+> Ví dụ, nếu thư mục `b` nằm trên một filesystem `ext4`, VFS sẽ gọi phần hiện thực `ext4`. Phần hiện thực này biết cách directory, inode và các cấu trúc khác của `ext4` được tổ chức nên có thể tìm entry tên `c`. Dữ liệu cần thiết cho quá trình tra cứu có thể đã nằm trong RAM; chỉ khi chưa có thì I/O mới phải đi tiếp qua `block layer`, `device driver` và cuối cùng tới SSD, eMMC hoặc thiết bị lưu trữ tương ứng.
+>
+> Cần phân biệt rõ ba lớp:
+>
+> ```text
+> VFS
+>   ↓
+> Filesystem implementation
+>   ↓
+> Device driver
+> ```
+>
+> `VFS` cung cấp cơ chế và giao diện chung; `filesystem implementation` biết cách thực hiện thao tác trên filesystem cụ thể; còn `device driver` biết cách giao tiếp với phần cứng. Do quá trình phân giải diễn ra từng thành phần, một `pathname` dài có thể lỗi tại bất kỳ thư mục trung gian nào chứ không nhất thiết chỉ tại tệp đích.
 
 ### 3.5 `symbolic link` làm thay đổi đường tra cứu
 
@@ -658,25 +696,104 @@ VFS là hạt nhân điều phối, `dentry` ánh xạ cấu trúc tên, còn `i
 
 ### 4.1 VFS (Virtual File System) là gì?
 
-`VFS` là một tầng trừu tượng (abstraction layer) nằm bên trong Kernel. Nó đóng vai trò "người môi giới" để ứng dụng không cần quan tâm dữ liệu đang nằm trên định dạng hệ thống tệp nào.
+`VFS` là một tầng trừu tượng (`abstraction layer`) nằm bên trong Kernel. Nó cung cấp mô hình và giao diện chung để userspace có thể dùng các system call như `open()`, `read()`, `write()` hay `stat()` mà không cần biết đối tượng phía dưới thuộc `ext4`, `tmpfs`, `procfs`, `NFS` hay một filesystem khác.
 
 ```text
 [ Ứng dụng (Userspace) ]
    |
-   | Gọi các API tiêu chuẩn: open(), read(), write(), stat()
+   | open(), read(), write(), stat(), ...
    v
 [ System Call Interface ]
    |
    v
-[ VFS (Virtual File System) ] (Tầng trừu tượng chung)
+[ VFS ]
    |
-   +----> [ ext4 driver ]    ----> Ổ cứng HDD/SSD
-   +----> [ tmpfs driver ]   ----> RAM
-   +----> [ procfs driver ]  ----> Cấu trúc dữ liệu nội bộ Kernel
+   +----> [ ext4 implementation ]  ---> ext4 filesystem instance
+   |                                      |
+   |                                      +--> block layer
+   |                                           |
+   |                                           +--> device driver
+   |                                                |
+   |                                                +--> SSD / eMMC / ...
+   |
+   +----> [ tmpfs implementation ] ---> bộ nhớ
+   |
+   +----> [ procfs implementation ] --> dữ liệu nội bộ Kernel
+   |
+   +----> [ sysfs implementation ] ---> Kernel device model
+   |
    +----> [ ... ]
 ```
 
-> **Đọc sơ đồ:** Ứng dụng ở tầng Userspace chỉ biết gọi các hàm System Call chuẩn. VFS nhận yêu cầu này, phân tích xem file đó thuộc loại filesystem nào, chuẩn hóa các thông số và gọi (dispatch) xuống driver cụ thể tương ứng (ext4, tmpfs...). Nhờ VFS, một lệnh `cp` copy tệp từ ổ cứng `ext4` sang thư mục `/tmp` chạy trên `tmpfs` vẫn diễn ra hoàn hảo mà người lập trình lệnh `cp` không cần viết riêng code xử lý cho từng loại định dạng. Tại sao dcache lại giúp tăng tốc? Hãy tưởng tượng mỗi lần muốn tìm phòng của "Anh Hải", bạn lại phải lội xuống tầng hầm lục lọi đống hồ sơ bằng giấy (ổ cứng vật lý), việc này rất lâu. Thay vào đó, VFS dán luôn một tấm biển tên "Phòng Anh Hải" ngay trên bảng chỉ đường ở sảnh chính bằng RAM (gọi là dcache). Lần sau bạn đến, chỉ cần liếc mắt nhìn bảng dcache là biết đường đi ngay lập tức mà không cần xuống tầng hầm nữa.
+> **Đọc sơ đồ:** Ứng dụng chỉ sử dụng các system call chuẩn. VFS xác định đối tượng đang thuộc filesystem nào rồi gọi các operation mà `filesystem implementation` tương ứng cung cấp. Nhờ vậy cùng một lệnh `cp` có thể sao chép tệp từ `ext4` sang `tmpfs` mà chương trình không cần tự viết riêng logic cho từng filesystem.
+
+#### Phân biệt `VFS`, `filesystem implementation` và `device driver`
+
+Ba khái niệm này thuộc các tầng khác nhau:
+
+```text
+Userspace
+   ↓
+System call
+   ↓
+VFS
+   ↓
+Filesystem Implementation
+   ↓
+Filesystem Instance
+   ↓
+Block I/O Layer        ← nếu filesystem sử dụng block device
+   ↓
+Device Driver
+   ↓
+Phần cứng
+```
+
+Có thể ghi nhớ:
+
+```text
+VFS
+→ biết cần thực hiện loại thao tác nào và cung cấp giao diện chung.
+
+Filesystem implementation
+→ biết thao tác đó phải được thực hiện như thế nào
+  trên filesystem cụ thể.
+
+Device driver
+→ biết giao tiếp với phần cứng như thế nào.
+```
+
+Ví dụ khi truy cập một tệp trên `ext4` nằm trong eMMC:
+
+```text
+VFS
+ ↓
+ext4 implementation
+ ↓
+ext4 filesystem instance trên /dev/mmcblk0p1
+ ↓
+block layer
+ ↓
+MMC/eMMC driver
+ ↓
+eMMC
+```
+
+`ext4 implementation` **không phải device driver**. Nó là phần mã filesystem trong Kernel biết cách xử lý các cấu trúc của `ext4`, chẳng hạn directory, inode, extent, metadata và việc cấp phát block. Ngược lại, MMC/eMMC driver không hiểu khái niệm file hay directory của `ext4`; nó chịu trách nhiệm chuyển các yêu cầu I/O ở tầng block thành thao tác giao tiếp với phần cứng.
+
+Mối quan hệ cốt lõi có thể tóm tắt như sau:
+
+```text
+VFS
+  ↓  "Cần lookup / create / read / write ..."
+Filesystem implementation
+  ↓  "Thao tác đó được biểu diễn và thực hiện thế nào trong filesystem này?"
+Filesystem instance
+  ↓
+Block layer / bộ nhớ / dữ liệu Kernel / mạng / ...
+  ↓  (nếu có thiết bị phần cứng)
+Device driver
+```
 
 ### 4.2 `dentry` là gì?
 
