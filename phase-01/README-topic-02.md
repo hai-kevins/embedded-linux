@@ -38,13 +38,25 @@ Chương này sẽ dẫn dắt bạn đi đúng con đường mà Kernel đi khi
 
 ## 1. Hệ thống tệp trong Linux thực chất là gì?
 
-Hệ thống tệp (Filesystem) là phương pháp và cấu trúc dữ liệu mà Linux sử dụng để kiểm soát cách thông tin được lưu trữ, đặt tên, tổ chức thành cấu trúc cây và truy xuất.
+Hệ thống tệp (`filesystem`) là tập hợp các quy tắc và cấu trúc dữ liệu dùng để tổ chức, đặt tên, quản lý metadata, lưu trữ và truy xuất các tệp/thư mục. Trong Linux, nhiều filesystem khác nhau như `ext4`, `F2FS`, `tmpfs`, `procfs` có thể đồng thời xuất hiện trong cùng một cây thư mục mà userspace nhìn thấy; lớp `VFS` giúp cung cấp một giao diện thống nhất để truy cập chúng.
 
 ### 1.1 Hai lớp dễ bị trộn lẫn
 
 Để gỡ rối, hãy tách bạch hai khái niệm:
-1. **Namespace (Không gian tên):** Tệp có đường dẫn (pathname) là gì trong cây thư mục? Ví dụ: `/home/user/a.txt`. Đây là cách con người và chương trình (userspace) gọi tên tệp.
-2. **Backing Storage/Implementation:** Dữ liệu và siêu dữ liệu thực tế của tệp đó được lưu giữ bằng cấu trúc nào trên thiết bị? Nó có thể nằm trên ổ cứng định dạng `ext4`, `F2FS`, hay thậm chí nằm trên RAM dưới dạng `tmpfs`.
+
+1. **Namespace (Không gian tên):** Là cách một tệp hoặc thư mục được **đặt tên và xuất hiện trong cây thư mục của Linux**. Mỗi đối tượng được truy cập thông qua một `pathname`, ví dụ `/home/user/a.txt`. Pathname này cho biết **đối tượng nằm ở đâu trong cây thư mục mà tiến trình nhìn thấy**, nhưng chưa cho biết dữ liệu thực sự được cung cấp bởi filesystem nào hay nằm trên thiết bị nào. Chỉ nhìn `/home/user/a.txt` thì chưa thể kết luận nó thuộc `ext4`, `F2FS`, `tmpfs` hay một filesystem khác.
+
+2. **Backing Storage / Implementation:** Là **filesystem và cơ chế thực sự đứng phía sau pathname đó để quản lý dữ liệu và metadata của đối tượng**. Ví dụ, `/home/user/a.txt` có thể thuộc `ext4` nằm trên eMMC; `/tmp/a.txt` có thể thuộc `tmpfs` và dữ liệu nằm trong RAM; còn `/proc/cpuinfo` thuộc `procfs`, trong đó nội dung được Kernel tạo động thay vì được lưu như một regular file trên thiết bị khối. Vì vậy, `pathname` mô tả **đối tượng xuất hiện ở đâu**, còn backing storage/implementation mô tả **đối tượng đó thực sự được cung cấp và lưu trữ như thế nào**.
+
+Có thể ghi nhớ ngắn gọn:
+
+```text
+pathname -> filesystem -> nơi/cơ chế cung cấp dữ liệu
+
+/home/user/a.txt -> ext4   -> eMMC
+/tmp/a.txt       -> tmpfs  -> RAM
+/proc/cpuinfo    -> procfs -> Kernel tạo động
+```
 
 ### 1.2 Linux cho nhiều filesystem cùng xuất hiện trong một cây
 
