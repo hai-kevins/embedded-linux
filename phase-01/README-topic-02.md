@@ -58,20 +58,131 @@ pathname -> filesystem -> nơi/cơ chế cung cấp dữ liệu
 /proc/cpuinfo    -> procfs -> Kernel tạo động
 ```
 
-### 1.2 Linux cho nhiều filesystem cùng xuất hiện trong một cây
+### 1.2 Mô hình tư duy: Nguồn dữ liệu → Filesystem → Mount point → Pathname
+
+Một cách đơn giản để hình dung filesystem trong Linux là tách quá trình thành các lớp sau:
+
+```text
+Nguồn lưu trữ / nguồn cung cấp dữ liệu
+                ↓
+            Filesystem
+                ↓
+            Mount point
+                ↓
+   Pathname mà userspace nhìn thấy
+```
+
+Ví dụ với một phân vùng trên SSD:
+
+```text
+SSD
+ ↓
+/dev/nvme0n1p2
+ ↓
+chứa filesystem ext4
+ ↓
+ext4 được mount tại /
+ ↓
+/home/user/a.txt
+```
+
+Hoặc với thẻ nhớ ngoài:
+
+```text
+SD card
+ ↓
+/dev/mmcblk0p1
+ ↓
+chứa filesystem FAT32
+ ↓
+FAT32 được mount tại /mnt/sdcard
+ ↓
+/mnt/sdcard/photo.jpg
+```
+
+Linux có thể lấy dữ liệu từ nhiều nguồn khác nhau như SSD, eMMC, thẻ nhớ, RAM hoặc các cấu trúc dữ liệu nội bộ của Kernel. Một filesystem sẽ tổ chức hoặc biểu diễn nguồn dữ liệu đó, sau đó filesystem được `mount` vào một vị trí trong cây namespace chung bắt đầu từ `/`.
+
+Ví dụ:
+
+```text
+Nguồn dữ liệu     Filesystem     Mount point      Pathname ví dụ
+-----------------------------------------------------------------------
+SSD / partition   ext4           /                /home/user/a.txt
+RAM               tmpfs          /tmp             /tmp/a.txt
+SD card           FAT32          /mnt/sdcard      /mnt/sdcard/photo.jpg
+Kernel            procfs         /proc            /proc/cpuinfo
+Kernel            sysfs          /sys             /sys/class/...
+```
+
+Điểm quan trọng là **filesystem được mount vào cây namespace**, chứ không phải filesystem được “mount vào thiết bị lưu trữ”.
+
+Với filesystem nằm trên block device, quan hệ thường là:
+
+```text
+Thiết bị / phân vùng
+        ↓
+chứa filesystem
+        ↓
+filesystem được mount vào một mount point
+        ↓
+userspace truy cập qua pathname
+```
+
+Ví dụ:
+
+```text
+/dev/nvme0n1p2
+       │
+       │ chứa
+       ▼
+      ext4
+       │
+       │ mount
+       ▼
+       /
+```
+
+Không phải filesystem nào cũng có một thiết bị lưu trữ vật lý phía sau:
+
+```text
+ext4    → thường nằm trên SSD, eMMC hoặc block device khác
+F2FS    → nằm trên block device, thường dùng cho flash-based storage
+tmpfs   → sử dụng RAM và có thể dùng swap nếu hệ thống được cấu hình phù hợp
+procfs  → biểu diễn dữ liệu do Kernel cung cấp động
+sysfs   → biểu diễn các object và thuộc tính của Kernel/device model
+```
+
+Do đó, từ góc nhìn userspace, các nguồn dữ liệu rất khác nhau vẫn xuất hiện trong cùng một cây pathname:
+
+```text
+/home/user/a.txt
+/tmp/a.txt
+/proc/cpuinfo
+/sys/class/...
+```
+
+Mô hình cần ghi nhớ:
+
+```text
+Nguồn dữ liệu → Filesystem → Mount point → Pathname
+```
+
+Cây thư mục Linux chính là namespace thống nhất giúp userspace truy cập các filesystem khác nhau mà không cần biết ngay dữ liệu phía dưới thực sự đến từ SSD, RAM, thiết bị ngoài hay Kernel.
+
+### 1.3 Linux cho nhiều filesystem cùng xuất hiện trong một cây
 
 Khác với Windows thường chia thành ổ C:, D: rời rạc, Linux cung cấp một ảo giác về một cây thư mục duy nhất. Trong đó:
 
 ```text
-/             -> ext4 (Ổ cứng chính)
-/proc         -> procfs (Giao diện cấu trúc dữ liệu của Kernel)
+/             -> ext4 (Filesystem gốc, ví dụ nằm trên SSD/eMMC)
+/proc         -> procfs (Giao diện dữ liệu của Kernel)
 /dev          -> devtmpfs (Quản lý các device node)
-/mnt/sdcard   -> exFAT (Thẻ nhớ cắm ngoài)
+/mnt/sdcard   -> exFAT (Ví dụ filesystem trên thẻ nhớ ngoài)
 ```
 
-Người dùng (và chương trình) chỉ việc đi theo nhánh thư mục, Linux Kernel sẽ tự biết khi nào bạn "bước" qua ranh giới từ hệ thống tệp này sang hệ thống tệp khác thông qua cơ chế `mount`.
+Người dùng (và chương trình) chỉ việc đi theo nhánh thư mục, Linux Kernel sẽ tự biết khi nào bạn "bước" qua ranh giới từ filesystem này sang filesystem khác thông qua cơ chế `mount`.
 
-### 1.3 Không nên hiểu quá máy móc câu “everything is a file”
+### 1.4 Không nên hiểu quá máy móc câu “everything is a file”
 
 "Mọi thứ đều là tệp" là triết lý UNIX, nghĩa là Kernel cố gắng cung cấp một bộ API chung (`open`, `read`, `write`, `close`) để tương tác với đa dạng tài nguyên: tệp tin, thiết bị, tiến trình, socket. 
 
