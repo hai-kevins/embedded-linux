@@ -797,11 +797,198 @@ Device driver
 
 ### 4.2 `dentry` là gì?
 
-`dentry` (Directory Entry) là đối tượng cấu trúc dữ liệu của **VFS**, đại diện cho **mối quan hệ giữa một cái tên cụ thể và một thư mục**. 
+`dentry` là viết tắt của **directory entry**, nhưng trong ngữ cảnh VFS, nó là một **đối tượng runtime nằm trong RAM** do VFS quản lý. Một `dentry` biểu diễn một **thành phần tên (`pathname component`) trong một thư mục cha cụ thể** và thường liên kết tên đó với một `inode`.
 
-*   Mô hình: `Parent directory + Tên tệp -> dentry -> inode` (`docs/baocao.txt`→ dentry → `số inode 2211`).
-*   Các đối tượng `dentry` được VFS duy trì và lưu vào bộ nhớ đệm (gọi là `dcache`) để giúp việc `pathname resolution` diễn ra nhanh chóng. *Lưu ý: Khái niệm `dentry` của VFS nằm trên RAM hoàn toàn khác với các bản ghi directory entry vật lý được ghi cứng trên đĩa của một filesystem cụ thể.*
-* Mô hình hoạt động: Khi bạn tìm đường dẫn `/home/user/a.txt`, Kernel sẽ ghép `Thư mục cha (/home/user/)` + `Tên tệp (a.txt)` để tạo ra một dentry, dentry này chỉ thẳng đến inode chứa dữ liệu thật của tệp `a.txt`.
+Mô hình cơ bản:
+
+```text
+Thư mục cha + Tên
+        ↓
+      dentry
+        ↓
+      inode
+```
+
+Ví dụ với pathname:
+
+```text
+/home/user/a.txt
+```
+
+VFS không xem `a.txt` như một cái tên độc lập. Nó quan tâm đến quan hệ:
+
+```text
+parent: /home/user
+name:   a.txt
+        ↓
+      dentry
+        ↓
+      inode tương ứng
+```
+
+Một `dentry` quan trọng thường chứa ba thông tin về mặt khái niệm:
+
+* Tên của thành phần pathname, ví dụ `a.txt`.
+* Tham chiếu tới `dentry` của thư mục cha, ví dụ `user`.
+* Tham chiếu tới `inode` của đối tượng mang tên đó. Tham chiếu này cũng có thể rỗng nếu Kernel đã xác định tên đó không tồn tại; trường hợp này được gọi là **negative dentry**.
+
+Các `dentry` được lưu trong **`dcache` (dentry cache)**. Vì `dentry` sống trong RAM và không được ghi xuống thiết bị lưu trữ, Kernel có thể dùng `dcache` để tăng tốc `pathname resolution` mà không phải yêu cầu filesystem bên dưới tra cứu lại cùng một tên ở mỗi lần truy cập.
+
+#### 4.2.1 VFS `dentry` khác với `directory entry` của filesystem cụ thể
+
+Đây là hai khái niệm có tên gần giống nhau nhưng thuộc **hai tầng khác nhau**.
+
+Ví dụ `/home` nằm trên một filesystem `ext4` và trong thư mục `/home/user` có tệp `a.txt`.
+
+Ở tầng `ext4`, dữ liệu của directory phải lưu một ánh xạ tương tự:
+
+```text
+Filesystem instance ext4
+
+Directory /home/user
+        │
+        └── "a.txt" → inode number 1234
+```
+
+Bản ghi này là **directory entry theo định dạng của `ext4`**. Nó thuộc dữ liệu của filesystem instance và, đối với `ext4`, được lưu bền vững trên block device.
+
+Ở tầng VFS, Kernel có thể đồng thời có một đối tượng `dentry` trong RAM:
+
+```text
+RAM / VFS
+
+parent dentry: "user"
+name:          "a.txt"
+                   │
+                   ▼
+             dentry "a.txt"
+                   │
+                   ▼
+              VFS inode
+```
+
+Do đó không nên hiểu:
+
+```text
+ext4 directory entry = VFS dentry
+```
+
+Hai thứ này có vai trò liên quan nhưng **không phải cùng một cấu trúc dữ liệu**:
+
+```text
+Directory entry của filesystem cụ thể
+→ cấu trúc do filesystem implementation quản lý
+→ biểu diễn tên theo quy tắc của filesystem đó
+
+VFS dentry
+→ đối tượng runtime chung của VFS
+→ nằm trong RAM
+→ dùng trong pathname lookup và dcache
+```
+
+Với `ext4`, directory entry thường ánh xạ tên tệp tới `inode number`. Với các filesystem khác như FAT, tmpfs hoặc NFS, cách filesystem bên dưới biểu diễn và tìm tên có thể khác. VFS che giấu sự khác biệt đó bằng mô hình `dentry` chung.
+
+#### 4.2.2 `dentry` được tạo và sử dụng khi lookup như thế nào?
+
+Giả sử tiến trình truy cập:
+
+```text
+/home/user/a.txt
+```
+
+và VFS đã đi tới thư mục `/home/user` nhưng chưa có thông tin về tên `a.txt` trong `dcache`:
+
+```text
+VFS
+ ↓
+tìm "a.txt" trong dcache
+ ↓
+cache miss
+```
+
+`cache miss` chỉ có nghĩa là **VFS chưa có câu trả lời được cache trong RAM**. Nó chưa thể kết luận `a.txt` không tồn tại.
+
+VFS sẽ yêu cầu `filesystem implementation` đang quản lý thư mục `/home/user` thực hiện phép `lookup`:
+
+```text
+VFS
+ │
+ │ lookup tên "a.txt" trong thư mục cha
+ ▼
+Filesystem implementation
+(ví dụ ext4)
+ │
+ │ tra cứu cấu trúc directory của filesystem
+ ▼
+Tìm thấy:
+"a.txt" → inode number 1234
+ │
+ ▼
+lấy/tạo VFS inode tương ứng
+ │
+ ▼
+gắn inode với dentry "a.txt"
+ │
+ ▼
+lưu dentry vào dcache
+```
+
+Nếu lần sau pathname đó được tra cứu và `dentry` vẫn còn hợp lệ trong `dcache`, VFS có thể sử dụng kết quả đã cache thay vì thực hiện đầy đủ filesystem lookup một lần nữa.
+
+Nếu filesystem xác nhận tên không tồn tại, VFS vẫn có thể cache kết quả dưới dạng **negative dentry**:
+
+```text
+parent: /home/user
+name:   missing.txt
+inode:  NULL
+```
+
+Điều này giúp những lần lookup lặp lại đối với một tên không tồn tại cũng có thể được xử lý nhanh hơn.
+
+#### 4.2.3 Không phải filesystem nào cũng có `directory entry` vật lý trên đĩa
+
+Cụm từ "directory entry được ghi trên đĩa" chỉ phù hợp với các filesystem lưu trữ bền vững trên block device như `ext4`.
+
+Ví dụ:
+
+```text
+ext4
+→ directory entry thuộc dữ liệu filesystem trên block device
+
+tmpfs
+→ dữ liệu filesystem tồn tại trong bộ nhớ
+
+procfs / sysfs
+→ các entry được filesystem implementation tạo/biểu diễn từ dữ liệu Kernel
+```
+
+Vì vậy cách diễn đạt tổng quát hơn là:
+
+> **`dentry` của VFS là đối tượng runtime trong RAM dùng để biểu diễn và cache quan hệ giữa một tên và một đối tượng filesystem. Nó khác với cấu trúc directory entry do từng filesystem implementation quản lý. Với filesystem on-disk như `ext4`, directory entry của filesystem được lưu trong dữ liệu của filesystem trên block device; còn với các pseudo-filesystem như `procfs` hoặc `sysfs`, không tồn tại một directory entry vật lý trên đĩa theo nghĩa đó.**
+
+Mô hình cần ghi nhớ:
+
+```text
+Cấu trúc directory của filesystem cụ thể
+                ↓
+      filesystem implementation
+                ↓
+             lookup
+                ↓
+           VFS dentry
+                ↓
+            VFS inode
+```
+
+Nói ngắn gọn:
+
+```text
+Directory entry của filesystem
+→ filesystem bên dưới lưu/biểu diễn tên như thế nào.
+
+VFS dentry
+→ Kernel biểu diễn và cache tên đó như thế nào trong RAM.
+```
 
 ### 4.3 `inode` là gì?
 
