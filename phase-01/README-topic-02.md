@@ -271,12 +271,14 @@ vfat   → filesystem type/implementation mà Linux dùng để truy cập họ 
 
 #### 1.3.3 Filesystem implementation — phần hiện thực filesystem trong Kernel
 
-Kernel cần có **phần hiện thực filesystem** tương ứng để biết cách đọc, ghi và quản lý filesystem đó. Đây là phần mã trong Kernel thực thi các thao tác mà `VFS` yêu cầu.
+Kernel cần có **phần hiện thực filesystem** tương ứng để biết cách đọc, ghi và quản lý filesystem đó. Đây là phần mã nằm trong Kernel hoặc được nạp dưới dạng kernel module, hiện thực các thao tác mà `VFS` yêu cầu đối với một loại filesystem cụ thể.
 
 Ví dụ:
 
 ```text
 Ứng dụng
+   ↓
+System call
    ↓
 VFS
    ↓
@@ -285,9 +287,84 @@ phần hiện thực ext4 trong Kernel
 thực thể ext4 trên /dev/nvme0n1p2
 ```
 
-`VFS` cung cấp giao diện chung; phần hiện thực cụ thể xử lý ngữ nghĩa riêng của `ext4`, `vfat`, `tmpfs`, `procfs`, `sysfs`...
+`VFS` cung cấp giao diện chung và thực hiện nhiều xử lý dùng chung ở tầng filesystem. Khi cần một thao tác phụ thuộc vào filesystem cụ thể, `VFS` gọi các operation mà phần hiện thực filesystem đã cung cấp, chẳng hạn các operation liên quan đến `inode`, file đang mở, thư mục hoặc `superblock`.
 
-Nếu một thiết bị chứa filesystem theo định dạng `ext4` nhưng Kernel không có hỗ trợ `ext4`, Kernel vẫn có thể nhận ra block device, nhưng không có phần hiện thực cần thiết để diễn giải các block đó thành file và thư mục `ext4` để mount theo cách thông thường.
+Có thể hiểu ngắn gọn:
+
+```text
+VFS
+ ↓
+"Cần tạo / tìm / đọc / ghi / xóa đối tượng này"
+ ↓
+phần hiện thực filesystem tương ứng
+ ↓
+thao tác trên thực thể filesystem cụ thể
+```
+
+Ví dụ, giả sử `/data` là mount point của một thực thể `ext4` nằm trên `/dev/mmcblk0p1`. Khi ứng dụng yêu cầu tạo `/data/a.txt`:
+
+```text
+Ứng dụng
+   │
+   │ open("/data/a.txt", O_CREAT, ...)
+   ▼
+System call
+   ▼
+VFS
+   │
+   │ xác định /data thuộc filesystem ext4
+   ▼
+phần hiện thực ext4
+   │
+   │ thực hiện các thao tác đặc thù của ext4
+   ▼
+thực thể ext4 trên /dev/mmcblk0p1
+```
+
+Ở mức khái niệm, quá trình tạo file có thể bao gồm các công việc như:
+
+```text
+1. Tìm thư mục cha /data
+2. Kiểm tra xem tên a.txt đã tồn tại hay chưa
+3. Cấp phát và khởi tạo inode mới
+4. Tạo directory entry cho tên a.txt
+5. Liên kết directory entry với inode mới
+6. Cập nhật metadata và các cấu trúc quản lý cần thiết
+7. Khi có dữ liệu được ghi, cấp phát vùng lưu trữ và cập nhật ánh xạ dữ liệu
+```
+
+Với `ext4`, phần hiện thực `ext4` phải thực hiện các bước trên theo đúng cấu trúc và quy tắc của `ext4`. Với `tmpfs`, cùng yêu cầu tạo file vẫn đi qua `VFS`, nhưng phần hiện thực `tmpfs` sẽ quản lý đối tượng theo cơ chế của `tmpfs` thay vì ghi các cấu trúc `ext4` xuống block device.
+
+Do đó, không nên hiểu phần hiện thực filesystem chỉ là mã "đọc định dạng". Nó là phần mã thực hiện các thao tác cụ thể của filesystem, ví dụ:
+
+- tra cứu tên trong thư mục;
+- tạo và xóa file;
+- tạo và xóa thư mục;
+- tạo `hard link` hoặc `symbolic link`;
+- đọc và ghi dữ liệu;
+- quản lý metadata;
+- cấp phát hoặc giải phóng vùng lưu trữ khi filesystem đó cần;
+- đồng bộ dữ liệu và metadata theo cơ chế của filesystem.
+
+Mối quan hệ cần ghi nhớ:
+
+```text
+Filesystem format
+    │
+    │ quy định dữ liệu phải được tổ chức như thế nào
+    ▼
+Filesystem implementation
+    │
+    │ mã trong Kernel biết cách thao tác theo các quy tắc đó
+    ▼
+Filesystem instance
+    │
+    │ một filesystem cụ thể đang tồn tại
+    ▼
+file / directory / metadata / dữ liệu
+```
+
+Nếu một thiết bị chứa filesystem theo định dạng `ext4` nhưng Kernel không có hỗ trợ `ext4`, Kernel vẫn có thể nhận ra block device, nhưng không có phần hiện thực cần thiết để diễn giải và thao tác các cấu trúc `ext4` thành file, thư mục và metadata để mount theo cách thông thường.
 
 #### 1.3.4 Filesystem instance — thực thể filesystem cụ thể
 
@@ -448,7 +525,7 @@ Bảng phân biệt:
 | Phân vùng (`partition`) | `/dev/nvme0n1p2` | Một vùng logic của block device; không phải lúc nào cũng bắt buộc phải có |
 | Định dạng filesystem | `ext4`, `FAT32`, `F2FS` | Quy định cách dữ liệu/metadata được bố trí trên nơi lưu trữ |
 | Filesystem type | `ext4`, `vfat`, `tmpfs`, `proc`, `sysfs` | Tên loại filesystem mà Kernel/VFS dùng để nhận diện khi mount |
-| Phần hiện thực filesystem | mã `ext4`, `vfat`, `tmpfs`... trong Kernel | Mã thực thi giúp Kernel thao tác loại filesystem tương ứng |
+| Phần hiện thực filesystem | mã `ext4`, `vfat`, `tmpfs`... trong Kernel | Mã thực hiện các operation đặc thù để `VFS` thao tác trên thực thể filesystem tương ứng |
 | Thực thể filesystem | `ext4` trên `/dev/nvme0n1p2` | Một filesystem cụ thể đang tồn tại |
 | `mount point` | `/home`, `/mnt/sdcard` | Vị trí mà thực thể filesystem xuất hiện trong namespace |
 
