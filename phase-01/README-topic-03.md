@@ -861,7 +861,7 @@ Vì vậy, “`read() == 0`” phải được thấu hiểu trong bối cảnh 
 
 ## 5. `write()`: ghi dữ liệu
 
-Tương tự `read()`, lệnh `write()` hoàn toàn có thể ghi được số byte ít hơn so với mức ứng dụng yêu cầu. Chương trình vững chãi phải luôn kiểm tra giá trị trả về để ghi nốt phần còn thiếu.
+Tương tự `read()`, lệnh `write()` hoàn toàn có thể ghi được số byte ít hơn so với mức ứng dụng yêu cầu. Chương trình cần phải luôn kiểm tra giá trị trả về để ghi nốt phần còn thiếu.
 
 ### 5.1 `write()` có thể hoàn thành một phần (Partial I/O)
 
