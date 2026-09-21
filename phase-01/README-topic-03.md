@@ -1051,7 +1051,7 @@ Chưa ghi được byte nào và bị signal ngắt
 Với regular file, `write()` cũng có thể chỉ ghi được một phần dữ liệu nếu trong quá trình ghi gặp các giới hạn như:
 
 - Hệ thống tệp không còn đủ dung lượng.
-- Tiến trình/người dùng chạm hạn ngạch (`quota`).
+- Người dùng, nhóm hoặc project đã chạm **hạn mức sử dụng dung lượng lưu trữ (`disk quota`)** do filesystem áp đặt, dù filesystem vẫn có thể còn dung lượng trống.
 - Chạm giới hạn kích thước file.
 - Một điều kiện lỗi khác xuất hiện sau khi đã ghi được một phần dữ liệu.
 
