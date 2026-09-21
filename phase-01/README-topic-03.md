@@ -624,8 +624,175 @@ Khi dùng cờ này, bạn BẮT BUỘC phải truyền thêm tham số `mode` �
 
 ### 3.5 Cờ làm rỗng tệp `O_TRUNC`
 
-Nếu tệp đã tồn tại và bạn có quyền ghi, cờ `O_TRUNC` sẽ lập tức cắt ngắn (truncate) toàn bộ nội dung tệp, đưa kích thước (size) về `0` ngay khoảnh khắc mở.
-> Điều này minh chứng: `open()` không phải lúc nào cũng là thao tác “chỉ đọc siêu dữ liệu”; nó hoàn toàn có khả năng thay đổi và xóa dữ liệu tệp.
+Cờ `O_TRUNC` yêu cầu Kernel **cắt kích thước của tệp về 0 ngay trong quá trình `open()`**, nếu tệp đã tồn tại và việc mở đáp ứng các điều kiện cần thiết.
+
+Ví dụ:
+
+```c
+int fd = open("data.txt", O_WRONLY | O_TRUNC);
+```
+
+Giả sử trước khi gọi `open()`:
+
+```text
+data.txt
+size = 20 bytes
+content = "Hello Embedded Linux"
+```
+
+Khi `open()` thành công:
+
+```text
+data.txt
+size = 0 bytes
+content = rỗng
+```
+
+Điểm quan trọng là chương trình **chưa cần gọi `write()`**. Việc làm rỗng tệp đã xảy ra ngay trong `open()` do có cờ `O_TRUNC`.
+
+Có thể hình dung:
+
+```text
+open("data.txt", O_WRONLY | O_TRUNC)
+        |
+        v
+Kernel tìm data.txt
+        |
+        v
+Kiểm tra quyền và flags
+        |
+        v
+Thấy O_TRUNC
+        |
+        v
+Đưa file size về 0
+        |
+        v
+Tạo open file description
+        |
+        v
+Trả fd về cho process
+```
+
+#### `O_TRUNC` không xóa bản thân tệp
+
+Cần phân biệt:
+
+```text
+O_TRUNC
+    |
+    +-- tệp vẫn tồn tại
+    +-- pathname vẫn tồn tại
+    +-- inode vẫn tồn tại
+    `-- nội dung bị cắt về size = 0
+```
+
+với:
+
+```text
+unlink()
+    |
+    `-- loại bỏ một directory entry/pathname
+```
+
+Do đó, sau:
+
+```c
+open("data.txt", O_WRONLY | O_TRUNC);
+```
+
+ta vẫn có:
+
+```text
+data.txt
+```
+
+nhưng nội dung cũ không còn thuộc nội dung hiện tại của tệp nữa.
+
+#### Vì sao điều này quan trọng khi hiểu `open()`?
+
+Người mới thường nghĩ:
+
+```text
+open()
+    |
+    +-- tìm file
+    +-- kiểm tra permission
+    +-- tạo open file description
+    `-- trả fd
+```
+
+và cho rằng `open()` không làm thay đổi dữ liệu hay filesystem.
+
+Điều đó không đúng trong mọi trường hợp.
+
+Tùy vào các `flags`, bản thân `open()` có thể tạo ra side effect:
+
+```text
+O_CREAT
+    -> có thể tạo một file mới
+
+O_TRUNC
+    -> có thể làm file hiện có trở thành size = 0
+```
+
+Vì vậy:
+
+> **`open()` không chỉ là thao tác “lấy một fd”. Các `flags` truyền vào `open()` còn mô tả những hành vi mà Kernel phải thực hiện trong quá trình mở đối tượng.**
+
+Ví dụ, hai lời gọi sau có ý nghĩa khác nhau:
+
+```c
+open("data.txt", O_WRONLY);
+```
+
+chỉ mở tệp để ghi, không tự động làm mất toàn bộ nội dung cũ.
+
+Trong khi:
+
+```c
+open("data.txt", O_WRONLY | O_TRUNC);
+```
+
+vừa mở để ghi, vừa yêu cầu Kernel làm rỗng nội dung tệp khi `open()` thành công.
+
+Một trường hợp thường gặp là:
+
+```c
+open("data.txt",
+     O_WRONLY | O_CREAT | O_TRUNC,
+     0644);
+```
+
+Có thể đọc các cờ này như sau:
+
+```text
+O_WRONLY
+    -> mở phiên này để ghi
+
+O_CREAT
+    -> nếu file chưa tồn tại thì tạo mới
+
+O_TRUNC
+    -> nếu file đã tồn tại thì làm rỗng nội dung cũ
+```
+
+Đây cũng là mô hình gần với hành vi của redirect:
+
+```bash
+echo "hello" > data.txt
+```
+
+trong đó dữ liệu cũ của `data.txt` bị thay thế.
+
+Ngược lại:
+
+```bash
+echo "hello" >> data.txt
+```
+
+mang ngữ nghĩa append, tức giữ dữ liệu cũ và ghi tiếp ở cuối tệp.
+
 
 ### 3.6 Cờ ghi nối `O_APPEND`
 
