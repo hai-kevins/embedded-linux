@@ -429,11 +429,193 @@ Quy trình bên trong Kernel diễn ra như một chuỗi xử lý (pipeline):
 Khi mở tệp, bạn phải chọn một trong ba chế độ cơ bản: `O_RDONLY` (Chỉ đọc), `O_WRONLY` (Chỉ ghi), và `O_RDWR` (Đọc và ghi).
 *Đây là chế độ áp dụng riêng cho **lần mở hiện tại**, nó hoàn toàn khác với các bit phân quyền `r/w/x` tĩnh của Filesystem*.
 
-### 3.3 Quyền Filesystem và Quyền của FD
+### 3.3 Filesystem permission và Access Mode của lần mở
 
-Là hai lớp cửa bảo vệ khác biệt:
-1.  **Cửa 1 (Filesystem permission):** Bạn có đủ quyền để đi qua cây thư mục và gọi hàm `open()` lên tệp này không?
-2.  **Cửa 2 (FD Access mode):** Sau khi `open()` thành công, `fd` được tạo ra với quyền gì? (Ví dụ: Bạn có quyền `w` trên tệp, nhưng lại gọi `open()` với cờ `O_RDONLY`, thì `fd` đó sẽ không thể dùng hàm `write()` được).
+Khi gọi `open()`, cần phân biệt hai lớp kiểm soát khác nhau:
+
+1. **Filesystem permission:** Kernel kiểm tra tiến trình có được phép mở đối tượng theo yêu cầu hay không.
+2. **Access mode của lần mở:** Nếu `open()` thành công, `open file description` được tạo với access mode `O_RDONLY`, `O_WRONLY` hoặc `O_RDWR`. Access mode này quyết định các thao tác `read()` và `write()` nào được phép thực hiện thông qua `fd`.
+
+Có thể hình dung:
+
+```text
+[ Filesystem permission ]
+          |
+          | Process có đủ quyền để mở
+          | file theo yêu cầu hay không?
+          v
+        open()
+          |
+          | Nếu được phép
+          v
+[ Open file description ]
+          |
+          +-- O_RDONLY
+          +-- O_WRONLY
+          `-- O_RDWR
+          |
+          v
+        [ fd ]
+```
+
+#### Lớp 1: Filesystem permission
+
+Trước khi tạo `open file description` và cấp `fd`, Kernel phải kiểm tra quyền trên Filesystem.
+
+Ví dụ:
+
+```c
+open("data.txt", O_RDONLY);
+```
+
+Kernel cần xác định tiến trình có quyền phù hợp để đọc tệp hay không.
+
+Nếu gọi:
+
+```c
+open("data.txt", O_WRONLY);
+```
+
+Kernel cần kiểm tra tiến trình có quyền ghi phù hợp hay không.
+
+Ngoài quyền trên chính tệp, quá trình phân giải `pathname` còn yêu cầu quyền `x` (`search/traverse`) trên các thư mục cha cần đi qua.
+
+Ví dụ với:
+
+```text
+/home/user/data.txt
+```
+
+Kernel phải có khả năng đi qua:
+
+```text
+/home
+/home/user
+```
+
+trước khi tiếp cận `data.txt`.
+
+Nếu quyền Filesystem không cho phép thao tác được yêu cầu, `open()` thất bại ngay:
+
+```text
+open(...)
+   |
+   v
+Kiểm tra permission
+   |
+   +-- Không đủ quyền
+   |
+   v
+return -1
+errno = EACCES
+```
+
+Khi đó chưa có `fd` hợp lệ nào được cấp cho lần mở này.
+
+#### Lớp 2: Access Mode của lần mở
+
+Giả sử Filesystem cho phép tiến trình cả đọc lẫn ghi:
+
+```text
+Filesystem permission:
+
+read  = YES
+write = YES
+```
+
+Nhưng chương trình lại gọi:
+
+```c
+int fd = open("data.txt", O_RDONLY);
+```
+
+thì `open file description` của **lần mở này** được thiết lập ở chế độ chỉ đọc:
+
+```text
+fd
+ |
+ v
+Open file description
+ |
+ +-- access mode = O_RDONLY
+```
+
+Do đó:
+
+```c
+read(fd, buffer, size);
+```
+
+là hợp lệ, nhưng:
+
+```c
+write(fd, buffer, size);
+```
+
+sẽ thất bại, thường với lỗi:
+
+```text
+EBADF
+```
+
+Điểm quan trọng là: Filesystem có thể cho phép tiến trình ghi vào tệp, nhưng chương trình đã chủ động chọn `O_RDONLY` cho lần mở này.
+
+Ngược lại, Access Mode cũng **không thể cấp thêm quyền mà Filesystem không cho phép**.
+
+Ví dụ nếu tiến trình chỉ có quyền đọc:
+
+```text
+read  = YES
+write = NO
+```
+
+nhưng lại yêu cầu:
+
+```c
+open("data.txt", O_RDWR);
+```
+
+thì Kernel sẽ từ chối ngay trong quá trình `open()`:
+
+```text
+O_RDWR yêu cầu:
+read  = YES
+write = YES
+
+Filesystem cho phép:
+read  = YES
+write = NO
+
+=> open() thất bại
+```
+
+Vì vậy, quan hệ giữa hai lớp có thể ghi nhớ như sau:
+
+```text
+Filesystem permission
+        |
+        | Quyết định:
+        | "Process có được phép mở theo yêu cầu này không?"
+        v
+      open()
+        |
+        | Nếu thành công
+        v
+Open file description
+        |
+        | Access mode của phiên mở:
+        |
+        +-- O_RDONLY
+        +-- O_WRONLY
+        `-- O_RDWR
+        |
+        v
+read() / write()
+bị giới hạn bởi Access Mode này
+```
+
+> **Điểm cần nhớ:** `O_RDONLY`, `O_WRONLY` và `O_RDWR` mô tả **Access Mode của lần mở**, gắn với `open file description`. Bản thân `file descriptor` chỉ là một số nguyên dùng làm handle để tiến trình tham chiếu tới `open file description` đó.
+
 
 ### 3.4 Cờ tạo tệp `O_CREAT`
 
