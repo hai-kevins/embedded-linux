@@ -1059,8 +1059,7 @@ Ví dụ:
 
 ```text
 Ứng dụng yêu cầu ghi: 4096 byte
-Chỉ còn đủ điều kiện để ghi:
-                      2000 byte
+Chỉ còn đủ điều kiện để ghi: 2000 byte
 ```
 
 thì `write()` có thể trả:
