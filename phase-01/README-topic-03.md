@@ -223,6 +223,164 @@ Một `open file description` chứa các trạng thái sống còn như:
 *   Các cờ trạng thái của tệp (ví dụ cờ Read-Only, Write-Only, Non-blocking).
 *   Con trỏ tham chiếu sâu xuống đối tượng Inode bên dưới.
 
+#### Trạng thái này thuộc về **lần mở tệp**, không nằm trong con số `fd`
+
+Cần phân biệt thật rõ:
+
+```text
+file descriptor (fd)
+    |
+    +-- Chỉ là một số nguyên dùng làm chỉ mục/handle trong tiến trình
+    |
+    v
+open file description
+    |
+    +-- Lưu trạng thái của phiên mở
+        như file offset, file status flags...
+```
+
+Ví dụ:
+
+```c
+int fd = open("data.txt", O_RDONLY);
+```
+
+Giả sử Kernel trả về:
+
+```text
+fd = 3
+```
+
+thì có thể hình dung:
+
+```text
+[ Process ]
+    |
+    +-- fd 3
+          |
+          v
+[ Open file description A ]
+    |
+    +-- file offset = 0
+    +-- file status flags
+    +-- tham chiếu tới object/inode bên dưới
+```
+
+Bản thân con số `3` **không chứa `file offset` hay các trạng thái của phiên mở**. Nó chỉ giúp Kernel tra cứu tới `open file description` tương ứng.
+
+Nếu sau đó:
+
+```c
+read(fd, buffer, 100);
+```
+
+và `read()` thực sự đọc được 100 byte, thì con số `fd` vẫn là `3`, nhưng trạng thái trong `open file description` thay đổi:
+
+```text
+fd = 3
+  |
+  v
+Open file description A
+  |
+  +-- file offset: 0 -> 100
+```
+
+Vì vậy, cách hiểu chính xác là:
+
+> **`file descriptor` là chỉ mục/handle mà tiến trình sử dụng; `open file description` mới là cấu trúc Kernel lưu các trạng thái dùng chung của một phiên mở tệp.**
+
+> **Lưu ý về thuật ngữ:** Không phải mọi thuộc tính liên quan tới `fd` đều nằm trong `open file description`. Ví dụ, `FD_CLOEXEC` là một **file descriptor flag** gắn với từng `fd`, trong khi các trạng thái như `file offset`, `O_APPEND`, `O_NONBLOCK` thuộc về `open file description`.
+
+#### `close()` rồi `open()` lại có giữ trạng thái cũ không?
+
+Không. Nếu `open file description` cũ không còn tham chiếu nào và bị giải phóng, lần `open()` tiếp theo sẽ tạo một **open file description mới** với trạng thái của phiên mở mới.
+
+Ví dụ:
+
+```text
+Lần mở thứ nhất:
+
+fd 3
+ |
+ v
+Open file description A
+ |
+ +-- file offset = 100
+```
+
+Sau:
+
+```c
+close(3);
+```
+
+nếu `fd 3` là tham chiếu cuối cùng tới `Open file description A`:
+
+```text
+fd 3
+ |
+ X
+
+Open file description A
+        |
+        +-- không còn tham chiếu
+        +-- được Kernel giải phóng
+```
+
+Sau đó chương trình mở lại cùng tệp:
+
+```c
+int fd = open("data.txt", O_RDONLY);
+```
+
+Kernel có thể lại trả về số `3` vì đây là slot `fd` nhỏ nhất đang trống:
+
+```text
+fd 3
+ |
+ v
+Open file description B
+ |
+ +-- file offset = 0
+ +-- trạng thái của lần mở mới
+```
+
+Điểm quan trọng là:
+
+```text
+fd 3 cũ  -> Open file description A
+close()
+fd 3 mới -> Open file description B
+```
+
+Hai lần đều có thể dùng con số `3`, nhưng đó là **hai phiên mở khác nhau**. `file offset = 100` của phiên cũ không được giữ lại chỉ vì số `fd` mới tình cờ giống số cũ.
+
+Trường hợp khác là khi vẫn còn một `fd` khác cùng tham chiếu tới `open file description` cũ, ví dụ sau `dup()`:
+
+```text
+fd 3 ----+
+         |
+         +----> Open file description A
+         |
+fd 4 ----+
+```
+
+Nếu chỉ:
+
+```c
+close(3);
+```
+
+thì:
+
+```text
+fd 4 --------> Open file description A
+```
+
+`Open file description A` vẫn tồn tại, và trạng thái như `file offset` vẫn được giữ vì vẫn còn tham chiếu tới nó.
+
+> **Kết luận:** `open file description` tồn tại theo vòng đời của **các tham chiếu tới phiên mở đó**, không theo bản thân pathname và cũng không theo giá trị số của một `fd` cụ thể.
+
 ### 2.3 Quan hệ tổng thể: Hành trình cấu trúc
 
 ```text
@@ -462,6 +620,8 @@ Lệnh này thực hiện giải phóng **một vị trí (chỉ mục) trong B�
 ```
 
 > **Đọc sơ đồ:** `close(fd)` loại bỏ tham chiếu từ phía ứng dụng. Kernel sẽ kiểm tra xem còn tham chiếu nào khác (ví dụ qua hàm `dup()`, hoặc do `fork()` tạo tiến trình con) trỏ tới cấu trúc `open file description X` này không. Nếu không còn, Kernel giải phóng `open file description` và các tài nguyên I/O liên quan. Lưu ý: bản thân tệp (inode) trên hệ thống tệp vẫn tiếp tục tồn tại bình thường nếu nó còn đường dẫn (pathname) hoặc liên kết trỏ tới.
+
+> **Liên hệ với mục 2.2:** Nếu `close(fd)` làm mất tham chiếu cuối cùng tới một `open file description`, rồi chương trình `open()` lại cùng pathname, Kernel sẽ tạo một `open file description` mới. Các trạng thái của phiên mở cũ như `file offset` không được khôi phục. Số `fd` mới có thể giống số cũ chỉ vì Kernel tái sử dụng slot đang trống.
 
 ### 7.2 Số `fd` có thể được tái chế (Reuse)
 
