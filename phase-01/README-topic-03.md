@@ -4,7 +4,7 @@
 >
 > **Quy ước ngôn ngữ:** Phần giải thích dùng Tiếng Việt. Các thuật ngữ Linux/POSIX cần phân biệt chính xác như `file descriptor`, `open file description`, `file offset`, `partial I/O`, `short read`, `blocking`, `nonblocking`, `EOF`, `errno`, cùng tên API, cờ và mã lỗi được giữ nguyên bằng tiếng Anh để thuận tiện tra cứu.
 >
-> **Phạm vi:** `file descriptor`, `open file description`, `open`, quyền truy cập, cờ mở tệp, `read`, `write`, `partial I/O`, EOF, `file offset`, `lseek`, `close`, `blocking`/`nonblocking` I/O ở mức cơ bản, `errno`, `EINTR`, `EAGAIN`.
+> **Phạm vi:** `file descriptor`, giới hạn số lượng `fd` (`RLIMIT_NOFILE`, `soft limit`, `hard limit`), `open file description`, `open`, quyền truy cập, cờ mở tệp, `read`, `write`, `partial I/O`, EOF, `file offset`, `lseek`, `close`, `blocking`/`nonblocking` I/O ở mức cơ bản, `errno`, `EINTR`, `EAGAIN`.
 >
 > Chương này là **lý thuyết nền tảng**, được thiết kế để xây dựng tư duy hệ thống, không có bài thực hành.
 
@@ -66,13 +66,118 @@ Một `fd` thực chất chỉ là một số nguyên không âm (vd: 0, 1, 2, 3
 
 > **Đọc sơ đồ:** Bảng tra cứu này nằm **riêng biệt bên trong từng tiến trình (process)**. Con số 3 chỉ là một vị trí (index) để tiến trình tham chiếu tới đối tượng I/O mà Kernel đang quản lý hộ nó. Vì là bảng riêng, nên `fd = 3` của Tiến trình A hoàn toàn không liên quan gì đến `fd = 3` của Tiến trình B (trừ khi chúng có quan hệ kế thừa qua `fork` hoặc truyền fd đặc biệt). Phải luôn phân biệt rõ **con số chỉ mục (fd)** và **đối tượng thực tế mà fd đó đang trỏ tới**.
 
-### 1.3 `fd` không phải inode
+
+### 1.3 Giới hạn số lượng `file descriptor`: `RLIMIT_NOFILE`
+
+Bảng `file descriptor` của một tiến trình không thể tăng vô hạn. Linux dùng giới hạn tài nguyên `RLIMIT_NOFILE` để quy định phạm vi số `fd` mà tiến trình có thể được cấp.
+
+Theo định nghĩa của Linux, `RLIMIT_NOFILE` là **một giá trị lớn hơn 1 so với số hiệu `file descriptor` lớn nhất mà tiến trình có thể được cấp**.
+
+Ví dụ, nếu giới hạn hiện tại là:
+
+```text
+RLIMIT_NOFILE = 1024
+```
+
+thì các số hiệu `fd` có thể được cấp nằm trong khoảng:
+
+```text
+0 ... 1023
+```
+
+Tức là có tối đa **1024 giá trị `fd`** trong phạm vi này, chứ không phải 1023.
+
+Trong một tiến trình thông thường, ba `fd` đầu tiên thường đã được dùng cho:
+
+```text
+fd 0 -> stdin
+fd 1 -> stdout
+fd 2 -> stderr
+```
+
+Nếu `RLIMIT_NOFILE = 1024`, cả ba `fd` trên vẫn đang mở và chưa có `fd` nào khác được sử dụng, thì còn:
+
+```text
+1024 - 3 = 1021
+```
+
+vị trí `fd` có thể được cấp thêm.
+
+> **Lưu ý:** Không nên nói “process chỉ mở được 1021 file”. Chính xác hơn là: trong ví dụ trên, process còn **1021 file descriptor có thể được cấp thêm**. Các `fd` đó có thể tham chiếu tới regular file, socket, pipe, device... chứ không chỉ là tệp trên filesystem. Nếu `fd 0`, `1` hoặc `2` bị đóng, các số hiệu đó cũng có thể được Kernel tái sử dụng.
+
+#### Soft limit và Hard limit
+
+Mỗi resource limit thường có hai mức:
+
+```text
+Soft limit
+    |
+    +-- Giới hạn hiện tại mà Kernel thực sự áp dụng
+
+Hard limit
+    |
+    +-- Trần tối đa mà Soft limit được phép nâng tới
+```
+
+Ví dụ:
+
+```text
+Soft limit = 1024
+Hard limit = 4096
+```
+
+thì **giới hạn đang được áp dụng hiện tại là 1024**, không phải 4096.
+
+Một tiến trình không có đặc quyền có thể thay đổi `soft limit`, nhưng không được nâng nó vượt quá `hard limit` hiện tại:
+
+```text
+soft: 1024 -> 2048      Hợp lệ
+soft: 2048 -> 4096      Hợp lệ
+soft: 4096 -> 8192      Không hợp lệ vì vượt hard limit
+```
+
+Vì vậy, có thể ghi nhớ:
+
+> **Soft limit là giới hạn đang được áp dụng; Hard limit là giới hạn tối đa mà Soft limit có thể được nâng tới.**
+
+Có thể kiểm tra hai giá trị này từ shell:
+
+```bash
+ulimit -Sn   # Soft limit của số file descriptor
+ulimit -Hn   # Hard limit của số file descriptor
+```
+
+Hoặc xem resource limits của shell hiện tại:
+
+```bash
+cat /proc/$$/limits
+```
+
+Ví dụ:
+
+```text
+Limit                     Soft Limit     Hard Limit
+Max open files            1024           4096
+```
+
+Con số `1024` chỉ là **ví dụ**, không phải một hằng số cố định của Linux. Giới hạn thực tế phụ thuộc vào resource limits của từng process và cấu hình hệ thống.
+
+Nếu tiến trình cần cấp một `fd` mới nhưng việc cấp đó vượt `RLIMIT_NOFILE`, các lời gọi như `open()`, `pipe()` hoặc `dup()` có thể thất bại với:
+
+```text
+EMFILE
+Too many open files
+```
+
+Khái niệm này sẽ được gặp lại ở mục **10.1 Khi `open()` thất bại**.
+
+### 1.4 `fd` không phải inode
 
 *   `inode` là cấu trúc dữ liệu mô tả đối tượng nằm ở tầng Filesystem (như đã học ở Topic 02).
 *   `fd` là tham chiếu giao dịch nằm ở tầng Tiến trình (Process context).
 *   Hai tiến trình có thể cùng sở hữu biến `fd = 3`, nhưng hai số `3` này có thể trỏ tới hai đối tượng/inode hoàn toàn khác nhau.
 
-### 1.4 `fd` không phải con trỏ bộ nhớ (pointer) ở userspace
+### 1.5 `fd` không phải con trỏ bộ nhớ (pointer) ở userspace
 
 Ứng dụng không thể thao tác trực tiếp với bộ nhớ thông qua `fd` như một con trỏ C/C++ (`*ptr`). Nó bắt buộc phải truyền con số này vào các `system call`:
 ```c
@@ -609,6 +714,7 @@ Phần này liệt kê tài liệu chuẩn man-pages và POSIX cho các `system 
 - `lseek(2)`: https://man7.org/linux/man-pages/man2/lseek.2.html
 - `close(2)`: https://man7.org/linux/man-pages/man2/close.2.html
 - `fcntl(2)`: https://man7.org/linux/man-pages/man2/fcntl.2.html
+- `getrlimit(2)`: https://man7.org/linux/man-pages/man2/getrlimit.2.html
 - `errno(3)`: https://man7.org/linux/man-pages/man3/errno.3.html
 - Linux VFS documentation: https://docs.kernel.org/filesystems/vfs.html
 - POSIX.1-2024 System Interfaces: https://pubs.opengroup.org/onlinepubs/9799919799/
