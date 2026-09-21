@@ -126,15 +126,15 @@ Tiến trình không tương tác với các thanh RAM vật lý một cách tr�
 +------------------+
 |      Data        |  (Biến toàn cục)
 +------------------+
-|       BSS        |  (Biến tĩnh)
+|      BSS         |  (Biến tĩnh)
 +------------------+
-| Heap             |  (Bộ nhớ cấp phát động: malloc/free)
+|      Heap        |  (Bộ nhớ cấp phát động: malloc/free)
 |       ↓          |  (Mở rộng về phía địa chỉ cao)
 |                  |
-| mmap regions     |  (Thư viện động .so, file ánh xạ)
+|   mmap regions   |  (Thư viện động .so, file ánh xạ)
 |                  |
 |       ↑          |  (Mở rộng về phía địa chỉ thấp)
-| Stack            |  (Biến cục bộ, call frame của hàm)
+|     Stack        |  (Biến cục bộ, call frame của hàm)
 +------------------+
 (Địa chỉ cao)
 ```
