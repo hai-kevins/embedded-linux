@@ -113,7 +113,7 @@ Sau khi một tiến trình kết thúc và được Kernel thu hồi tài nguy�
 
 ## 3. Một tiến trình đang nắm giữ những gì?
 
-Tiến trình không chỉ là mã đang chạy. Nó là một tập hợp trạng thái và tài nguyên gồm không gian địa chỉ ảo, bảng `file descriptor`, thông tin filesystem, credentials, signal state và trạng thái lập lịch.
+Tiến trình không chỉ là mã đang chạy. Nó là một tập hợp trạng thái và tài nguyên gồm không gian địa chỉ ảo, bảng `file descriptor`, thông tin filesystem, thông tin xác thực, signal state và trạng thái lập lịch.
 
 ### 3.1 Không gian địa chỉ ảo (Virtual Address Space)
 
