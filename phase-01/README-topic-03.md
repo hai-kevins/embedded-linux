@@ -1,2342 +1,618 @@
-# Topic 03 — File I/O cơ bản trong Linux
+# Chủ đề 3 — File I/O trong Linux
 
-> **Mục tiêu:** Hiểu mô hình File I/O ở tầng system call của Linux: `file descriptor`, `open file description`, `open()`, `read()`, `write()`, `lseek()`, `close()`, blocking/nonblocking I/O và cách xử lý lỗi cơ bản.
+> **Mục tiêu:** Hiểu rõ cách một chương trình Linux thực sự đọc/ghi dữ liệu như thế nào thông qua `file descriptor` (viết tắt `fd`) và các `system call` cốt lõi: `open()`, `read()`, `write()`, `lseek()`, `close()`.
 >
-> **Phạm vi:** `file descriptor`, giới hạn số lượng `fd` (`RLIMIT_NOFILE`, soft limit, hard limit), `open file description`, `open`, quyền truy cập, cờ mở tệp, `read`, `write`, `partial I/O`, EOF, `file offset`, `lseek`, `close`, `blocking`/`nonblocking` I/O ở mức cơ bản, `errno`, `EINTR`, `EAGAIN`.
+> **Quy ước ngôn ngữ:** Phần giải thích dùng Tiếng Việt. Các thuật ngữ Linux/POSIX cần phân biệt chính xác như `file descriptor`, `open file description`, `file offset`, `partial I/O`, `short read`, `blocking`, `nonblocking`, `EOF`, `errno`, cùng tên API, cờ và mã lỗi được giữ nguyên bằng tiếng Anh để thuận tiện tra cứu.
 >
-> **Chưa đi sâu ở Topic này:** `select/poll/epoll`, asynchronous I/O, `io_uring`, page cache, `mmap`, VFS internals, locking, direct I/O.
+> **Phạm vi:** `file descriptor`, `open file description`, `open`, quyền truy cập, cờ mở tệp, `read`, `write`, `partial I/O`, EOF, `file offset`, `lseek`, `close`, `blocking`/`nonblocking` I/O ở mức cơ bản, `errno`, `EINTR`, `EAGAIN`.
+>
+> Chương này là **lý thuyết nền tảng**, được thiết kế để xây dựng tư duy hệ thống, không có bài thực hành.
+
+Ý tưởng trung tâm của File I/O trên Linux rất đơn giản: **`pathname` (đường dẫn) chủ yếu dùng để tìm và mở một đối tượng; sau khi mở thành công, chương trình làm việc với đối tượng đó thông qua một con số gọi là `file descriptor` (`fd`)**. Vì thế, cần phân biệt rạch ròi giữa tên tệp, `inode`, cấu trúc `open file description` trong Kernel và con số `fd` mà tiến trình đang sử dụng.
+
+Từ mô hình đó, các API `open()`, `read()`, `write()`, `lseek()` và `close()` trở thành một chuỗi dây chuyền logic chặt chẽ thay vì năm hàm rời rạc. Phần còn lại của chương sẽ tập trung vào cách xử lý giá trị trả về, hiện tượng đọc/ghi một phần (`partial I/O`), kết thúc luồng (EOF), cơ chế chặn (`blocking`/`nonblocking`) và tư duy gỡ lỗi khi một lời gọi hệ thống thất bại.
+
+---
+
+## Mục lục
+
+- [1. `file descriptor` là gì?](#1-file-descriptor-là-gì)
+- [2. Từ đường dẫn đến tệp đang mở](#2-từ-đường-dẫn-đến-tệp-đang-mở)
+- [3. `open()`: mở một đối tượng I/O](#3-open-mở-một-đối-tượng-io)
+- [4. `read()`: đọc dữ liệu](#4-read-đọc-dữ-liệu)
+- [5. `write()`: ghi dữ liệu](#5-write-ghi-dữ-liệu)
+- [6. Vị trí đọc/ghi và `lseek()`](#6-vị-trí-đọcghi-và-lseek)
+- [7. `close()` và vòng đời `file descriptor`](#7-close-và-vòng-đời-file-descriptor)
+- [8. `blocking` và `nonblocking` I/O](#8-blocking-và-nonblocking-io)
+- [9. Giá trị trả về, `errno` và các lỗi quan trọng](#9-giá-trị-trả-về-errno-và-các-lỗi-quan-trọng)
+- [10. Tư duy gỡ lỗi File I/O](#10-tư-duy-gỡ-lỗi-file-io)
+- [11. Liên hệ với Embedded Linux](#11-liên-hệ-với-embedded-linux)
+- [12. Tổng kết](#12-tổng-kết)
+- [13. Tài liệu tham khảo](#13-tài-liệu-tham-khảo)
 
 ---
 
 ## 1. `file descriptor` là gì?
 
-Sau khi hệ thống mở thành công một đối tượng I/O, Linux trả về cho chương trình một số nguyên không âm gọi là **file descriptor** (`fd`).
+Sau khi hệ thống mở thành công một đối tượng I/O, Linux trả về cho chương trình một số nguyên nhỏ gọi là `file descriptor` (`fd`). Chương trình sẽ dùng con số này làm tham chiếu cho mọi thao tác đọc, ghi và đóng tệp sau đó.
 
-Chương trình sẽ sử dụng con số này để tham chiếu đến đối tượng I/O trong các system call như:
+### 1.1 File I/O rộng hơn tệp thông thường
 
-```c
-read(fd, buffer, size);
-write(fd, buffer, size);
-close(fd);
-```
+Trong triết lý UNIX/Linux, các API `read()` và `write()` có thể làm việc với vô số loại đối tượng khác nhau:
+*   Tệp văn bản/nhị phân thông thường (`regular file`).
+*   Đường ống (`pipe`) và `FIFO`.
+*   Giao diện dòng lệnh (`terminal`).
+*   Kết nối mạng (`socket`).
+*   Thiết bị phần cứng (`device node`).
+*   Các mục cấu hình trong `procfs`/`sysfs`.
 
-Điểm rất quan trọng:
-
-> `fd` không phải chính file, không phải inode và cũng không phải con trỏ userspace. Nó là một **handle dạng số nguyên** mà process dùng để yêu cầu Kernel thao tác với một đối tượng I/O.
-
-### 1.1 File I/O rộng hơn regular file
-
-Trong UNIX/Linux, cùng các API như `read()` và `write()` có thể được dùng với nhiều loại đối tượng:
-
-- regular file;
-- terminal;
-- pipe/FIFO;
-- socket;
-- device node;
-- một số interface trong `/proc` và `/sys`.
-
-Vì vậy, khi học **File I/O trong Linux**, nên hiểu rộng hơn là:
-
-> **I/O thông qua file descriptor**, chứ không chỉ là đọc/ghi file trên ổ lưu trữ.
-
-Ví dụ:
-
-```text
-fd
-│
-├── regular file
-├── terminal
-├── pipe
-├── socket
-└── device
-```
+Vì vậy, cụm từ “File I/O” trong Linux nên được hiểu rộng ra là: **"I/O thông qua file descriptor"**, chứ không đơn thuần chỉ là đọc/ghi một tệp tin trên ổ cứng.
 
 ### 1.2 `file descriptor` hoạt động như thế nào?
 
-Mỗi process có ngữ cảnh quản lý các file descriptor mà nó đang sử dụng.
-
-Có thể hình dung đơn giản:
+Một `fd` thực chất chỉ là một số nguyên không âm (vd: 0, 1, 2, 3...), đóng vai trò làm chỉ mục (index) tra cứu trong **bảng file descriptor** của riêng tiến trình đó.
 
 ```text
-Process A
-│
-└── File Descriptor Table
-    │
-    ├── fd 0 ──> stdin
-    ├── fd 1 ──> stdout
-    ├── fd 2 ──> stderr
-    ├── fd 3 ──> đối tượng I/O X
-    └── fd 4 ──> đối tượng I/O Y
+[ Tiến trình A (Process A) ]
++-------------------------------------------------+
+| Bảng File Descriptor (File Descriptor Table)    |
+|   0 -> Trỏ tới stdin (Bàn phím)                 |
+|   1 -> Trỏ tới stdout (Màn hình)                |
+|   2 -> Trỏ tới stderr (Màn hình báo lỗi)        |
+|   3 -> Trỏ tới [ Đối tượng Kernel X ]           |
+|   4 -> Trỏ tới [ Đối tượng Kernel Y ]           |
++-------------------------------------------------+
 ```
 
-Ba file descriptor quen thuộc thường tồn tại khi chương trình được shell khởi chạy:
+> **Đọc sơ đồ:** Bảng tra cứu này nằm **riêng biệt bên trong từng tiến trình (process)**. Con số 3 chỉ là một vị trí (index) để tiến trình tham chiếu tới đối tượng I/O mà Kernel đang quản lý hộ nó. Vì là bảng riêng, nên `fd = 3` của Tiến trình A hoàn toàn không liên quan gì đến `fd = 3` của Tiến trình B (trừ khi chúng có quan hệ kế thừa qua `fork` hoặc truyền fd đặc biệt). Phải luôn phân biệt rõ **con số chỉ mục (fd)** và **đối tượng thực tế mà fd đó đang trỏ tới**.
 
-```text
-fd 0 -> standard input  (stdin)
-fd 1 -> standard output (stdout)
-fd 2 -> standard error  (stderr)
-```
+### 1.3 `fd` không phải inode
 
-Ví dụ:
+*   `inode` là cấu trúc dữ liệu mô tả đối tượng nằm ở tầng Filesystem (như đã học ở Topic 02).
+*   `fd` là tham chiếu giao dịch nằm ở tầng Tiến trình (Process context).
+*   Hai tiến trình có thể cùng sở hữu biến `fd = 3`, nhưng hai số `3` này có thể trỏ tới hai đối tượng/inode hoàn toàn khác nhau.
 
-```bash
-echo "hello"
-```
+### 1.4 `fd` không phải con trỏ bộ nhớ (pointer) ở userspace
 
-`echo` thường ghi dữ liệu vào:
-
-```text
-fd 1 -> terminal
-```
-
-Nếu redirect:
-
-```bash
-echo "hello" > output.txt
-```
-
-thì shell sắp xếp để:
-
-```text
-fd 1 -> output.txt
-```
-
-Chương trình `echo` vẫn ghi vào `fd 1`; chỉ có đối tượng mà `fd 1` tham chiếu tới đã thay đổi.
-
-#### `fd` là số cục bộ trong ngữ cảnh process
-
-Hai process có thể đều có:
-
-```text
-fd = 3
-```
-
-nhưng không nhất thiết cùng tham chiếu một đối tượng:
-
-```text
-Process A                  Process B
----------                  ---------
-fd 3 ──> /etc/config       fd 3 ──> socket
-```
-
-Do đó không thể chỉ nhìn số `3` rồi kết luận hai process đang dùng cùng một file.
-
-> Ở các Topic sau khi học `fork()`, `dup()` và thread, ta sẽ thấy có những trường hợp nhiều execution context có thể chia sẻ hoặc kế thừa các tham chiếu file descriptor. Hiện tại chỉ cần nắm mô hình cơ bản ở trên.
-
-### 1.3 Một process có thể mở bao nhiêu `file descriptor`?
-
-Số file descriptor mà process có thể sử dụng **không vô hạn**.
-
-Linux sử dụng resource limit `RLIMIT_NOFILE` để giới hạn việc cấp thêm file descriptor cho process.
-
-Theo định nghĩa của Linux:
-
-> `RLIMIT_NOFILE` là giá trị **lớn hơn 1 so với số hiệu file descriptor lớn nhất** mà process có thể được cấp.
-
-Ví dụ:
-
-```text
-RLIMIT_NOFILE = 1024
-```
-
-thì các số hiệu `fd` có thể nằm trong khoảng:
-
-```text
-0 ... 1023
-```
-
-Tổng cộng:
-
-```text
-1024 giá trị fd
-```
-
-chứ không phải 1023.
-
-Nếu:
-
-```text
-fd 0 -> stdin
-fd 1 -> stdout
-fd 2 -> stderr
-```
-
-đều đang được sử dụng và chưa có descriptor nào khác, thì số slot còn lại là:
-
-```text
-1024 - 3 = 1021
-```
-
-Nhưng phải diễn đạt chính xác:
-
-> Process còn **1021 file descriptor có thể cấp thêm**, không phải “chỉ mở được 1021 file”.
-
-Bởi vì các descriptor đó có thể dùng cho:
-
-```text
-regular file
-socket
-pipe
-device
-...
-```
-
-Ngoài ra, `0`, `1`, `2` không phải các slot bất biến. Nếu chúng bị đóng, các số đó có thể được Kernel tái sử dụng cho những descriptor mới.
-
-#### 1.3.1 `1024` không phải hằng số cố định của Linux
-
-Không nên học thuộc:
-
-```text
-Mọi process Linux đều có tối đa 1024 fd
-```
-
-Câu này sai.
-
-Giới hạn thực tế phụ thuộc vào resource limit của process và cấu hình hệ thống.
-
-Kiểm tra soft limit của shell hiện tại:
-
-```bash
-ulimit -n
-```
-
-Có thể xem cả soft/hard limit bằng:
-
-```bash
-ulimit -Sn
-ulimit -Hn
-```
-
-Hoặc:
-
-```bash
-cat /proc/$$/limits
-```
-
-Ví dụ:
-
-```text
-Limit                     Soft Limit     Hard Limit
-Max open files            1024           1048576
-```
-
-#### 1.3.2 Soft limit và Hard limit
-
-Mỗi resource limit có hai mức quan trọng:
-
-```text
-Soft limit
-    │
-    └── giới hạn hiện tại mà Kernel thực sự áp dụng
-
-Hard limit
-    │
-    └── trần mà soft limit được phép nâng tới
-```
-
-Ví dụ:
-
-```text
-soft = 1024
-hard = 4096
-```
-
-thì process hiện tại bị giới hạn ở:
-
-```text
-1024
-```
-
-không phải 4096.
-
-Process không có đặc quyền có thể nâng soft limit tối đa tới hard limit:
-
-```text
-soft: 1024 -> 2048       OK
-soft: 2048 -> 4096       OK
-soft: 4096 -> 8192       Không được
-```
-
-Có thể ghi nhớ:
-
-> **Soft limit = giới hạn đang được thực thi.**  
-> **Hard limit = trần của soft limit.**
-
-Process không đặc quyền cũng có thể hạ hard limit của chính nó, nhưng sau khi hạ thì không thể tự nâng trở lại vượt quá hard limit mới. Việc nâng hard limit cần đặc quyền phù hợp, trên Linux liên quan tới `CAP_SYS_RESOURCE`.
-
-#### 1.3.3 Điều gì xảy ra khi hết file descriptor?
-
-Nếu process cần một descriptor mới nhưng việc cấp descriptor sẽ vượt `RLIMIT_NOFILE`, các lời gọi như:
-
-```text
-open()
-pipe()
-dup()
-...
-```
-
-có thể thất bại với:
-
-```text
-EMFILE
-Too many open files
-```
-
-Cần phân biệt:
-
-```text
-EMFILE
-└── process đã chạm giới hạn file descriptor của chính nó
-
-ENFILE
-└── hệ thống chạm giới hạn tài nguyên open-file ở mức system-wide
-```
-
-Phần lỗi sẽ được quay lại ở mục 10.
-
-### 1.4 `fd` không phải inode
-
-`inode` và `fd` nằm ở hai tầng khái niệm khác nhau.
-
-```text
-fd
-│
-└── handle mà process dùng để thực hiện I/O
-
-inode
-│
-└── metadata/object của filesystem mô tả một file
-```
-
-Một `fd` không trực tiếp đồng nghĩa với một inode.
-
-Giữa chúng còn có các cấu trúc Kernel khác, đặc biệt là **open file description**.
-
-Mô hình chính xác hơn:
-
-```text
-Process
-│
-└── fd
-    │
-    v
-Open File Description
-    │
-    v
-Filesystem object / inode
-```
-
-### 1.5 `fd` không phải con trỏ bộ nhớ ở userspace
-
-Ví dụ:
-
-```c
-int fd = open("data.txt", O_RDONLY);
-```
-
-Nếu:
-
-```text
-fd = 3
-```
-
-thì `3` không phải địa chỉ bộ nhớ mà chương trình có thể dereference:
-
-```c
-*fd;        // sai về mặt khái niệm
-```
-
-Chương trình bắt buộc phải đưa `fd` trở lại Kernel thông qua system call:
-
+Ứng dụng không thể thao tác trực tiếp với bộ nhớ thông qua `fd` như một con trỏ C/C++ (`*ptr`). Nó bắt buộc phải truyền con số này vào các `system call`:
 ```c
 read(fd, buffer, size);
 write(fd, buffer, size);
 close(fd);
 ```
-
-Kernel dùng `fd` làm khóa tra cứu để xác định đối tượng cần thao tác.
-
----
-
-## 2. `open file description` là gì?
-
-Đây là khái niệm rất quan trọng để hiểu đúng File I/O.
-
-Khi:
-
-```c
-int fd = open("data.txt", O_RDONLY);
-```
-
-Linux không đơn giản tạo ra một số `fd`.
-
-Có thể hình dung Kernel tạo một **open file description** đại diện cho một lần mở đối tượng đó, rồi đặt một tham chiếu đến nó trong bảng file descriptor của process.
-
-```text
-Process
-│
-└── fd 3
-    │
-    v
-Open File Description
-    │
-    ├── current file offset
-    ├── file status flags
-    └── reference tới filesystem object
-```
-
-Trong Linux kernel, khái niệm này gắn với file object (`struct file`).
-
-### 2.1 `fd` và `open file description` không phải một
-
-`fd`:
-
-```text
-là chỉ số trong bảng descriptor
-```
-
-Open file description:
-
-```text
-là trạng thái Kernel của một lần mở file
-```
-
-Ví dụ:
-
-```text
-fd 3
-  │
-  v
-+-----------------------------+
-| Open File Description       |
-| file offset = 120           |
-| status flags = O_RDONLY     |
-| ...                         |
-+-----------------------------+
-```
-
-### 2.2 File offset nằm ở open file description
-
-Giả sử file:
-
-```text
-ABCDE
-```
-
-Sau:
-
-```c
-read(fd, buf, 2);
-```
-
-offset thường dịch:
-
-```text
-ban đầu: 0
-sau read 2 byte: 2
-```
-
-Trạng thái offset này thuộc **open file description**, không phải nội dung inode.
-
-Điều này rất quan trọng khi sau này học:
-
-```text
-dup()
-fork()
-```
-
-vì nhiều file descriptor có thể tham chiếu cùng một open file description và do đó chia sẻ offset.
-
-### 2.3 Mở cùng một pathname hai lần
-
-Ví dụ:
-
-```c
-int fd1 = open("data.txt", O_RDONLY);
-int fd2 = open("data.txt", O_RDONLY);
-```
-
-Thông thường ta có:
-
-```text
-fd1 ──> Open File Description A ──┐
-                                  ├──> cùng file/inode
-fd2 ──> Open File Description B ──┘
-```
-
-A và B là hai lần mở riêng biệt, nên có thể có hai file offset độc lập.
-
-Ví dụ:
-
-```text
-fd1 offset = 100
-fd2 offset = 0
-```
-
-Dù cả hai cùng đọc một file.
-
-### 2.4 Tên file không phải thứ mà `read()` sử dụng
-
-Sau khi `open()` thành công:
-
-```c
-int fd = open("/tmp/data.txt", O_RDONLY);
-```
-
-các thao tác tiếp theo không cần pathname:
-
-```c
-read(fd, buf, sizeof(buf));
-close(fd);
-```
-
-Do đó có thể hình dung:
-
-```text
-pathname
-   │
-   │ open()
-   v
-Kernel resolve pathname
-   │
-   v
-open file description
-   │
-   v
-fd trả về cho process
-```
-
-Sau đó:
-
-```text
-read()/write()/lseek()/close()
-```
-
-làm việc thông qua `fd`.
+Linux Kernel sẽ nhận con số `fd` này, quét trong bảng File Descriptor Table của tiến trình gọi lệnh để tìm ra đối tượng thực sự cần thao tác.
 
 ---
 
-## 3. `open()` — mở một đối tượng I/O
+## 2. Từ đường dẫn đến tệp đang mở
 
-Prototype cơ bản:
+Sự phân tách trách nhiệm trong Linux rất rõ ràng: `pathname` dùng để định vị đối tượng, `open()` yêu cầu mở đối tượng đó, còn `fd` là tham chiếu được cấp để thực hiện các thao tác tiếp theo.
 
-```c
-#include <fcntl.h>
+### 2.1 Hai giai đoạn khác nhau của File I/O
 
-int open(const char *path, int flags, ...);
+**Giai đoạn 1: Mở tệp**
+```text
+[ Pathname (Đường dẫn) ] ---> gọi hàm open() ---> Kernel tìm object và tạo handle
 ```
 
-Trường hợp sử dụng `O_CREAT` thường có thêm `mode`:
-
-```c
-int open(const char *path, int flags, mode_t mode);
+**Giai đoạn 2: Tương tác I/O**
+```text
+[ Nhận được fd ] 
+      |
+      +---> read(fd, ...)
+      +---> write(fd, ...)
+      +---> lseek(fd, ...)
+      +---> close(fd)
 ```
 
-Ví dụ:
+> **Đọc sơ đồ:** Hàm `open()` dùng `pathname` để yêu cầu Kernel rà soát cây thư mục, **tìm đối tượng và tạo ra một bộ hồ sơ quản lý (handle)**. Sau khi `open()` thành công, các thao tác I/O phía sau chỉ làm việc bằng `fd`; Kernel KHÔNG đi rà soát lại `pathname` ở mỗi lần gọi `read()` hay `write()` nữa. Đó là lý do tại sao nếu bạn đổi tên tệp (rename) hoặc xóa tên (unlink) sau khi file đã được mở, tiến trình đang cầm `fd` vẫn có thể đọc/ghi dữ liệu bình thường mà không bị mất hiệu lực ngay lập tức.
 
-```c
-int fd = open("data.txt", O_RDONLY);
-```
+### 2.2 `open file description` (Hồ sơ quản lý tệp đang mở)
 
-Nếu thành công:
+Linux và chuẩn POSIX phân biệt rất rõ hai khái niệm:
+*   `file descriptor` (fd): Con số chỉ mục ở phía ứng dụng.
+*   **`open file description`**: Cấu trúc trạng thái do Kernel duy trì cho một phiên mở tệp. *(Tài liệu giữ nguyên tiếng Anh để tránh nhầm lẫn với file descriptor)*.
+
+Một `open file description` chứa các trạng thái sống còn như:
+*   Vị trí con trỏ đọc/ghi hiện tại (`file offset`).
+*   Các cờ trạng thái của tệp (ví dụ cờ Read-Only, Write-Only, Non-blocking).
+*   Con trỏ tham chiếu sâu xuống đối tượng Inode bên dưới.
+
+### 2.3 Quan hệ tổng thể: Hành trình cấu trúc
 
 ```text
-return >= 0
+[ Pathname ] 
+      |
+      v  (VFS pathname lookup)
+[ Inode / Đối tượng trong Filesystem ] 
+      |
+      v  (Kernel tạo hồ sơ quản lý phiên mở)
+[ Open file description ] 
+      |
+      v  (Tiến trình lưu vào bảng tra cứu)
+[ File descriptor (fd) ] 
 ```
 
-Nếu thất bại:
+> **Đọc sơ đồ:** Không phải đối tượng nào cũng có `inode` (ví dụ socket), nhưng với tệp tin thông thường, mô hình này là kim chỉ nam. Nếu bạn gọi `open()` hai lần trên cùng một tệp, Kernel sẽ tạo ra hai `open file description` độc lập (mỗi cái có một `file offset` riêng), sinh ra hai `fd` khác nhau, nhưng cả hai đều trỏ chung về một `Inode` vật lý. Ngược lại, nếu bạn dùng hàm `dup(fd)`, Kernel chỉ cấp thêm một `fd` mới trỏ vào CÙNG MỘT `open file description` cũ (chúng sẽ chia sẻ chung `file offset`).
+
+---
+
+## 3. `open()`: mở một đối tượng I/O
+
+`open()` yêu cầu Linux kernel dò tìm `pathname`, xác thực quyền hạn, kiểm tra các cờ (flags) và thiết lập trạng thái. Thành công thì nó trả về `fd`; thất bại thì trả về lỗi hệ thống.
+
+### 3.1 `open()` làm những việc gì?
+
+Quy trình bên trong Kernel diễn ra như một chuỗi xử lý (pipeline):
 
 ```text
-return -1
-errno được thiết lập
+[ Chuỗi Pathname ]
+        |
+[ 1. Phân giải Pathname (Resolution) ]
+        |
+[ 2. Kiểm tra Quyền truy cập & Cờ mở tệp ]
+        |
+[ 3. Tạo/Tham chiếu Open file description ]
+        |
+[ 4. Trả về File Descriptor (fd) ]
 ```
 
-### 3.1 `open()` làm gì về mặt mô hình?
+> **Đọc sơ đồ:** Chỉ ở bước cuối cùng, con số `fd` mới được cấp cho Userspace. Do đó, hàm `open()` có thể báo lỗi từ rất sớm ở khâu 1 (sai đường dẫn), khâu 2 (thiếu quyền Permission, hoặc sai cờ) trước khi bất kỳ thao tác tạo I/O dữ liệu nào diễn ra.
+*   Nếu thành công: `return >= 0` (số `fd` nhỏ nhất đang trống).
+*   Nếu thất bại: `return -1`, và biến `errno` sẽ chứa nguyên nhân lỗi cụ thể.
 
-Có thể hình dung:
+### 3.2 Chế độ truy cập (Access Mode)
+
+Khi mở tệp, bạn phải chọn một trong ba chế độ cơ bản: `O_RDONLY` (Chỉ đọc), `O_WRONLY` (Chỉ ghi), và `O_RDWR` (Đọc và ghi).
+*Đây là chế độ áp dụng riêng cho **lần mở hiện tại**, nó hoàn toàn khác với các bit phân quyền `r/w/x` tĩnh của Filesystem*.
+
+### 3.3 Quyền Filesystem và Quyền của FD
+
+Là hai lớp cửa bảo vệ khác biệt:
+1.  **Cửa 1 (Filesystem permission):** Bạn có đủ quyền để đi qua cây thư mục và gọi hàm `open()` lên tệp này không?
+2.  **Cửa 2 (FD Access mode):** Sau khi `open()` thành công, `fd` được tạo ra với quyền gì? (Ví dụ: Bạn có quyền `w` trên tệp, nhưng lại gọi `open()` với cờ `O_RDONLY`, thì `fd` đó sẽ không thể dùng hàm `write()` được).
+
+### 3.4 Cờ tạo tệp `O_CREAT`
+
+`O_CREAT` hướng dẫn Kernel tự tạo tệp mới nếu `pathname` chưa tồn tại.
+Khi dùng cờ này, bạn BẮT BUỘC phải truyền thêm tham số `mode` để mô tả các bit phân quyền ban đầu (ví dụ `0666`). Sau đó, `mode` này sẽ chịu ảnh hưởng của mặt nạ `umask` (và có thể cả ACL) để ra được quyền thực tế lưu xuống đĩa.
+
+### 3.5 Cờ làm rỗng tệp `O_TRUNC`
+
+Nếu tệp đã tồn tại và bạn có quyền ghi, cờ `O_TRUNC` sẽ lập tức cắt ngắn (truncate) toàn bộ nội dung tệp, đưa kích thước (size) về `0` ngay khoảnh khắc mở.
+> Điều này minh chứng: `open()` không phải lúc nào cũng là thao tác “chỉ đọc siêu dữ liệu”; nó hoàn toàn có khả năng thay đổi và xóa dữ liệu tệp.
+
+### 3.6 Cờ ghi nối `O_APPEND`
+
+Khi thiết lập trạng thái append, Kernel đảm bảo việc định vị tới cuối tệp (EOF) và thực hiện `write()` diễn ra một cách nguyên tử (atomic) đối với các hệ thống tệp cục bộ hỗ trợ ngữ nghĩa này.
+Hành động này an toàn và chuẩn xác hơn nhiều so với việc ứng dụng tự viết code thủ công:
+```c
+lseek(fd, 0, SEEK_END); // Nhảy xuống cuối
+write(fd, data, size);  // Ghi
+```
+Bởi vì giữa hai dòng lệnh rời rạc trên, một tiến trình khác có thể chen ngang ghi đè dữ liệu lên file gây ra tranh chấp (race condition). *(Lưu ý: Một số hệ thống tệp mạng như NFS có thể có những ngoại lệ riêng với cờ O_APPEND).*
+
+### 3.7 Cờ bảo mật `O_CLOEXEC`
+
+Cờ `O_CLOEXEC` thiết lập thuộc tính `close-on-exec` một cách nguyên tử ngay tại thời điểm mở tệp.
+*   **Mục đích:** Đảm bảo `fd` này sẽ tự động bị Kernel đóng lại (close) nếu tiến trình hiện tại gọi hàm `execve()` để chạy một chương trình khác.
+*   Tránh rò rỉ `fd` ngoài ý muốn sang các chương trình con. Việc thiết lập ngay lúc `open()` là cực kỳ quan trọng trong môi trường đa luồng (multi-threading) nhằm ngăn chặn tranh chấp so với việc mở xong rồi mới gọi hàm `fcntl()` cài cờ.
+
+---
+
+## 4. `read()`: đọc dữ liệu
+
+Hàm `read()` ra lệnh cho Kernel sao chép tối đa một lượng byte nhất định từ thiết bị vào bộ đệm của ứng dụng. Việc nó trả về số byte thực tế ít hơn yêu cầu là hiện tượng hoàn toàn bình thường.
+
+### 4.1 Ý nghĩa của `read()`: Đọc "tối đa"
+
+Tư duy đúng đắn khi gọi hàm:
+```c
+ssize_t bytes_read = read(fd, buffer, count);
+```
+Câu lệnh này mang ý nghĩa: *"Hãy đọc **tối đa** `count` byte vào bộ đệm"*.
+Nó không có nghĩa: *"Bắt buộc phải trả đủ `count` byte mới được coi là thành công"*.
+
+### 4.2 Giá trị trả về
+
+Mọi logic xử lý phải dựa trên kết quả trả về của hàm `read()`:
+*   `> 0`: Thành công, biểu thị số lượng byte thực sự đã đọc được vào bộ đệm.
+*   `== 0`: Báo hiệu đã hết luồng dữ liệu (EOF - End Of File, hoặc End-of-stream tùy thuộc vào loại đối tượng).
+*   `== -1`: Báo lỗi hệ thống. Cần kiểm tra biến `errno` để biết nguyên nhân.
+
+### 4.3 `short read` (Đọc một phần) không phải là lỗi
+
+Giả sử bạn yêu cầu đọc `count = 4096` byte, nhưng `read()` chỉ trả về `300` byte. Đây là hiện tượng `short read` (đọc một phần) và nó hoàn toàn hợp lệ.
+
+Nguyên nhân tùy thuộc vào đối tượng:
+*   **Regular file:** Tệp trên đĩa chỉ còn đúng 300 byte tính từ vị trí offset hiện tại.
+*   **Pipe / Socket:** Bộ đệm của ống nước/mạng hiện tại mới chỉ nhận được 300 byte, nó trả về ngay dữ liệu có sẵn thay vì bắt luồng chờ đợi.
+*   **Terminal:** Đang hoạt động ở chế độ `canonical` (chờ nhận theo từng dòng) hoặc `noncanonical` (từng ký tự).
+*   **Signal:** Một ngắt tín hiệu hệ thống (signal) chen ngang sau khi hàm `read` đã kịp đọc được 300 byte.
+
+### 4.4 Phân biệt rạch ròi EOF và Lỗi
+
+*   **EOF (Hết dữ liệu):** Trả về `0`.
+*   **Lỗi hệ thống:** Trả về `-1` và thiết lập mã `errno`.
+Ứng dụng phải xử lý hai tình huống này hoàn toàn khác nhau.
+
+### 4.5 EOF phụ thuộc vào ngữ nghĩa của loại đối tượng
+
+Đọc về `0` mang những ý nghĩa khác biệt:
+*   **Tệp thông thường (Regular file):** Vị trí `file offset` hiện tại đã chạm hoặc vượt qua điểm cuối của tệp.
+*   **Đường ống (Pipe):** Đã hết sạch dữ liệu trong vùng đệm, ĐỒNG THỜI không còn bất kỳ tiến trình nào mở đầu ghi (writer) của ống này nữa.
+*   **Mạng (TCP Stream):** Phía đối tác (peer) đã chủ động đóng kết nối chiều gửi (`orderly shutdown`) và ứng dụng đã đọc cạn toàn bộ dữ liệu tồn đọng.
+
+Vì vậy, “`read() == 0`” phải được thấu hiểu trong bối cảnh đối tượng đang thao tác.
+
+---
+
+## 5. `write()`: ghi dữ liệu
+
+Tương tự `read()`, lệnh `write()` hoàn toàn có thể ghi được số byte ít hơn so với mức ứng dụng yêu cầu. Chương trình vững chãi phải luôn kiểm tra giá trị trả về để ghi nốt phần còn thiếu.
+
+### 5.1 `write()` có thể hoàn thành một phần (Partial I/O)
+
+Lệnh gọi:
+```c
+ssize_t written = write(fd, buffer, count);
+```
+Có thể trả về giá trị `M`, trong đó `0 < M < count`. Điều này có nghĩa là Kernel chỉ mới chấp nhận và xử lý được `M` byte đầu tiên.
+
+*(Lưu ý: Khác với `read()`, nếu `write()` trả về `0`, nó chỉ đơn thuần mang nghĩa "không có byte nào được ghi", không mang ngữ nghĩa EOF).*
+
+### 5.2 Vì sao hiện tượng "ghi ngắn" (short write) tồn tại?
+
+Hiện tượng này có thể xảy ra do:
+*   **Pipe/Socket:** Vùng đệm trong Kernel sắp đầy, chỉ còn đủ không gian chứa một phần dữ liệu.
+*   **Giới hạn tài nguyên (Resource limit):** Phân vùng hết dung lượng hoặc tiến trình chạm hạn mức (quota) kích thước tệp.
+*   **Signal:** Bị ngắt tín hiệu giữa chừng sau khi đã ghi được một số byte.
+*   **Nonblocking I/O:** Đối tượng mở ở chế độ không chặn chỉ có thể tiếp nhận ngay một phần dữ liệu rồi trả về.
+
+Do đó, code chuẩn luôn phải đặt hàm `write()` trong vòng lặp và đánh giá **số byte trả về**, thay vì cho rằng gọi một lần là ghi xong toàn bộ.
+
+### 5.3 Ghi thành công KHÔNG đồng nghĩa dữ liệu đã bền vững trên thiết bị
+
+Đối với tệp thông thường (regular file) sử dụng I/O có bộ đệm (buffered I/O), một lệnh `write()` báo thành công thường chỉ có nghĩa là dữ liệu đã được Kernel tiếp nhận và chép vào bộ đệm RAM (gọi là `Page cache`). 
+
+Các đối tượng khác như socket, pipe, hoặc thiết bị có ngữ nghĩa riêng. Để đẩy dữ liệu thực sự xuống thiết bị lưu trữ, bạn phải dùng các hàm đồng bộ hóa chuyên dụng như `fsync()`. Dù vậy, các lớp bộ đệm của bản thân thiết bị điều khiển (disk controller) vẫn có thể ảnh hưởng đến mức độ bền vững cuối cùng của dữ liệu khi xảy ra sự cố mất điện.
+
+### 5.4 Với Pipe và Socket: Sự độc lập của các lớp
+
+Ghi thành công vào `socket` hay `pipe` cũng không đảm bảo ứng dụng đầu kia đã đọc hay xử lý nó.
 
 ```text
-open("data.txt", O_RDONLY)
-        │
-        v
-Kernel resolve pathname
-        │
-        v
-tạo open file description
-        │
-        v
-chọn một fd chưa dùng
-        │
-        v
-trả fd về userspace
+[ write() thành công ]
+         |
+         v
+[ Đẩy vào Kernel Buffer (Vẫn nằm trên RAM cục bộ) ]
+         |
+         v
+[ Luân chuyển qua Network / Giao thức kết nối ]
+         |
+         v
+[ Chờ Peer Application (Ứng dụng đầu kia) gọi read() để lấy ra ]
 ```
 
-Một lần `open()` thành công tạo một **open file description mới**.
+> **Đọc sơ đồ:** Hành động `write()` chỉ đảm bảo việc dữ liệu được đẩy vào không gian đệm của Kernel để gửi đi. Việc Kernel tiếp nhận thành công không đồng nghĩa với việc tiến trình đích (Peer application) đã gọi `read()` để đọc gói dữ liệu đó. Mỗi lớp hệ thống quản lý một trạng thái độc lập.
 
-File descriptor trả về là descriptor có số nhỏ nhất hiện chưa được sử dụng trong process.
+---
 
-Ví dụ process đang có:
+## 6. Vị trí đọc/ghi và `lseek()`
+
+Tệp thông thường luôn duy trì một con trỏ ghi nhớ vị trí (offset). Hàm `lseek()` dùng để dịch chuyển con trỏ này, nhưng hãy cẩn thận vì không phải loại đối tượng nào cũng hỗ trợ thao tác này (seek).
+
+### 6.1 `file offset` (Vị trí con trỏ tệp)
+
+Đối với các tệp tin có thể seek, `open file description` bên trong Kernel sẽ âm thầm duy trì một vị trí byte hiện hành (file offset).
 
 ```text
-0, 1, 2
+Byte index:  0  1  2  3  4  5  6  7 ...
+                         ^
+                         |
+                 File offset hiện tại
 ```
 
-thì:
+Mỗi lần bạn gọi `read()` hoặc `write()`, Kernel tự động đẩy con trỏ này tiến lên tương ứng với số byte đã xử lý.
 
-```c
-open(...)
-```
+### 6.2 Lệnh `lseek()`
 
-thường trả về:
+Dùng để chủ động thay đổi (seek) `file offset` đến một tọa độ mới.
+Hàm này chỉ cập nhật con trỏ số học bên trong RAM, nó không tạo ra bất kỳ thao tác đọc hay ghi dữ liệu vật lý nào.
+
+### 6.3 Ba cột mốc căn chuẩn (Seek anchors) phổ biến
+
+*   `SEEK_SET`: Dịch chuyển tính từ mốc byte 0 (Đầu tệp).
+*   `SEEK_CUR`: Dịch chuyển tính từ vị trí `file offset` hiện tại (có thể bước lùi bằng số âm).
+*   `SEEK_END`: Dịch chuyển tính từ cột mốc cuối cùng của tệp.
+
+### 6.4 Dịch chuyển vượt quá EOF (Tạo tệp thưa - Sparse File)
+
+Với tệp tin thông thường, Kernel cho phép bạn thay đổi `offset` vượt ra khỏi điểm kết thúc hiện tại của tệp. Nếu sau khi dịch chuyển, bạn gọi hàm `write()` để ghi dữ liệu, một vùng trống (hole) sẽ được tạo ra.
+
+Hệ thống tệp (Filesystem) thường sẽ không cấp phát các block lưu trữ vật lý cho khoảng trống ở giữa này (tạo thành tệp thưa - sparse file). Khi ứng dụng tiến hành đọc qua vùng này, Kernel sẽ tự động trả về các byte 0 (NULL).
+
+### 6.5 Không phải đối tượng nào cũng `seek` được
+
+Các luồng dữ liệu (streams) như: `Pipe`, `FIFO`, `Socket`, `Terminal` và phần lớn thiết bị ký tự (Character device) không có khái niệm lưu trữ tĩnh để hỗ trợ dịch chuyển vị trí (seek). Nếu cố tình gọi `lseek()` lên các `fd` này, Kernel sẽ trả về mã lỗi `ESPIPE` (Illegal seek).
+
+---
+
+## 7. `close()` và vòng đời `file descriptor`
+
+Lệnh `close()` xóa bỏ tham chiếu `fd` khỏi tiến trình. Tuy nhiên, nếu cấu trúc `open file description` bên dưới vẫn còn được tham chiếu bởi nơi khác, tài nguyên sẽ tiếp tục tồn tại.
+
+### 7.1 Lệnh `close(fd)` thực chất đóng cái gì?
+
+Lệnh này thực hiện giải phóng **một vị trí (chỉ mục) trong Bảng File Descriptor của riêng tiến trình đó**.
 
 ```text
-3
+[ File Descriptor Table ]
+
+  3 -> [ Trỏ tới open file description X ]
+
+(Gọi hàm close(3))
+
+  3 -> [ Trở thành Slot trống, tham chiếu tới X bị hủy ]
 ```
 
-Nếu `3` bị đóng nhưng `4`, `5` vẫn đang dùng, lần cấp descriptor tiếp theo có thể tái sử dụng `3`.
+> **Đọc sơ đồ:** `close(fd)` loại bỏ tham chiếu từ phía ứng dụng. Kernel sẽ kiểm tra xem còn tham chiếu nào khác (ví dụ qua hàm `dup()`, hoặc do `fork()` tạo tiến trình con) trỏ tới cấu trúc `open file description X` này không. Nếu không còn, Kernel giải phóng `open file description` và các tài nguyên I/O liên quan. Lưu ý: bản thân tệp (inode) trên hệ thống tệp vẫn tiếp tục tồn tại bình thường nếu nó còn đường dẫn (pathname) hoặc liên kết trỏ tới.
 
-### 3.2 Access mode
+### 7.2 Số `fd` có thể được tái chế (Reuse)
 
-`flags` phải chỉ định một trong ba access mode chính:
+Hệ điều hành luôn ưu tiên cấp phát con số `fd` nhỏ nhất đang trống. Sau khi bạn `close(3)`, lần gọi `open()` tiếp theo rất có khả năng sẽ nhận lại đúng số `3`.
+Do đó: **Không bao giờ coi số `fd` là một mã định danh toàn cục hay vĩnh viễn**.
 
-```c
-O_RDONLY
-O_WRONLY
-O_RDWR
-```
+### 7.3 Xử lý cẩn trọng khi `close()` báo lỗi
 
-Ý nghĩa:
+Trên Linux, một số lỗi I/O có thể bị hoãn lại và chỉ bộc lộ khi gọi `close()`. Tuy nhiên, ngay cả khi `close()` trả về `-1`, Kernel thực tế đã giải phóng slot `fd` đó.
+Việc viết code tự động thử lại (`retry`) lệnh `close(fd)` khi có lỗi là rất nguy hiểm, vì slot `fd` đó có thể đã được một luồng (thread) khác tái sử dụng để mở một tệp hoàn toàn mới. Nếu retry, bạn sẽ vô tình đóng nhầm tệp của luồng khác.
+
+---
+
+## 8. `blocking` và `nonblocking` I/O
+
+Cơ chế chặn (Blocking) giúp luồng CPU được đưa vào trạng thái ngủ khi chờ dữ liệu; ngược lại, Không chặn (Non-blocking) bắt Kernel trả quyền điều khiển về ngay lập tức nếu thao tác chưa thể hoàn thành.
+
+### 8.1 `blocking` (Chặn) nghĩa là gì?
+
+Ở chế độ mặc định, nếu một thao tác I/O chưa thể phục vụ ngay lập tức, luồng thực thi (thread) sẽ bị Kernel đưa vào trạng thái ngủ (Sleep/Wait queue) để chờ đợi sự kiện.
 
 ```text
-O_RDONLY  -> chỉ đọc
-O_WRONLY  -> chỉ ghi
-O_RDWR    -> đọc và ghi
+[ Ứng dụng gọi read() ]
+        |
+[ Kernel kiểm tra: Chưa có dữ liệu ]
+        |
+[ Luồng ứng dụng bị ĐƯA VÀO TRẠNG THÁI NGỦ (Block) ] ---> (Giải phóng CPU cho tác vụ khác)
+        |
+[ Phần cứng/Mạng đẩy dữ liệu đến ]
+        |
+[ Kernel đánh thức (Wake up) luồng ứng dụng ]
+        |
+[ Hàm read() tiếp tục thực thi và trả về dữ liệu ]
 ```
 
-Ví dụ:
+> **Đọc sơ đồ:** Thuật ngữ `blocking` mô tả **ngữ nghĩa chờ đợi chủ động của hệ điều hành**. Thread bị chặn sẽ ngủ và nhường CPU cho các tác vụ khác. Tuy nhiên, nó không phải là kiến trúc duy nhất cho mọi loại tải (workload). Ví dụ, các máy chủ mạng cần xử lý hàng chục ngàn kết nối đồng thời thường ưu tiên I/O bất đồng bộ hoặc kết hợp Non-blocking với `epoll`.
 
+### 8.2 `blocking` KHÔNG phải là `busy loop` (Vòng lặp bận)
+
+Cơ chế chặn là cách hiệu quả để nhường CPU. Nó khác hoàn toàn với việc dùng vòng lặp đốt CPU để chờ:
 ```c
-int fd = open("config.txt", O_RDONLY);
-```
-
-Nếu sau đó cố:
-
-```c
-write(fd, buf, len);
-```
-
-thì thao tác sẽ thất bại vì descriptor không được mở cho ghi.
-
-### 3.3 Kết hợp flag bằng bitwise OR
-
-Có thể kết hợp nhiều flag:
-
-```c
-int fd = open("log.txt",
-              O_WRONLY | O_CREAT | O_APPEND,
-              0644);
-```
-
-Không dùng logical OR:
-
-```c
-O_WRONLY || O_CREAT        // sai mục đích
-```
-
-mà dùng:
-
-```c
-O_WRONLY | O_CREAT         // đúng
-```
-
-### 3.4 Một số flag quan trọng
-
-#### `O_CREAT`
-
-Tạo file nếu file chưa tồn tại.
-
-```c
-open("data.txt", O_WRONLY | O_CREAT, 0644);
-```
-
-Khi dùng `O_CREAT`, cần truyền `mode` để chỉ định permission ban đầu.
-
-Permission thực tế còn bị ảnh hưởng bởi `umask`.
-
-Mô hình đơn giản:
-
-```text
-requested mode
-      │
-      v
-    umask
-      │
-      v
-permission thực tế
-```
-
-Ví dụ:
-
-```text
-requested = 0666
-umask     = 0022
-
-kết quả thường là:
-0644
-```
-
-#### `O_EXCL`
-
-Thường dùng cùng `O_CREAT`:
-
-```c
-O_CREAT | O_EXCL
-```
-
-Yêu cầu việc tạo file thất bại nếu file đã tồn tại.
-
-Hữu ích khi cần semantics “tạo mới, không ghi đè file đã có”.
-
-#### `O_TRUNC`
-
-Nếu file phù hợp được mở để ghi, nội dung regular file có thể bị truncate về kích thước 0.
-
-Ví dụ:
-
-```c
-open("data.txt", O_WRONLY | O_TRUNC);
-```
-
-Cần rất cẩn thận vì dữ liệu cũ có thể bị mất ngay khi `open()` thành công.
-
-#### `O_APPEND`
-
-Mở ở chế độ append.
-
-Trước mỗi `write()`, Kernel đặt vị trí ghi ở cuối file và thực hiện việc cập nhật offset + ghi như một bước atomic đối với semantics của local filesystem.
-
-Ví dụ:
-
-```c
-open("log.txt", O_WRONLY | O_APPEND);
-```
-
-Phù hợp cho log hơn kiểu:
-
-```c
-lseek(fd, 0, SEEK_END);
-write(fd, ...);
-```
-
-vì cách tách `lseek()` và `write()` thành hai system call có thể tạo race khi nhiều writer hoạt động đồng thời.
-
-> Với NFS, semantics append có hạn chế riêng vì client phải mô phỏng append; không nên suy rộng tính chất local filesystem sang mọi network filesystem.
-
-#### `O_NONBLOCK`
-
-Yêu cầu nonblocking mode khi đối tượng hỗ trợ semantics này.
-
-Đặc biệt quan trọng với:
-
-- pipe/FIFO;
-- socket;
-- terminal;
-- device.
-
-Với regular file, `O_NONBLOCK` thường không mang ý nghĩa mà người mới hay hình dung.
-
-#### `O_CLOEXEC`
-
-Đặt close-on-exec cho descriptor ngay lúc tạo.
-
-```c
-open(path, O_RDONLY | O_CLOEXEC);
-```
-
-Flag này rất quan trọng trong chương trình có nhiều thread vì tránh race khi tạo descriptor rồi mới gọi `fcntl()` để đặt `FD_CLOEXEC`.
-
-Ở Topic này chỉ cần nhận biết:
-
-> `O_CLOEXEC` giúp tránh vô tình để descriptor sống qua `execve()` khi ta không muốn.
-
-### 3.5 Ví dụ `open()`
-
-```c
-#include <fcntl.h>
-#include <stdio.h>
-#include <unistd.h>
-
-int main(void)
-{
-    int fd = open("data.txt", O_RDONLY);
-
-    if (fd == -1) {
-        perror("open");
-        return 1;
-    }
-
-    printf("fd = %d\n", fd);
-
-    close(fd);
-    return 0;
+// ĐÂY LÀ ANTI-PATTERN (Gây tốn chu kỳ CPU)
+while(không_có_dữ_liệu) {
+    kiểm_tra_lại(); 
 }
 ```
 
-Biên dịch:
+### 8.3 Hành vi chặn phụ thuộc vào đặc tính đối tượng
 
-```bash
-gcc -Wall -Wextra -O2 open_demo.c -o open_demo
-```
+*   **Tệp thông thường (Regular file):** Ngữ nghĩa sẵn sàng (readiness) khác với mạng. Nếu dữ liệu đã nằm trong `page cache`, thao tác có thể hoàn thành ngay từ RAM. Ngược lại, nếu phải chờ I/O từ thiết bị lưu trữ, luồng có thể bị đưa vào trạng thái ngủ (thường là uninterruptible sleep) trong khi Kernel xử lý thao tác với đĩa.
+*   **Pipe / FIFO / Socket:** Phụ thuộc cực mạnh vào tốc độ luân chuyển dữ liệu của đối tác (peer) đầu kia và trạng thái vùng đệm.
+*   **Terminal / Device:** Phụ thuộc vào tốc độ nhập liệu hoặc trạng thái của driver phần cứng.
 
-Chạy:
+### 8.4 Chế độ Không chặn (Cờ `O_NONBLOCK`)
 
-```bash
-./open_demo
-```
+Nếu lúc gọi `open()` (hoặc cấu hình sau bằng `fcntl()`) bạn bật cờ `O_NONBLOCK`, Kernel sẽ thay đổi chiến thuật:
+Nếu thao tác đọc/ghi đòi hỏi phải chờ đợi, Kernel sẽ lập tức từ chối, trả quyền điều khiển về cho ứng dụng với mã lỗi `EAGAIN` hoặc `EWOULDBLOCK`.
+
+### 8.5 `nonblocking` không đảm bảo "thời gian thực thi bằng 0"
+
+Cờ `O_NONBLOCK` chỉ đảm bảo hàm sẽ trả về ngay nếu tài nguyên **chưa sẵn sàng cung cấp/nhận dữ liệu theo giao diện API**.
+Đặc biệt, với tệp thông thường và thiết bị khối (block device), cờ `O_NONBLOCK` thường không mang lại ngữ nghĩa readiness giống như pipe hay socket; thao tác I/O vẫn có thể bị chặn bởi quá trình truy xuất thiết bị lưu trữ.
 
 ---
 
-## 4. `read()` — đọc dữ liệu
+## 9. Giá trị trả về, `errno` và các lỗi quan trọng
 
-Prototype:
+Mọi API hệ thống đều dùng giá trị trả về (Return value) để báo tin trạng thái. Biến `errno` chỉ đóng vai trò thuyết minh chi tiết nguyên nhân khi có báo cáo thất bại.
 
-```c
-#include <unistd.h>
+### 9.1 Nguyên tắc sống còn: Kiểm tra giá trị trả về trước
 
-ssize_t read(int fd, void *buf, size_t count);
-```
+Giá trị trả về chính là bản hợp đồng giao thức I/O:
+*   **`open()`**: Trả về `fd` hợp lệ (>= 0), hoặc `-1` (Lỗi).
+*   **`read()`**: Trả số byte thành công (> 0), `0` (EOF/End-of-stream), hoặc `-1` (Lỗi).
+*   **`write()`**: Trả số byte thành công (> 0), `0` (Không ghi được byte nào, không đồng nghĩa với EOF), hoặc `-1` (Lỗi).
+*   **`lseek()`**: Trả mốc offset mới, hoặc `-1` (Lỗi).
+*   **`close()`**: Trả `0` (Thành công), hoặc `-1` (Lỗi).
 
-Ý nghĩa:
+### 9.2 Tìm hiểu các kiểu dữ liệu đo lường
 
-```text
-fd
-  -> đọc tối đa count byte
-  -> copy vào buf
-```
+*   `size_t`: Kiểu số nguyên không dấu (unsigned), dùng để định cỡ bộ đệm/count truyền vào.
+*   `ssize_t`: Kiểu số nguyên CÓ dấu (signed), dùng để biểu diễn lượng byte (>0) và giá trị âm `-1` mang cờ báo lỗi.
+*   `off_t`: Kiểu dữ liệu chuyên biệt để biểu diễn tọa độ `file offset` hiện tại.
 
-Giá trị trả về:
+### 9.3 Cách sử dụng biến `errno`
 
-```text
-> 0   số byte thực sự đọc được
-= 0   EOF trong trường hợp thích hợp
-= -1  lỗi
-```
+Khi system call thất bại, Kernel trả về một mã trạng thái nội bộ. Thư viện chuẩn C (`libc`) bọc hàm gọi này sẽ tiếp nhận trạng thái đó, trả về `-1` cho ứng dụng và thiết lập giá trị cho biến `errno` (trong các ứng dụng đa luồng, `errno` được triển khai dưới dạng biến cục bộ của luồng - `thread-local` - để tránh xung đột).
 
-### 4.1 `read()` không đảm bảo trả đủ `count`
+**Lưu ý:** Chỉ phân tích `errno` KHI VÀ CHỈ KHI lệnh gọi vừa báo thất bại. Việc đọc `errno` sau một lệnh thành công là không an toàn, vì hàm thành công không có nghĩa vụ phải reset `errno` về 0.
 
-Ví dụ:
+### 9.4 Lỗi `EBADF` (Bad File Descriptor)
 
-```c
-char buf[100];
+Thông báo rằng con số `fd` bạn truyền vào không hợp lệ cho tác vụ hiện tại.
+*Nguyên nhân phổ biến:* Kiểm tra xem `fd` đã bị `close()` trước đó chưa, hàm `open()` có thực sự thành công không, hoặc ứng dụng đang cố dùng hàm `write()` đè lên một `fd` mở bằng cờ `O_RDONLY`.
 
-ssize_t n = read(fd, buf, 100);
-```
+### 9.5 Lỗi ngắt tín hiệu `EINTR` (Interrupted system call)
 
-Không được mặc định:
+Xảy ra khi một lời gọi hệ thống đang bị `blocking` chờ đợi bị một Ngắt tín hiệu (Signal) cắt ngang trước khi nó kịp hoàn thành công việc.
 
-```text
-n == 100
-```
+Không nên tự động lặp lại (retry) vô điều kiện khi gặp `EINTR`. Cần phân tích:
+*   Hàm `read/write` đã kịp xử lý được một lượng byte nào chưa (nếu có, nó sẽ trả về số byte thay vì lỗi).
+*   Bản thân ứng dụng có đang cố tình muốn hủy bỏ luồng thực thi thông qua Signal đó không.
 
-`read()` có thể trả:
+### 9.6 Lỗi chưa sẵn sàng `EAGAIN` / `EWOULDBLOCK`
 
-```text
-100
-60
-10
-1
-0
--1
-```
-
-tùy đối tượng và trạng thái I/O.
-
-Đây gọi là **partial read** khi:
-
-```text
-0 < n < count
-```
-
-Partial read không đồng nghĩa với lỗi.
-
-### 4.2 Ví dụ regular file
-
-Giả sử file chứa:
-
-```text
-Hello
-```
-
-và:
-
-```c
-char buf[100];
-ssize_t n = read(fd, buf, 100);
-```
-
-có thể:
-
-```text
-n = 5
-```
-
-vì file chỉ còn 5 byte dữ liệu.
-
-Lần tiếp theo:
-
-```c
-n = read(fd, buf, 100);
-```
-
-có thể trả:
-
-```text
-0
-```
-
-nghĩa là đã tới EOF.
-
-### 4.3 EOF không phải lỗi
-
-Với regular file:
-
-```text
-read() == 0
-```
-
-thường có nghĩa:
-
-```text
-đã tới end-of-file
-```
-
-Không phải:
-
-```text
-error
-```
-
-Do đó loop đọc thường có dạng:
-
-```c
-while (1) {
-    ssize_t n = read(fd, buf, sizeof(buf));
-
-    if (n > 0) {
-        /* xử lý n byte */
-    } else if (n == 0) {
-        /* EOF */
-        break;
-    } else {
-        /* error */
-        break;
-    }
-}
-```
-
-### 4.4 Buffer không tự có `'\0'`
-
-Nếu đọc text:
-
-```c
-char buf[100];
-ssize_t n = read(fd, buf, sizeof(buf));
-```
-
-`read()` chỉ copy byte.
-
-Nó không tự thêm:
-
-```c
-'\0'
-```
-
-Do đó nếu muốn dùng như C string, cần tự đảm bảo còn chỗ:
-
-```c
-char buf[100];
-
-ssize_t n = read(fd, buf, sizeof(buf) - 1);
-
-if (n > 0) {
-    buf[n] = '\0';
-}
-```
-
-Không nên:
-
-```c
-read(fd, buf, sizeof(buf));
-buf[n] = '\0';
-```
-
-nếu `n == sizeof(buf)`, vì sẽ ghi vượt buffer.
-
-### 4.5 File offset sau `read()`
-
-Với đối tượng seekable như regular file, nếu đọc được `n` byte:
-
-```text
-offset mới = offset cũ + n
-```
-
-Ví dụ:
-
-```text
-file = ABCDEFGH
-
-offset = 0
-read 3 byte -> ABC
-offset = 3
-
-read 2 byte -> DE
-offset = 5
-```
+Trong chế độ Không chặn (`O_NONBLOCK`), mã lỗi này mang thông điệp: tài nguyên tạm thời chưa sẵn sàng cung cấp/nhận dữ liệu. Đây là trạng thái điều khiển luồng luân phiên bình thường, không phải là lỗi hệ thống.
 
 ---
 
-## 5. `write()` — ghi dữ liệu
+## 10. Tư duy gỡ lỗi File I/O
 
-Prototype:
-
-```c
-#include <unistd.h>
-
-ssize_t write(int fd, const void *buf, size_t count);
-```
-
-Ý nghĩa:
-
-```text
-lấy tối đa count byte từ buf
-và yêu cầu ghi vào đối tượng fd
-```
-
-Giá trị trả về:
-
-```text
->= 0  số byte đã được chấp nhận ghi
--1    lỗi
-```
-
-### 5.1 `write()` cũng có thể ghi thiếu
-
-Không được giả định:
-
-```c
-write(fd, buf, count) == count
-```
-
-Một lời gọi có thể trả:
-
-```text
-0 < n < count
-```
-
-Đó là **partial write**.
-
-Điều này đặc biệt quan trọng với:
-
-- pipe;
-- socket;
-- nonblocking I/O;
-- signal interruption;
-- resource pressure.
-
-Do đó code robust phải xử lý phần dữ liệu chưa ghi.
-
-### 5.2 Không dùng `strlen()` cho dữ liệu binary
-
-Ví dụ:
-
-```c
-char data[] = {0x01, 0x00, 0x02};
-```
-
-`strlen()` sẽ dừng ở byte `0x00`, nên không thể đại diện đúng kích thước binary buffer.
-
-Với binary data, cần biết kích thước bằng cơ chế khác:
-
-```c
-sizeof(data)
-```
-
-hoặc một biến `length` riêng.
-
-### 5.3 File offset sau `write()`
-
-Với regular file thông thường:
-
-```text
-offset mới = offset cũ + số byte đã ghi
-```
-
-Ví dụ:
-
-```text
-offset = 10
-write() thành công 4 byte
-offset = 14
-```
-
-Nếu dùng `O_APPEND`, Kernel đưa vị trí ghi tới cuối file trước mỗi write theo semantics của append mode.
-
----
-
-## 6. `file offset`
-
-`file offset` là vị trí hiện tại dùng cho các thao tác I/O trên open file description đối với đối tượng hỗ trợ seek.
-
-Có thể hình dung file như một dãy byte:
-
-```text
-Byte index:
-
-0   1   2   3   4   5   6
-A   B   C   D   E   F   G
-            ^
-            |
-         offset = 3
-```
-
-Nếu gọi:
-
-```c
-read(fd, buf, 2);
-```
-
-sẽ đọc:
-
-```text
-D E
-```
-
-và offset thành:
-
-```text
-5
-```
-
-### 6.1 Offset thuộc open file description
-
-Nhắc lại mô hình:
-
-```text
-fd
- │
- v
-Open File Description
- │
- ├── file offset
- └── file status flags
-```
-
-Do đó nếu hai descriptor cùng tham chiếu **cùng một open file description**, chúng có thể chia sẻ offset.
-
-Nếu hai lần `open()` tạo hai open file description khác nhau, offset độc lập.
-
-### 6.2 Offset không phải lúc nào cũng tồn tại theo cách regular file có
-
-Không phải mọi object có `fd` đều seekable.
-
-Ví dụ:
-
-```text
-regular file -> thường seekable
-pipe         -> không seekable
-socket       -> không seekable
-FIFO         -> không seekable
-```
-
-Đây là lý do không nên đồng nhất:
-
-```text
-fd == regular file
-```
-
----
-
-## 7. `lseek()` — thay đổi file offset
-
-Prototype:
-
-```c
-#include <unistd.h>
-
-off_t lseek(int fd, off_t offset, int whence);
-```
-
-`lseek()` thay đổi offset của **open file description** tương ứng với `fd`.
-
-Ba giá trị cơ bản của `whence`:
-
-```c
-SEEK_SET
-SEEK_CUR
-SEEK_END
-```
-
-### 7.1 `SEEK_SET`
-
-Offset mới tính từ đầu file:
-
-```c
-lseek(fd, 100, SEEK_SET);
-```
-
-nghĩa là:
-
-```text
-offset = 100
-```
-
-### 7.2 `SEEK_CUR`
-
-Offset mới tính từ vị trí hiện tại:
-
-```c
-lseek(fd, 10, SEEK_CUR);
-```
-
-nghĩa là:
-
-```text
-offset_new = offset_current + 10
-```
-
-Có thể lấy offset hiện tại bằng:
-
-```c
-off_t pos = lseek(fd, 0, SEEK_CUR);
-```
-
-nếu đối tượng hỗ trợ seek.
-
-### 7.3 `SEEK_END`
-
-Offset tính từ cuối file:
-
-```c
-lseek(fd, 0, SEEK_END);
-```
-
-đưa offset tới cuối file.
-
-Ví dụ:
-
-```c
-lseek(fd, -10, SEEK_END);
-```
-
-có thể đưa offset về vị trí cách cuối file 10 byte nếu kết quả hợp lệ.
-
-### 7.4 Seek vượt cuối file
-
-Linux cho phép với regular file:
-
-```c
-lseek(fd, 1_MB, SEEK_SET);
-```
-
-dù file hiện nhỏ hơn.
-
-Chỉ riêng `lseek()` chưa làm file lớn lên.
-
-Nếu sau đó ghi dữ liệu ở vị trí đó, khoảng trống giữa dữ liệu cũ và dữ liệu mới có thể trở thành **hole** trong sparse file.
-
-Đọc vùng hole thường trả các byte zero.
-
-### 7.5 Không phải fd nào cũng `lseek()` được
-
-Ví dụ:
-
-```c
-lseek(pipe_fd, 0, SEEK_SET);
-```
-
-sẽ thất bại.
-
-Lỗi điển hình:
-
-```text
-ESPIPE
-```
-
-với pipe, socket, FIFO hoặc đối tượng không seekable tương ứng.
-
-### 7.6 `O_APPEND` và `lseek()`
-
-Nếu open file description có `O_APPEND`, mỗi `write()` vẫn thực hiện ghi tại cuối file theo append semantics.
-
-Do đó không nên nghĩ:
-
-```c
-lseek(fd, 0, SEEK_SET);
-write(fd, ...);
-```
-
-sẽ ép một descriptor `O_APPEND` ghi ở đầu file.
-
----
-
-## 8. `close()` — đóng file descriptor
-
-Prototype:
-
-```c
-#include <unistd.h>
-
-int close(int fd);
-```
-
-Thành công:
-
-```text
-0
-```
-
-Lỗi:
-
-```text
--1
-errno được thiết lập
-```
-
-### 8.1 `close()` đóng descriptor của process
-
-Ví dụ trước:
-
-```text
-Process
-│
-├── fd 0
-├── fd 1
-├── fd 2
-└── fd 3 ──> Open File Description
-```
-
-sau:
-
-```c
-close(3);
-```
-
-slot `3` không còn tham chiếu đó nữa:
-
-```text
-Process
-│
-├── fd 0
-├── fd 1
-└── fd 2
-```
-
-Số `3` có thể được tái sử dụng bởi một lần cấp descriptor sau này.
-
-### 8.2 `close(fd)` không đồng nghĩa “xóa file”
-
-`close()` chỉ giải phóng tham chiếu descriptor tương ứng.
-
-Nó không có nghĩa:
-
-```text
-xóa pathname
-```
-
-Muốn xóa tên file khỏi filesystem thường liên quan tới:
-
-```c
-unlink()
-```
-
-là một khái niệm khác.
-
-### 8.3 Vì sao phải `close()`?
-
-Nếu process liên tục:
-
-```c
-open(...)
-open(...)
-open(...)
-...
-```
-
-nhưng không `close()`, descriptor có thể bị leak.
-
-Cuối cùng:
-
-```text
-RLIMIT_NOFILE
-```
-
-có thể bị chạm và `open()` mới thất bại với:
-
-```text
-EMFILE
-```
-
-Đây là **file descriptor leak**.
-
-Trong embedded system chạy lâu ngày, leak kiểu này rất nguy hiểm vì chương trình có thể hoạt động tốt lúc mới boot nhưng lỗi sau hàng giờ hoặc hàng ngày.
-
-### 8.4 Process kết thúc thì sao?
-
-Kernel sẽ thu hồi file descriptor còn mở khi process kết thúc.
-
-Nhưng điều đó **không phải lý do để bỏ qua `close()`** trong chương trình dài hạn.
-
-Quản lý lifetime rõ ràng giúp:
-
-- tránh leak;
-- tránh giữ device/socket/file không cần thiết;
-- tránh hết descriptor;
-- làm ownership dễ hiểu hơn.
-
----
-
-## 9. Blocking và Nonblocking I/O
-
-Đây là khái niệm cần nắm ở mức cơ bản trước khi học `select/poll/epoll`.
-
-### 9.1 Blocking I/O
-
-Trong blocking mode, nếu thao tác chưa thể hoàn thành ngay, thread gọi system call có thể bị đưa vào trạng thái chờ.
-
-Ví dụ pipe:
-
-```text
-Process A
-read(pipe_fd, ...)
-     │
-     └── chưa có dữ liệu
-            │
-            v
-       thread chờ
-```
-
-Khi dữ liệu xuất hiện:
-
-```text
-writer ghi dữ liệu
-      │
-      v
-reader có thể tiếp tục
-```
-
-### 9.2 Nonblocking I/O
-
-Descriptor có thể được mở hoặc cấu hình với:
-
-```c
-O_NONBLOCK
-```
-
-Khi thao tác sẽ phải chờ, system call có thể trả ngay:
-
-```text
--1
-errno = EAGAIN
-```
-
-hoặc với socket portable code thường cần xét cả:
-
-```text
-EAGAIN
-EWOULDBLOCK
-```
-
-Ví dụ:
-
-```c
-ssize_t n = read(fd, buf, sizeof(buf));
-
-if (n == -1 && errno == EAGAIN) {
-    /* hiện tại chưa có dữ liệu; không phải EOF */
-}
-```
-
-### 9.3 `EAGAIN` không có nghĩa EOF
-
-Phải phân biệt:
-
-```text
-read() == 0
-└── EOF trong trường hợp tương ứng
-
-read() == -1 && errno == EAGAIN
-└── hiện tại thao tác sẽ block, nhưng fd đang nonblocking
-```
-
-Hai trường hợp hoàn toàn khác nhau.
-
-### 9.4 Vì sao nonblocking quan trọng?
-
-Trong hệ thống event-driven, một thread không muốn bị kẹt vô thời hạn ở một I/O operation.
-
-Nonblocking I/O là nền tảng để sau này hiểu:
-
-```text
-select()
-poll()
-epoll()
-```
-
-Nhưng ở Topic 03 chỉ cần dừng ở mô hình:
-
-```text
-blocking:
-    chưa có dữ liệu -> có thể ngủ/chờ
-
-nonblocking:
-    chưa có dữ liệu -> trả về ngay với EAGAIN/EWOULDBLOCK
-```
-
----
-
-## 10. Lỗi và `errno`
-
-System call thường báo lỗi theo pattern:
-
-```text
-return value cho biết thất bại
-+
-errno cho biết nguyên nhân
-```
-
-Ví dụ:
-
-```c
-int fd = open("abc.txt", O_RDONLY);
-
-if (fd == -1) {
-    perror("open");
-}
-```
+Khi làm việc với File I/O, hãy bám sát trình tự phân lớp: `fd` có hợp lệ không? Cờ truy cập đúng không? Giá trị trả về là gì? Và đối tượng đang tương tác thuộc loại nào?
 
 ### 10.1 Khi `open()` thất bại
 
-Một số lỗi thường gặp:
+Hãy debug đúng theo trình tự phân giải mà Kernel đi qua:
+1.  **Pathname (ENOENT):** Đường dẫn có tồn tại không?
+2.  **Mount/Filesystem:** Phân vùng đó có đang sống không?
+3.  **Traverse Permission (EACCES):** Các thư mục cha trên đường dẫn có bị mất quyền `x` không?
+4.  **File Permission (EACCES / EROFS):** Bạn có đủ quyền `r/w` trên tệp đích không? Hệ thống tệp có đang bị khóa chế độ Read-only không?
+5.  **Flags (EINVAL / EISDIR):** Các cờ mở tệp có xung đột với loại đối tượng không? (ví dụ cố mở thư mục để Ghi).
+6.  **Resource Limit (EMFILE / ENFILE):** Tiến trình hoặc hệ thống có bị cạn kiệt số lượng `fd` tối đa cho phép mở không?
 
-#### `ENOENT`
+Đối chiếu `errno` với sơ đồ lớp này sẽ nhanh hơn nhiều so với việc sửa code I/O.
 
-Path không tồn tại hoặc một thành phần cần thiết không tồn tại.
+### 10.2 Khi `read()` trả về `0` (Phân tích EOF)
 
-Ví dụ:
+Tùy vào đối tượng mà `0` mang ngữ nghĩa khác biệt:
+*   **Tệp thông thường:** Vị trí offset hiện tại đã tới cuối tệp.
+*   **Pipe / FIFO:** Bộ đệm đã trống rỗng và không còn tiến trình nào mở đầu ghi (writer) của ống.
+*   **Socket mạng:** Máy tính đối tác đã thực hiện thủ tục đóng kết nối chiều gửi dữ liệu (Half-close).
+*   **Device phần cứng:** Hành vi `0` hoàn toàn do ngữ nghĩa mà trình điều khiển (Driver) định nghĩa.
 
-```c
-open("/not/exist/file", O_RDONLY);
-```
+Vì vậy, tuyệt đối không xử lý `read() == 0` bằng một phương pháp chung cho mọi loại `fd`.
 
-#### `EACCES`
+### 10.3 Đọc ít hơn yêu cầu (Short read)
 
-Không đủ quyền truy cập.
+Short read là ngữ nghĩa tự nhiên của hệ điều hành, đặc biệt trên luồng mạng và thiết bị ngoại vi. Cần đem số byte đã nhận đi xử lý, và tiếp tục lặp để đọc phần còn lại.
 
-Ví dụ process không có quyền đọc file nhưng mở:
+### 10.4 Khi `write()` ghi ít hơn yêu cầu (Short write)
 
-```c
-O_RDONLY
-```
-
-#### `EEXIST`
-
-Có thể xuất hiện khi:
-
-```c
-O_CREAT | O_EXCL
-```
-
-nhưng file đã tồn tại.
-
-#### `EMFILE`
-
-Process đã đạt giới hạn số file descriptor có thể mở.
-
-Liên hệ mục 1.3:
-
+Phần chưa ghi vẫn là trách nhiệm của ứng dụng:
 ```text
-RLIMIT_NOFILE
+Yêu cầu ban đầu (requested)  = N
+Đã ghi thành công (written) = M
+Cần phải ghi tiếp (remaining)= N - M
 ```
+Lập trình viên phải điều khiển vòng lặp tịnh tiến con trỏ buffer và gửi lệnh `write()` cho phần `remaining` còn lại.
 
-#### `ENFILE`
+### 10.5 Khi `lseek()` khước từ với lỗi `ESPIPE`
 
-Hệ thống không thể cấp thêm open-file resource ở mức system-wide.
+Bạn đang cố thay đổi vị trí (seek) trên một thiết bị dòng chảy (Stream) vốn dĩ không hỗ trợ khả năng định vị ngẫu nhiên (Pipe, Socket, Terminal).
 
-Nhắc lại:
+### 10.6 Thiết bị có `fd` nhưng I/O trả lỗi lạ
 
-```text
-EMFILE -> giới hạn của process
-ENFILE -> giới hạn/tài nguyên mức hệ thống
-```
-
-### 10.2 `errno` chỉ có ý nghĩa khi lời gọi báo lỗi
-
-Không nên làm:
-
-```c
-read(fd, buf, size);
-printf("%d\n", errno);
-```
-
-rồi kết luận có lỗi chỉ vì `errno` khác 0.
-
-`errno` có thể chứa giá trị còn lại từ một lời gọi trước.
-
-Pattern đúng:
-
-```c
-ssize_t n = read(fd, buf, size);
-
-if (n == -1) {
-    /* lúc này mới đọc errno */
-}
-```
-
-### 10.3 `perror()`
-
-Ví dụ:
-
-```c
-if (fd == -1) {
-    perror("open");
-}
-```
-
-Có thể in:
-
-```text
-open: No such file or directory
-```
-
-`perror()` rất hữu ích khi debug system call.
-
-### 10.4 `EINTR`
-
-Một blocking system call có thể bị signal làm gián đoạn.
-
-Một số lời gọi có thể trả:
-
-```text
--1
-errno = EINTR
-```
-
-Trong trường hợp thích hợp, chương trình thường retry operation.
-
-Ví dụ pattern đơn giản cho `read()`:
-
-```c
-ssize_t n;
-
-do {
-    n = read(fd, buf, sizeof(buf));
-} while (n == -1 && errno == EINTR);
-```
-
-Không nên áp dụng “cứ gặp `EINTR` là retry mọi system call” một cách máy móc; semantics cụ thể phụ thuộc system call. Ở Topic này chỉ cần nắm rằng `read()`/`write()` có thể bị signal interruption và robust code phải nghĩ tới trường hợp đó.
-
-### 10.5 `EAGAIN` / `EWOULDBLOCK`
-
-Khi descriptor đang nonblocking và thao tác hiện tại sẽ phải chờ:
-
-```text
-read()/write() -> -1
-errno -> EAGAIN
-```
-
-Với socket, portable code thường kiểm tra:
-
-```c
-errno == EAGAIN || errno == EWOULDBLOCK
-```
-
-Đây không nhất thiết là lỗi “hỏng hệ thống”.
-
-Nó thường có nghĩa:
-
-> **Hiện tại chưa thể thực hiện I/O mà không block; hãy thử lại khi đối tượng sẵn sàng.**
+Hãy nhớ sự tách biệt trừu tượng:
+Mở `fd` thành công không đồng nghĩa là phần cứng (Hardware) hay trình điều khiển (Driver) bên dưới đang hoạt động chuẩn xác. Lệnh `read/write` hoàn toàn có thể ném ra những mã lỗi dị biệt từ cấp driver.
 
 ---
 
-## 11. Partial I/O và cách viết loop đúng
+## 11. Liên hệ với Embedded Linux
 
-Một lỗi rất phổ biến của người mới là cho rằng:
+Trong thế giới nhúng (Embedded Linux), mô hình `fd` quen thuộc được sử dụng để làm việc với cả tệp cấu hình, UART, GPIO, pipe, socket và các `device node`.
 
-```c
-read(fd, buf, 4096);
-```
+### 11.1 Tương tác Thiết bị qua `device node`
 
-luôn trả 4096 byte, hoặc:
+Ứng dụng trên mạch nhúng giao tiếp với ngoại vi bằng cách thao tác `fd` với các tệp ảo:
+*   `/dev/ttyS*` hoặc `/dev/ttyUSB*` (Giao tiếp Serial / UART).
+*   `/dev/i2c-*` (Bus I2C).
+*   `/dev/spidev*` (Bus SPI).
+*   `/dev/gpiochip*` (Giao diện điều khiển GPIO).
 
-```c
-write(fd, buf, 4096);
-```
+Sau lệnh `open()` thành công trên các tệp này, luồng I/O thường vẫn đi qua mô hình:
+`fd -> read / write / ioctl / mmap -> close`.
 
-luôn ghi đủ 4096 byte.
+### 11.2 Điều khiển cổng Serial (UART)
 
-Không có đảm bảo chung như vậy.
+Giao tiếp UART ở Userspace thực chất là:
+1.  `open` tệp tty.
+2.  Cấu hình tốc độ baud/parity qua cấu trúc `termios`.
+3.  `read/write` qua `fd`.
+`read()` trên UART thể hiện rất rõ các khái niệm: có thể bị chặn (blocking), trả về vài byte (short read), bị ngắt bởi tín hiệu, hoặc thay đổi hành vi tùy thuộc vào cấu hình TTY (chế độ Raw hay Canonical).
 
-### 11.1 Robust write loop
+### 11.3 Giao diện điều khiển GPIO hiện đại
 
-Ví dụ hàm ghi đủ dữ liệu ở mức cơ bản:
+Linux hiện đại quản lý GPIO qua chuẩn `character-device API` thông qua `file descriptor` (`/dev/gpiochip*` cùng `libgpiod`) cho việc yêu cầu luồng chân pin hay ngắt sự kiện. Điều này chứng minh `file descriptor` là abstraction cốt lõi nối kết nhiều hệ thống phụ lại với nhau.
 
-```c
-#include <errno.h>
-#include <stddef.h>
-#include <unistd.h>
+### 11.4 Các điểm neo `/proc` và `/sys`
 
-ssize_t write_all(int fd, const void *buffer, size_t count)
-{
-    const unsigned char *p = buffer;
-    size_t total = 0;
+Dù giao diện tĩnh của một số thư mục cấu trúc ảo (như sysfs legacy `/sys/class/gpio`) vẫn dùng `open`, `read`, `write`, `close`, nhưng nội dung không thực sự tồn tại trên ổ lưu trữ. Việc ghi vào các tệp ảo này là bạn đang gọi vào các hàm callback (interface) của Kernel. Trình điều khiển (driver) nhận dữ liệu này và sau đó có thể tiến hành thay đổi trạng thái hoặc cấu hình thanh ghi phần cứng tương ứng.
 
-    while (total < count) {
-        ssize_t n = write(fd, p + total, count - total);
+### 11.5 Phương pháp Bring-up mạch nhúng
 
-        if (n > 0) {
-            total += (size_t)n;
-            continue;
-        }
-
-        if (n == -1 && errno == EINTR) {
-            continue;
-        }
-
-        return -1;
-    }
-
-    return (ssize_t)total;
-}
-```
-
-Mô hình:
-
+Khi I/O điều khiển phần cứng thất bại, việc gỡ lỗi hệ thống yêu cầu không dừng lại ở thông báo lỗi của hàm `read()`, mà cần bóc tách sâu theo lớp:
 ```text
-cần ghi: 100 byte
-    │
-    ├── write() -> 40
-    │      còn 60
-    │
-    ├── write() -> 35
-    │      còn 25
-    │
-    └── write() -> 25
-           hoàn thành
-```
-
-### 11.2 Read loop đến EOF
-
-Ví dụ:
-
-```c
-#include <errno.h>
-#include <unistd.h>
-
-for (;;) {
-    char buf[4096];
-
-    ssize_t n = read(fd, buf, sizeof(buf));
-
-    if (n > 0) {
-        /* xử lý đúng n byte */
-        continue;
-    }
-
-    if (n == 0) {
-        /* EOF */
-        break;
-    }
-
-    if (errno == EINTR) {
-        continue;
-    }
-
-    /* lỗi thật sự */
-    break;
-}
-```
-
-### 11.3 Không xử lý buffer vượt quá số byte thực đọc
-
-Nếu:
-
-```c
-n = read(fd, buf, sizeof(buf));
-```
-
-và:
-
-```text
-n = 37
-```
-
-thì chỉ:
-
-```text
-buf[0] ... buf[36]
-```
-
-là dữ liệu mới hợp lệ do lời gọi đó trả về.
-
-Không được giả định toàn bộ:
-
-```text
-buf[0] ... buf[4095]
-```
-
-đều chứa dữ liệu hợp lệ mới đọc.
-
----
-
-## 12. Ví dụ hoàn chỉnh: copy file bằng `open/read/write/close`
-
-Ví dụ này minh họa flow cơ bản:
-
-```text
-open source
-    │
-open destination
-    │
-read loop
-    │
-write loop
-    │
-close
-```
-
-Code:
-
-```c
-#include <errno.h>
-#include <fcntl.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-
-static int write_all(int fd, const char *buf, size_t count)
-{
-    size_t total = 0;
-
-    while (total < count) {
-        ssize_t n = write(fd, buf + total, count - total);
-
-        if (n > 0) {
-            total += (size_t)n;
-            continue;
-        }
-
-        if (n == -1 && errno == EINTR) {
-            continue;
-        }
-
-        return -1;
-    }
-
-    return 0;
-}
-
-int main(int argc, char **argv)
-{
-    if (argc != 3) {
-        fprintf(stderr, "Usage: %s SOURCE DEST\n", argv[0]);
-        return EXIT_FAILURE;
-    }
-
-    int src_fd = open(argv[1], O_RDONLY);
-    if (src_fd == -1) {
-        perror("open source");
-        return EXIT_FAILURE;
-    }
-
-    int dst_fd = open(argv[2],
-                      O_WRONLY | O_CREAT | O_TRUNC,
-                      0644);
-
-    if (dst_fd == -1) {
-        perror("open destination");
-        close(src_fd);
-        return EXIT_FAILURE;
-    }
-
-    char buf[4096];
-
-    for (;;) {
-        ssize_t n = read(src_fd, buf, sizeof(buf));
-
-        if (n > 0) {
-            if (write_all(dst_fd, buf, (size_t)n) == -1) {
-                perror("write");
-                close(dst_fd);
-                close(src_fd);
-                return EXIT_FAILURE;
-            }
-
-            continue;
-        }
-
-        if (n == 0) {
-            break;
-        }
-
-        if (errno == EINTR) {
-            continue;
-        }
-
-        perror("read");
-        close(dst_fd);
-        close(src_fd);
-        return EXIT_FAILURE;
-    }
-
-    if (close(dst_fd) == -1) {
-        perror("close destination");
-        close(src_fd);
-        return EXIT_FAILURE;
-    }
-
-    if (close(src_fd) == -1) {
-        perror("close source");
-        return EXIT_FAILURE;
-    }
-
-    return EXIT_SUCCESS;
-}
-```
-
-Biên dịch:
-
-```bash
-gcc -Wall -Wextra -O2 copy.c -o copy
-```
-
-Chạy:
-
-```bash
-./copy source.bin destination.bin
-```
-
-Ví dụ này chưa phải utility `cp` hoàn chỉnh. Nó chưa xử lý metadata, sparse file preservation, symlink semantics, xattr, ACL, durability... Mục đích chỉ là luyện đúng mô hình system-call I/O cơ bản.
-
----
-
-## 13. Quan sát file descriptor qua `/proc`
-
-Linux cung cấp:
-
-```text
-/proc/<pid>/fd/
-```
-
-để quan sát các file descriptor của process.
-
-Với shell hiện tại:
-
-```bash
-ls -l /proc/$$/fd
-```
-
-Ví dụ có thể thấy:
-
-```text
-0 -> /dev/pts/0
-1 -> /dev/pts/0
-2 -> /dev/pts/0
-```
-
-Ý nghĩa:
-
-```text
-stdin
-stdout
-stderr
-```
-
-đều đang nối với terminal.
-
-### 13.1 Quan sát descriptor của process khác
-
-Ví dụ:
-
-```bash
-ls -l /proc/<PID>/fd
-```
-
-nếu permission cho phép.
-
-Đây là công cụ debug rất hữu ích khi nghi ngờ:
-
-- file descriptor leak;
-- process đang giữ file/device nào;
-- socket/pipe nào còn mở;
-- redirect có đúng hay không.
-
-### 13.2 Đếm số descriptor đang mở
-
-Ví dụ:
-
-```bash
-ls /proc/<PID>/fd | wc -l
-```
-
-Cho ta một cách quan sát nhanh số descriptor hiện có.
-
-Cần nhớ đây là quan sát tại một thời điểm; process có thể mở/đóng descriptor đồng thời trong lúc ta kiểm tra.
-
----
-
-## 14. Flow tổng thể cần ghi nhớ
-
-Toàn bộ Topic có thể gom lại thành:
-
-```text
-Pathname
-   │
-   │ open()
-   v
-Kernel resolve path
-   │
-   v
-Open File Description
-   │
-   ├── file offset
-   ├── file status flags
-   └── reference tới object/filesystem
-   ^
-   │
-File Descriptor Table
-   ^
-   │
-   fd
-   ^
-   │
-Process
-```
-
-Ứng dụng thao tác:
-
-```text
-open()
-  │
-  v
-fd
-  │
-  ├── read()
-  ├── write()
-  ├── lseek()
-  └── close()
-```
-
-Giới hạn descriptor:
-
-```text
-RLIMIT_NOFILE
-│
-├── soft limit -> Kernel đang áp dụng
-└── hard limit -> trần của soft limit
-```
-
-I/O return value:
-
-```text
-read()
-├── > 0 -> số byte đọc được
-├── = 0 -> EOF trong trường hợp tương ứng
-└── = -1 -> lỗi, xem errno
-
-write()
-├── >= 0 -> số byte đã ghi/chấp nhận
-└── = -1 -> lỗi, xem errno
-```
-
-Blocking:
-
-```text
-blocking
-└── chưa sẵn sàng -> có thể chờ
-
-nonblocking
-└── chưa sẵn sàng -> EAGAIN/EWOULDBLOCK
+[ Tầng Userspace: fd / API gọi đúng không? ]
+                    |
+[ Tầng Driver: Mã nguồn C của Kernel có tương tác đúng không? ]
+                    |
+[ Tầng Hệ thống: Cấu trúc Device Tree / Bus / Xung clock / Pinctrl gán đúng chưa? ]
+                    |
+[ Tầng Hardware: Mạch/Chip vật lý hoạt động ổn định không? ]
 ```
 
 ---
 
-## 15. Những nhầm lẫn cần tránh
+## 12. Tổng kết
 
-### Nhầm 1
-
-```text
-fd = file
-```
-
-Sai.
-
-Đúng hơn:
+Topic 03 thiết lập chặt chẽ quy trình xương sống của File I/O: 
 
 ```text
-fd -> open file description -> object
+[ Pathname ]
+      |
+   open()    (Kernel tìm Object, tạo open file description và phân quyền)
+      |
+      v
+    [ fd ]   (Chỉ mục tham chiếu tại Tiến trình)
+      |
+      +---> read()
+      +---> write()
+      +---> lseek()
+      +---> close()
 ```
 
-### Nhầm 2
+> **Đọc sơ đồ:** Giai đoạn trên cùng (`Pathname` -> `open`) là bước dò đường và xác lập môi trường. Sau khi `open()` thành công, tiến trình sử dụng tham chiếu `fd` để trao đổi dữ liệu. `read()` và `write()` có thể hoàn thành một phần (partial I/O), `lseek()` dịch chuyển file offset (chỉ áp dụng cho các đối tượng hỗ trợ ngữ nghĩa seek, điển hình là tệp thông thường), và `close()` trả lại chỉ mục `fd` để tái sử dụng. Nhờ cơ chế trừu tượng của VFS/FD, Linux cung cấp một khuôn mẫu API chung để thao tác với ổ cứng, bàn phím, mạng LAN hay các giao diện phần cứng, bất kể sự khác biệt về ngữ nghĩa bên dưới.
 
-```text
-fd = inode
-```
-
-Sai.
-
-`fd` là handle ở process; inode là đối tượng metadata của filesystem.
-
-### Nhầm 3
-
-```text
-fd = con trỏ
-```
-
-Sai.
-
-`fd` là số nguyên dùng trong system call.
-
-### Nhầm 4
-
-```text
-RLIMIT_NOFILE = 1024
-=> fd lớn nhất là 1024
-```
-
-Sai.
-
-Nếu limit là `1024`:
-
-```text
-fd lớn nhất có thể được cấp = 1023
-```
-
-### Nhầm 5
-
-```text
-soft = 1024
-hard = 4096
-=> process hiện dùng được 4096 fd
-```
-
-Sai.
-
-Giới hạn đang được Kernel thực thi là:
-
-```text
-1024
-```
-
-### Nhầm 6
-
-```text
-read(fd, buf, 4096)
-=> luôn đọc 4096 byte
-```
-
-Sai.
-
-Partial read là bình thường.
-
-### Nhầm 7
-
-```text
-read() == 0
-=> lỗi
-```
-
-Sai.
-
-Với regular file, đó thường là EOF.
-
-### Nhầm 8
-
-```text
-write() thành công
-=> luôn ghi đủ count byte
-```
-
-Sai.
-
-Phải xét giá trị trả về.
-
-### Nhầm 9
-
-```text
-EAGAIN = EOF
-```
-
-Sai.
-
-`EAGAIN` thường có nghĩa thao tác nonblocking hiện chưa thể hoàn thành ngay.
-
-### Nhầm 10
-
-```text
-close(fd)
-=> file trên filesystem bị xóa
-```
-
-Sai.
-
-`close()` đóng descriptor; `unlink()` mới liên quan đến xóa một directory entry/pathname.
+**Các mốc tư duy cần lưu ý:**
+1. `fd` là một số nguyên cục bộ trong một tiến trình.
+2. `fd` không phải là Inode vật lý và không phải là con trỏ bộ nhớ không gian người dùng.
+3. `open file description` là cấu trúc do Kernel quản lý chứa `file offset` và các trạng thái cờ.
+4. Hiện tượng `read()` và `write()` đọc/ghi một phần (Partial I/O) là hợp lệ, ứng dụng phải tự vòng lặp xử lý.
+5. Lệnh `read() == 0` biểu thị EOF/End-of-stream chứ không phải lỗi hệ thống. `write() == 0` không mang nghĩa EOF.
+6. Cờ `O_APPEND` đảm bảo tính nguyên tử (atomic) trên các hệ thống cục bộ mạnh mẽ hơn việc tự nối lệnh `lseek(end)` + `write()`.
+7. `write()` báo thành công không có nghĩa dữ liệu đã được khắc vĩnh viễn xuống bộ nhớ lưu trữ vật lý.
+8. Lệnh `lseek()` trả lỗi `ESPIPE` nếu áp dụng lên các luồng động như Socket, Pipe.
+9. `close()` xóa bỏ tham chiếu `fd` của tiến trình; đối tượng bên dưới vẫn tồn tại nếu còn các tham chiếu khác.
+10. `Blocking I/O` cho phép luồng ngủ chờ sự kiện thay vì vắt kiệt CPU bởi `busy loop`.
+11. `EAGAIN` trong Non-blocking báo hiệu "tài nguyên tạm thời chưa sẵn sàng", không phải lỗi hệ thống.
+12. Chỉ đánh giá biến `errno` KHI VÀ CHỈ KHI API báo cáo thất bại theo quy ước (thường là `-1`).
 
 ---
 
-## 16. Bài thực hành đề xuất
+## 13. Tài liệu tham khảo
 
-### Bài 1 — Quan sát `fd`
+Phần này liệt kê tài liệu chuẩn man-pages và POSIX cho các `system call` và khái niệm I/O đã dùng trong Topic 03.
 
-Viết chương trình:
+- `open(2)`: https://man7.org/linux/man-pages/man2/open.2.html
+- `read(2)`: https://man7.org/linux/man-pages/man2/read.2.html
+- `write(2)`: https://man7.org/linux/man-pages/man2/write.2.html
+- `lseek(2)`: https://man7.org/linux/man-pages/man2/lseek.2.html
+- `close(2)`: https://man7.org/linux/man-pages/man2/close.2.html
+- `fcntl(2)`: https://man7.org/linux/man-pages/man2/fcntl.2.html
+- `errno(3)`: https://man7.org/linux/man-pages/man3/errno.3.html
+- Linux VFS documentation: https://docs.kernel.org/filesystems/vfs.html
+- POSIX.1-2024 System Interfaces: https://pubs.opengroup.org/onlinepubs/9799919799/
+- The Linux Programming Interface: https://man7.org/tlpi/
+- Bootlin Embedded Linux training: https://bootlin.com/training/embedded-linux/
 
-```c
-open("a.txt", O_RDONLY);
-open("b.txt", O_RDONLY);
-```
-
-in hai fd nhận được.
-
-Sau đó thử:
-
-```c
-close(fd_a);
-open("c.txt", O_RDONLY);
-```
-
-quan sát Kernel có tái sử dụng số fd vừa giải phóng hay không.
-
-### Bài 2 — Quan sát `/proc/<pid>/fd`
-
-Trong chương trình:
-
-```c
-open(...)
-sleep(60);
-```
-
-Trong terminal khác:
-
-```bash
-ls -l /proc/<PID>/fd
-```
-
-đối chiếu với fd chương trình in ra.
-
-### Bài 3 — File offset
-
-File:
-
-```text
-ABCDEFGH
-```
-
-Thực hiện:
-
-```c
-read(fd, buf, 3);
-read(fd, buf, 2);
-```
-
-dự đoán dữ liệu và offset sau mỗi lần.
-
-Sau đó kiểm tra bằng:
-
-```c
-lseek(fd, 0, SEEK_CUR);
-```
-
-### Bài 4 — `lseek()`
-
-Thử:
-
-```c
-lseek(fd, 2, SEEK_SET);
-read(fd, buf, 2);
-```
-
-với file:
-
-```text
-ABCDEFGH
-```
-
-Dự đoán kết quả trước khi chạy.
-
-### Bài 5 — `RLIMIT_NOFILE`
-
-Quan sát:
-
-```bash
-ulimit -Sn
-ulimit -Hn
-cat /proc/$$/limits
-```
-
-Tự trả lời:
-
-1. soft limit hiện tại là bao nhiêu?
-2. hard limit là bao nhiêu?
-3. nếu stdin/stdout/stderr đang mở thì còn bao nhiêu slot descriptor về mặt lý thuyết?
-4. `EMFILE` khác `ENFILE` như thế nào?
-
-### Bài 6 — File descriptor leak
-
-Viết chương trình cố tình:
-
-```c
-while (1) {
-    open("/dev/null", O_RDONLY);
-}
-```
-
-**Chỉ chạy trong môi trường học tập/VM hoặc máy thử nghiệm**, quan sát tới khi `open()` thất bại và in `errno`.
-
-Sau đó sửa chương trình bằng cách `close()` descriptor mỗi vòng và so sánh.
-
----
-
-## 17. Checklist kiến thức trước khi sang Topic tiếp theo
-
-Sau Topic 03, cần tự giải thích được:
-
-- [ ] `file descriptor` là gì?
-- [ ] Vì sao `fd` là số nguyên nhưng không phải “file”?
-- [ ] `fd 0`, `1`, `2` thường là gì?
-- [ ] `RLIMIT_NOFILE` là gì?
-- [ ] soft limit khác hard limit như thế nào?
-- [ ] vì sao limit `1024` tương ứng các số `fd` từ `0` tới `1023`?
-- [ ] `EMFILE` khác `ENFILE` như thế nào?
-- [ ] `open file description` là gì?
-- [ ] file offset nằm ở đâu về mặt mô hình?
-- [ ] hai lần `open()` cùng pathname có nhất thiết dùng chung offset không?
-- [ ] `open()` trả gì khi thành công/thất bại?
-- [ ] `O_RDONLY`, `O_WRONLY`, `O_RDWR` khác nhau thế nào?
-- [ ] `O_CREAT`, `O_TRUNC`, `O_APPEND`, `O_NONBLOCK`, `O_CLOEXEC` dùng để làm gì ở mức cơ bản?
-- [ ] vì sao `read()` có thể trả ít byte hơn yêu cầu?
-- [ ] `read() == 0` có nghĩa gì với regular file?
-- [ ] vì sao `write()` phải xử lý partial write?
-- [ ] `lseek()` thay đổi cái gì?
-- [ ] vì sao pipe/socket không dùng `lseek()` như regular file?
-- [ ] blocking và nonblocking khác nhau thế nào?
-- [ ] `EINTR` và `EAGAIN` có ý nghĩa gì?
-- [ ] vì sao descriptor leak có thể gây `EMFILE`?
-
-Nếu trả lời được các câu trên bằng lời của chính mình và viết được một chương trình `open -> read/write -> close` có xử lý return value, phần nền tảng File I/O ở mức Topic này đã đủ chắc để tiếp tục.
-
----
-
-## 18. Tài liệu tham khảo
-
-Ưu tiên đọc manual page và tài liệu Kernel khi cần xác minh semantics cụ thể:
-
-- Linux man-pages — `open(2)`: <https://man7.org/linux/man-pages/man2/open.2.html>
-- Linux man-pages — `read(2)`: <https://man7.org/linux/man-pages/man2/read.2.html>
-- Linux man-pages — `write(2)`: <https://man7.org/linux/man-pages/man2/write.2.html>
-- Linux man-pages — `lseek(2)`: <https://man7.org/linux/man-pages/man2/lseek.2.html>
-- Linux man-pages — `close(2)`: <https://man7.org/linux/man-pages/man2/close.2.html>
-- Linux man-pages — `getrlimit(2)`: <https://man7.org/linux/man-pages/man2/getrlimit.2.html>
-- Linux Kernel documentation — file descriptor table: <https://docs.kernel.org/filesystems/files.html>
-- Linux Kernel documentation — VFS: <https://docs.kernel.org/filesystems/vfs.html>
-
-> Khi cần biết chính xác một flag hoặc một `errno`, ưu tiên `man 2 <system_call>` trên target/toolchain đang sử dụng, vì chi tiết có thể phụ thuộc Kernel, libc và loại đối tượng I/O.
+> **Điều hướng:** [← Chủ đề 2 — Hệ thống tệp Linux](README-topic-02.md) · [Chủ đề 4 — Tiến trình →](README-topic-04.md)
