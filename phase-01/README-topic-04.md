@@ -179,7 +179,7 @@ Khi tiến trình cần chờ một sự kiện (như chờ dữ liệu từ m�
 ### 4.3 `Stopped` và `Zombie`
 
 *   **`Stopped` (T):** Tiến trình bị tạm dừng (ví dụ nhấn Ctrl+Z) hoặc đang bị debugger can thiệp.
-*   **`Zombie` (Z):** Tiến trình đã kết thúc (đã chết), không còn chạy code, nhưng bộ xương của nó vẫn còn lưu trong bảng quản lý của Kernel chờ tiến trình cha đến thu thập.
+*   **`Zombie` (Z):** Tiến trình đã kết thúc (đã chết), không còn chạy code, nhưng PID của nó vẫn còn lưu trong bảng quản lý của Kernel chờ tiến trình cha đến thu thập.
 
 ### 4.4 `Context Switch` (Chuyển ngữ cảnh)
 
@@ -222,12 +222,513 @@ Khi tiến trình cần chờ một sự kiện (như chờ dữ liệu từ m�
 
 ### 5.2 Cơ chế Copy-on-Write (COW)
 
-Sau `fork()`, child có một không gian địa chỉ riêng về mặt ngữ nghĩa, ban đầu phản ánh trạng thái bộ nhớ của parent tại thời điểm tạo. Linux tối ưu việc này bằng **Copy-on-Write (COW)** thay vì sao chép ngay toàn bộ nội dung RAM.
+Sau `fork()`, parent và child là **hai process độc lập**. Mỗi process có **không gian địa chỉ ảo (virtual address space) riêng về mặt ngữ nghĩa**: nếu child sửa một biến của nó thì thay đổi đó không được làm thay đổi biến tương ứng của parent, và ngược lại.
 
-*   **Ngay sau `fork()`:** Với các private writable pages có thể áp dụng COW, parent và child tạm thời cùng tham chiếu tới các physical page hiện có; page table được thiết lập để phát hiện lần ghi đầu tiên.
-*   **Khi một phía ghi:** CPU phát sinh page fault, Kernel cấp một page riêng, sao chép dữ liệu cần thiết rồi cho phía đang ghi tiếp tục trên bản sao của nó.
+Tuy nhiên, nếu Kernel sao chép ngay toàn bộ RAM của parent cho child tại thời điểm `fork()`, chi phí sẽ rất lớn. Linux vì vậy sử dụng **Copy-on-Write (COW)** để trì hoãn việc sao chép dữ liệu cho đến khi thật sự cần.
 
-COW giúp `fork()` tránh chi phí sao chép toàn bộ memory contents ngay lập tức và thường tiết kiệm đáng kể thời gian/bộ nhớ. Tuy vậy, `fork()` vẫn phải tạo task metadata, page-table state và nhiều bookkeeping khác, nên không nên hiểu rằng chi phí của nó luôn bằng không.
+#### Ý tưởng cốt lõi
+
+Giả sử trước `fork()`, parent có một virtual page đang ánh xạ tới một physical page:
+
+```text
+Parent
+Virtual page
+    |
+    v
+Physical page A
+```
+
+Sau `fork()`, parent và child có page table riêng, nhưng đối với các **private writable pages** có thể áp dụng COW, các page-table entry ban đầu có thể cùng trỏ tới physical page hiện có:
+
+```text
+Parent page table              Child page table
+       |                              |
+       |                              |
+       +----------+   +---------------+
+                  |   |
+                  v   v
+             Physical page A
+```
+
+Điều này **không có nghĩa parent và child dùng chung một address space**.
+
+Chúng vẫn có address space riêng:
+
+```text
+Parent virtual memory          Child virtual memory
+        |                              |
+        v                              v
+   page table riêng               page table riêng
+        |                              |
+        +----------+  +----------------+
+                   |  |
+                   v  v
+              cùng physical page
+```
+
+Nói cách khác:
+
+> **Riêng về virtual address space, nhưng tạm thời có thể dùng chung physical memory.**
+
+Đây chính là nền tảng của Copy-on-Write.
+
+---
+
+#### Tại sao gọi là Copy-on-Write?
+
+Tên **Copy-on-Write** có thể hiểu là:
+
+> **Chỉ tạo bản sao khi có thao tác ghi (`write`) vào dữ liệu đang được chia sẻ theo cơ chế COW.**
+
+Ngay sau `fork()`:
+
+```text
+fork()
+  |
+  v
+Parent và child tạm dùng chung các physical page phù hợp
+  |
+  +---- chỉ đọc ----> tiếp tục dùng chung
+  |
+  +---- có ghi -----> Kernel tách page cho bên ghi
+```
+
+Nếu cả parent và child chỉ đọc dữ liệu thì không cần tạo thêm bản sao của page đó.
+
+---
+
+#### Kernel phát hiện lần ghi đầu tiên như thế nào?
+
+Để ngăn một process sửa trực tiếp physical page đang được chia sẻ theo COW, Kernel thiết lập page-table state sao cho CPU không được phép ghi trực tiếp vào mapping đó.
+
+Ví dụ:
+
+```text
+Child muốn đọc page
+        |
+        v
+       READ
+        |
+        v
+       OK
+```
+
+Nhưng nếu child muốn ghi:
+
+```text
+Child muốn ghi
+      |
+      v
+    WRITE
+      |
+      v
+CPU phát hiện mapping hiện chưa cho ghi trực tiếp
+      |
+      v
+Page fault
+      |
+      v
+Kernel xử lý COW
+```
+
+Ở đây, **page fault không đồng nghĩa với lỗi chương trình**.
+
+Page fault là cơ chế CPU chuyển quyền điều khiển sang Kernel khi một truy cập bộ nhớ cần Kernel can thiệp. COW là một trong những trường hợp page fault hoàn toàn bình thường và được Linux chủ động sử dụng để tối ưu quản lý bộ nhớ.
+
+---
+
+#### Điều gì xảy ra khi một bên ghi?
+
+Giả sử parent và child ban đầu cùng ánh xạ tới `Physical page A`:
+
+```text
+Parent                       Child
+  |                            |
+  +------------+  +------------+
+               |  |
+               v  v
+          Physical page A
+```
+
+Sau đó child ghi vào page đó.
+
+Về mặt khái niệm, Kernel thực hiện:
+
+```text
+1. CPU phát sinh page fault.
+2. Kernel xác định đây là trường hợp Copy-on-Write.
+3. Kernel bảo đảm bên ghi có một physical page riêng.
+4. Nếu cần, Kernel cấp page mới và sao chép nội dung page cũ sang đó.
+5. Page table của bên ghi được cập nhật để trỏ tới page riêng.
+6. Mapping mới được cho phép ghi.
+7. CPU tiếp tục thực hiện lệnh đã gây fault.
+```
+
+Sau khi tách:
+
+```text
+Parent                       Child
+  |                            |
+  v                            v
+Physical page A           Physical page B
+```
+
+Bây giờ:
+
+```text
+Parent ghi/sửa page A
+Child  ghi/sửa page B
+```
+
+nên thay đổi của một process không ảnh hưởng tới process còn lại.
+
+> Trong mô hình cơ bản có thể hiểu rằng Kernel “copy page khi có write”.  
+> Chính xác hơn, Kernel phải **tách quyền sở hữu bộ nhớ cho bên ghi**. Nếu physical page vẫn đang được chia sẻ thì thường cần tạo/copy một page mới; nếu tại thời điểm xử lý page không còn thực sự được chia sẻ, Kernel có thể chỉ cần điều chỉnh mapping/quyền ghi mà không nhất thiết sao chép dữ liệu thêm một lần nữa.
+
+---
+
+#### Ví dụ với một biến
+
+```c
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/wait.h>
+
+int main(void)
+{
+    int x = 10;
+
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        x = 20;
+        printf("Child:  x = %d\n", x);
+    } else {
+        wait(NULL);
+        printf("Parent: x = %d\n", x);
+    }
+
+    return 0;
+}
+```
+
+Kết quả điển hình:
+
+```text
+Child:  x = 20
+Parent: x = 10
+```
+
+Về mặt logic:
+
+```text
+Trước fork():
+
+Parent
+x = 10
+```
+
+Ngay sau `fork()`:
+
+```text
+Parent                    Child
+x = 10                    x = 10
+```
+
+Hai process phải nhìn thấy dữ liệu như thể mỗi bên có bản sao riêng.
+
+Nhưng ở tầng physical memory, Kernel có thể tối ưu:
+
+```text
+Parent virtual page ----+
+                        |
+                        +----> Physical page A
+                        |
+Child virtual page -----+
+```
+
+Khi child thực hiện:
+
+```c
+x = 20;
+```
+
+page chứa `x` cần được tách:
+
+```text
+Parent                    Child
+  |                         |
+  v                         v
+Physical page A         Physical page B
+
+x = 10                  x = 20
+```
+
+Do đó child thay đổi `x` nhưng parent vẫn thấy `x == 10`.
+
+---
+
+#### COW hoạt động theo page, không phải theo từng biến
+
+Đây là điểm rất quan trọng.
+
+Kernel quản lý virtual memory theo **page**, không phải theo từng biến C.
+
+Ví dụ một page 4 KiB có thể chứa:
+
+```text
++----------------------------------+
+| int a                            |
+| int b                            |
+| struct device_state state        |
+| char buffer[...]                 |
+| ...                              |
++----------------------------------+
+             4 KiB page
+```
+
+Nếu child chỉ sửa:
+
+```c
+a = 100;
+```
+
+Kernel không đơn giản chỉ sao chép 4 byte của biến `a`.
+
+Nếu cần thực hiện COW, đơn vị được xử lý là **page chứa `a`**:
+
+```text
+Physical page cũ
+      |
+      | COW
+      v
+Physical page riêng cho bên ghi
+```
+
+Kích thước page thông thường trên nhiều hệ thống Linux là 4 KiB, nhưng đây **không phải giá trị cố định cho mọi kiến trúc và mọi loại mapping**.
+
+---
+
+#### Tại sao COW giúp `fork()` nhanh hơn?
+
+Giả sử parent đang sử dụng 200 MiB memory.
+
+Nếu không có COW, một cách triển khai ngây thơ sẽ phải:
+
+```text
+fork()
+  |
+  v
+copy gần như toàn bộ memory contents của parent
+  |
+  v
+tạo child
+```
+
+Việc này vừa tốn thời gian vừa có thể cần thêm một lượng RAM lớn ngay lập tức.
+
+Với COW:
+
+```text
+fork()
+  |
+  v
+tạo process metadata
+  |
+  v
+thiết lập memory-management/page-table state cho child
+  |
+  v
+parent và child tạm dùng chung các physical pages phù hợp
+  |
+  v
+chỉ page nào thực sự cần tách khi ghi mới phát sinh thêm chi phí COW
+```
+
+Nhờ vậy, `fork()` tránh được việc sao chép ngay toàn bộ memory contents của parent.
+
+---
+
+#### COW đặc biệt hữu ích với `fork()` + `execve()`
+
+Một pattern rất phổ biến trên Unix/Linux là:
+
+```c
+fork();
+execve(...);
+```
+
+Ví dụ shell chạy:
+
+```bash
+ls
+```
+
+Mô hình đơn giản:
+
+```text
+Shell
+  |
+  | fork()
+  v
+Child
+  |
+  | execve("/bin/ls", ...)
+  v
+Chương trình ls
+```
+
+`execve()` thay thế gần như toàn bộ user-space address space hiện tại của child bằng image của chương trình mới.
+
+Nếu `fork()` phải copy toàn bộ RAM của shell:
+
+```text
+Shell memory
+    |
+    | copy toàn bộ
+    v
+Child memory
+    |
+    | ngay sau đó execve()
+    v
+memory cũ bị thay thế
+```
+
+thì phần lớn công việc copy vừa thực hiện có thể trở nên vô ích.
+
+COW tránh lãng phí đó:
+
+```text
+fork()
+  |
+  v
+tạm chia sẻ physical pages bằng COW
+  |
+  v
+execve()
+  |
+  v
+child chuyển sang address space của chương trình mới
+```
+
+Nhiều page vì thế có thể **không bao giờ phải được copy cho child** trước khi `execve()` xảy ra.
+
+---
+
+#### `fork()` vẫn không phải là “miễn phí”
+
+COW chỉ giúp tránh việc **sao chép ngay toàn bộ dữ liệu RAM**.
+
+Linux vẫn phải thực hiện nhiều công việc để tạo child, chẳng hạn:
+
+```text
+fork()
+  |
+  +-- tạo child task/process state
+  |
+  +-- cấp PID và thiết lập quan hệ parent/child
+  |
+  +-- tạo/thiết lập memory-management state
+  |
+  +-- xử lý page-table state
+  |
+  +-- cập nhật các reference cần thiết
+  |
+  +-- xử lý file-descriptor state
+  |
+  +-- signal state
+  |
+  +-- credentials
+  |
+  +-- scheduler/accounting/bookkeeping
+```
+
+Theo `fork(2)` trên Linux, nhờ COW, chi phí bộ nhớ nổi bật tại thời điểm `fork()` chủ yếu liên quan tới việc tạo cấu trúc task riêng và xử lý/nhân bản page-table state, thay vì sao chép ngay toàn bộ physical pages của parent.
+
+Vì vậy:
+
+```text
+fork() != copy toàn bộ RAM
+```
+
+nhưng cũng:
+
+```text
+fork() != chi phí bằng 0
+```
+
+---
+
+#### COW không áp dụng giống nhau cho mọi mapping
+
+Không nên hiểu rằng **mọi page** của parent và child đều luôn được xử lý bằng COW.
+
+COW đặc biệt liên quan tới các mapping **private và writable**, ví dụ nhiều page thuộc:
+
+```text
+Data
+BSS
+Heap
+Stack
+anonymous private mappings
+private file mappings
+```
+
+Trong khi đó, các vùng có semantics chia sẻ hoặc các mapping đặc biệt có thể được xử lý khác.
+
+Ví dụ với một vùng `MAP_SHARED`, mục tiêu của mapping chính là cho phép các process cùng quan sát thay đổi trên vùng được chia sẻ, nên semantics khác với private COW mapping.
+
+Do đó, câu:
+
+> “Sau `fork()`, parent và child dùng chung toàn bộ memory nhờ COW”
+
+là **không chính xác**.
+
+Nên hiểu là:
+
+> **Sau `fork()`, parent và child có address space riêng. Linux có thể cho các page vật lý phù hợp tạm thời được chia sẻ, và dùng Copy-on-Write để trì hoãn việc tạo bản sao riêng cho các private writable pages cho tới khi cần.**
+
+---
+
+#### Tóm tắt luồng hoạt động
+
+```text
+                    fork()
+                      |
+                      v
+        Parent và child có address space riêng
+                      |
+                      v
+     Page table của hai process có thể cùng ánh xạ
+       tới các physical pages phù hợp cho COW
+                      |
+             +--------+--------+
+             |                 |
+           READ              WRITE
+             |                 |
+             v                 v
+      tiếp tục dùng chung   page fault
+                               |
+                               v
+                      Kernel xử lý COW
+                               |
+                               v
+                      tách page cho bên ghi
+                               |
+                               v
+                       tiếp tục thực thi
+```
+
+#### Điểm cần nhớ
+
+1. **Parent và child luôn là hai process có virtual address space riêng về mặt ngữ nghĩa.**
+2. COW cho phép chúng **tạm thời cùng ánh xạ tới một số physical pages** để tránh copy ngay.
+3. Khi một bên ghi vào private COW page, CPU có thể phát sinh **page fault** để Kernel can thiệp.
+4. Page fault trong trường hợp COW là **cơ chế bình thường**, không mặc định là lỗi chương trình.
+5. Nếu cần, Kernel tạo/copy một physical page riêng cho bên ghi rồi cập nhật page table.
+6. COW hoạt động theo **page**, không theo từng biến.
+7. `fork()` nhờ đó tránh copy ngay toàn bộ RAM, nhưng vẫn phải tạo process metadata và xử lý page tables cùng các bookkeeping khác.
+8. COW đặc biệt có lợi cho pattern **`fork()` → `execve()`**, vì nhiều page có thể chưa bao giờ cần được copy trước khi address space của child bị thay thế.
 
 ### 5.3 Chia sẻ `File descriptor` sau `fork()`
 
