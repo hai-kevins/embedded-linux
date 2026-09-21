@@ -122,16 +122,18 @@ Tiến trình không tương tác với các thanh RAM vật lý một cách tr�
 ```text
 (Địa chỉ thấp)
 +------------------+
-| Code / Text      |  (Mã máy thực thi, Read-only)
+|    Code / Text   |  (Mã máy thực thi, Read-only)
 +------------------+
-| Data / BSS       |  (Biến toàn cục, biến tĩnh)
+|      Data        |  (Biến toàn cục)
++------------------+
+|       BSS        |  (Biến tĩnh)
 +------------------+
 | Heap             |  (Bộ nhớ cấp phát động: malloc/free)
-|       ↓          |  (Mở rộng xuống dưới)
+|       ↓          |  (Mở rộng về phía địa chỉ cao)
 |                  |
 | mmap regions     |  (Thư viện động .so, file ánh xạ)
 |                  |
-|       ↑          |  (Mở rộng lên trên)
+|       ↑          |  (Mở rộng về phía địa chỉ thấp)
 | Stack            |  (Biến cục bộ, call frame của hàm)
 +------------------+
 (Địa chỉ cao)
