@@ -861,7 +861,7 @@ Vì vậy, “`read() == 0`” phải được thấu hiểu trong bối cảnh 
 
 ## 5. `write()`: ghi dữ liệu
 
-Tương tự `read()`, lệnh `write()` hoàn toàn có thể ghi được số byte ít hơn so với mức ứng dụng yêu cầu. Chương trình cần phải luôn kiểm tra giá trị trả về để ghi nốt phần còn thiếu.
+Tương tự `read()`, lệnh `write()` hoàn toàn có thể ghi được số byte ít hơn so với mức ứng dụng yêu cầu. Một chương trình được viết chắc chắn không được giả định `write()` luôn ghi đủ số byte yêu cầu; nó phải kiểm tra giá trị trả về và tiếp tục ghi phần còn thiếu nếu cần.
 
 ### 5.1 `write()` có thể hoàn thành một phần (Partial I/O)
 
@@ -875,13 +875,285 @@ Có thể trả về giá trị `M`, trong đó `0 < M < count`. Điều này c�
 
 ### 5.2 Vì sao hiện tượng "ghi ngắn" (short write) tồn tại?
 
-Hiện tượng này có thể xảy ra do:
-*   **Pipe/Socket:** Vùng đệm trong Kernel sắp đầy, chỉ còn đủ không gian chứa một phần dữ liệu.
-*   **Giới hạn tài nguyên (Resource limit):** Phân vùng hết dung lượng hoặc tiến trình chạm hạn mức (quota) kích thước tệp.
-*   **Signal:** Bị ngắt tín hiệu giữa chừng sau khi đã ghi được một số byte.
-*   **Nonblocking I/O:** Đối tượng mở ở chế độ không chặn chỉ có thể tiếp nhận ngay một phần dữ liệu rồi trả về.
+Hiện tượng `short write` xảy ra khi ứng dụng yêu cầu ghi `N` byte nhưng `write()` chỉ ghi thành công `M` byte, với:
 
-Do đó, code chuẩn luôn phải đặt hàm `write()` trong vòng lặp và đánh giá **số byte trả về**, thay vì cho rằng gọi một lần là ghi xong toàn bộ.
+```text
+0 < M < N
+```
+
+Ví dụ:
+
+```c
+ssize_t n = write(fd, buffer, 4096);
+```
+
+Ứng dụng yêu cầu ghi:
+
+```text
+4096 byte
+```
+
+nhưng `write()` có thể trả về:
+
+```text
+1500
+```
+
+Điều đó có nghĩa là:
+
+```text
+1500 byte đầu tiên
+    -> đã được Kernel chấp nhận
+
+4096 - 1500 = 2596 byte
+    -> vẫn chưa được ghi
+```
+
+Phần `2596` byte còn lại vẫn là trách nhiệm của ứng dụng. Chương trình phải tiếp tục gọi `write()` cho phần dữ liệu chưa được ghi.
+
+#### Pipe / Socket
+
+Kernel duy trì các buffer để chứa dữ liệu đang chờ được xử lý hoặc truyền đi.
+
+Giả sử:
+
+```text
+Ứng dụng muốn ghi:       4096 byte
+
+Kernel buffer hiện chỉ còn:
+                         1500 byte trống
+```
+
+thì một lời gọi `write()` có thể chỉ ghi được:
+
+```text
+1500 byte
+```
+
+và trả về:
+
+```text
+write() -> 1500
+```
+
+Phần:
+
+```text
+4096 - 1500 = 2596 byte
+```
+
+vẫn chưa được ghi và ứng dụng phải xử lý tiếp.
+
+Có thể hình dung:
+
+```text
+User buffer
+[ 4096 byte cần ghi ]
+        |
+        | write()
+        v
+Kernel buffer
+[ chỉ còn chỗ cho 1500 byte ]
+        |
+        v
+write() trả về 1500
+```
+
+Điều quan trọng là:
+
+> Giá trị trả về của `write()` cho biết **bao nhiêu byte thực sự đã được chấp nhận trong lần gọi đó**, chứ không phải bao nhiêu byte ứng dụng muốn ghi.
+
+#### Nonblocking I/O
+
+Nếu `fd` được cấu hình với `O_NONBLOCK`, Kernel không nên giữ thread chờ chỉ để có thêm không gian buffer.
+
+Ví dụ:
+
+```text
+Cần ghi:          4096 byte
+Có thể nhận ngay: 1000 byte
+```
+
+Kernel có thể ghi ngay:
+
+```text
+1000 byte
+```
+
+rồi trả về:
+
+```text
+write() -> 1000
+```
+
+thay vì chờ đến khi có đủ chỗ cho toàn bộ 4096 byte.
+
+Nếu hiện tại không thể ghi được byte nào mà thao tác sẽ phải chờ, `write()` có thể thất bại với:
+
+```text
+-1
+errno = EAGAIN
+```
+
+hoặc `EWOULDBLOCK` tùy loại đối tượng và API.
+
+Do đó cần phân biệt:
+
+```text
+write() > 0
+    -> đã ghi được một số byte
+
+write() == -1 && errno == EAGAIN/EWOULDBLOCK
+    -> hiện tại chưa thể ghi mà không block
+```
+
+#### Signal
+
+Một `write()` đang thực hiện có thể bị signal làm gián đoạn.
+
+Nếu Kernel đã ghi được một phần dữ liệu trước khi signal xảy ra, `write()` có thể trả về chính số byte đã ghi được.
+
+Ví dụ:
+
+```text
+Ứng dụng yêu cầu: 4096 byte
+Kernel đã ghi:     800 byte
+Signal xảy ra
+```
+
+thì lời gọi có thể trả:
+
+```text
+write() -> 800
+```
+
+Ứng dụng phải tiếp tục ghi từ phần dữ liệu còn lại.
+
+Nếu signal xảy ra trước khi ghi được byte nào, lời gọi có thể thất bại với:
+
+```text
+-1
+errno = EINTR
+```
+
+Vì vậy, `EINTR` và `short write` là hai tình huống cần phân biệt:
+
+```text
+Đã ghi được một phần
+    -> write() trả số byte đã ghi
+
+Chưa ghi được byte nào và bị signal ngắt
+    -> có thể trả -1 với errno = EINTR
+```
+
+#### Regular file và giới hạn tài nguyên
+
+Với regular file, `write()` cũng có thể chỉ ghi được một phần dữ liệu nếu trong quá trình ghi gặp các giới hạn như:
+
+- Hệ thống tệp không còn đủ dung lượng.
+- Tiến trình/người dùng chạm hạn ngạch (`quota`).
+- Chạm giới hạn kích thước file.
+- Một điều kiện lỗi khác xuất hiện sau khi đã ghi được một phần dữ liệu.
+
+Ví dụ:
+
+```text
+Ứng dụng yêu cầu ghi: 4096 byte
+Chỉ còn đủ điều kiện để ghi:
+                      2000 byte
+```
+
+thì `write()` có thể trả:
+
+```text
+2000
+```
+
+Phần còn lại chưa được ghi.
+
+#### Vì sao phải đặt `write()` trong vòng lặp?
+
+Không được giả định:
+
+```c
+write(fd, buffer, count);
+```
+
+luôn đồng nghĩa với:
+
+```text
+đã ghi đủ count byte
+```
+
+Thay vào đó, chương trình phải luôn dựa vào giá trị trả về:
+
+```text
+requested = N
+written   = M
+remaining = N - M
+```
+
+Nếu:
+
+```text
+M < N
+```
+
+thì phải tiếp tục ghi phần:
+
+```text
+N - M
+```
+
+còn lại.
+
+Ví dụ quá trình ghi 4096 byte có thể diễn ra như sau:
+
+```text
+Ban đầu:
+cần ghi = 4096 byte
+
+Lần 1:
+write() -> 1500
+còn     -> 2596
+
+Lần 2:
+write() -> 1200
+còn     -> 1396
+
+Lần 3:
+write() -> 1396
+còn     -> 0
+
+Hoàn thành
+```
+
+Một vòng lặp cơ bản có thể có dạng:
+
+```c
+size_t total = 0;
+
+while (total < count) {
+    ssize_t n = write(fd,
+                      buffer + total,
+                      count - total);
+
+    if (n > 0) {
+        total += (size_t)n;
+        continue;
+    }
+
+    if (n == -1 && errno == EINTR) {
+        continue;
+    }
+
+    /* Xử lý các lỗi/trạng thái khác tại đây. */
+    break;
+}
+```
+
+> **Điểm cần nhớ:** `write()` trả về số byte thực sự đã ghi thành công trong **lần gọi hiện tại**. Nếu giá trị trả về nhỏ hơn số byte yêu cầu, phần dữ liệu còn lại vẫn là trách nhiệm của ứng dụng.
+
 
 ### 5.3 Ghi thành công KHÔNG đồng nghĩa dữ liệu đã bền vững trên thiết bị
 
