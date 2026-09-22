@@ -428,7 +428,21 @@ Thiết kế Luồng A gọi `lock()` rồi Luồng B gọi `unlock()` thay là 
 
 ### 4.4 Mutex không tự bảo vệ dữ liệu
 
-Hệ thống không ghi nhận "Mutex M đang bảo vệ biến X". Đó là quy ước của chương trình. Nếu Luồng A đọc `X` dưới Mutex `M` nhưng Luồng B ghi `X` mà không dùng chung Mutex `M`, thì `M` không thể bảo vệ quyền truy cập của B. Tất cả các phía phải tuân thủ cùng một giao thức.
+Hệ thống không ghi nhận một quan hệ kiểu "Mutex `M` đang bảo vệ biến `X`". Mutex chỉ kiểm soát những luồng **cùng cố lấy chính Mutex đó**; việc `M` được dùng để bảo vệ `X` là một quy ước (`locking protocol`) do chương trình thiết kế.
+
+Ví dụ, nếu Luồng A truy cập `X` như sau:
+
+```c
+pthread_mutex_lock(&m);
+X++;
+pthread_mutex_unlock(&m);
+```
+
+nhưng Luồng B lại ghi trực tiếp vào `X` mà không khóa `m`, thì Luồng B vẫn có thể truy cập `X` trong lúc A đang giữ Mutex. Vì vậy, việc A dùng Mutex **không tự động biến `X` thành dữ liệu được bảo vệ**.
+
+Quy tắc đúng phải là: **mọi đường code thực hiện các truy cập xung đột tới cùng trạng thái chia sẻ đều phải tuân thủ cùng một giao thức khóa**. Chẳng hạn, nếu quy ước rằng `m` bảo vệ `X`, thì cả A, B và mọi luồng khác muốn đọc/ghi `X` theo cách có thể xung đột đều phải lấy `m` trước khi truy cập.
+
+Có thể ghi nhớ: **Mutex không khóa một biến; Mutex thực thi quyền truy cập theo một giao thức mà các luồng cùng tuân thủ.**
 
 ---
 
