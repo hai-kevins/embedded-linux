@@ -642,12 +642,12 @@ Signal có làm ứng dụng đổi trạng thái không?
          v                           |
        Retry                         v
                               Không retry nữa
-                              |
-                              v
-                         Dọn dẹp tài nguyên
-                              |
-                              v
-                         Kết thúc tiến trình
+                                     |
+                                     v
+                             Dọn dẹp tài nguyên
+                                     |
+                                     v
+                             Kết thúc tiến trình
 ```
 
 > **Ghi nhớ:** `EINTR` chỉ cho biết lời gọi đang chờ đã bị signal làm gián đoạn. Nếu ứng dụng vẫn muốn tiếp tục công việc đang chờ thì có thể retry; nếu signal khiến ứng dụng chuyển sang trạng thái kết thúc, như cách thường xử lý `SIGTERM`, thì không nên retry máy móc.
