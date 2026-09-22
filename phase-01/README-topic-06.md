@@ -667,11 +667,11 @@ Khi ứng dụng đa luồng gặp sự cố, hãy chia lỗi thành các nhóm 
 
 ```text
 1. Vòng đời       -> Hàm tạo luồng có thành công không? Main có thoát quá sớm không?
-          |
+      |
 2. Nhận diện      -> Đang phân tích log dựa trên pthread_t, PID hay TID?
-          |
+      |
 3. Thu hồi        -> Luồng là Joinable hay Detached? Có gây rò rỉ (leak) không?
-          |
+      |
 4. Đồng bộ        -> Có rủi ro Data race khi dùng chung biến không? Con trỏ Stack truyền vào còn sống không?
 ```
 Kiểm tra theo chuỗi này giúp tránh việc tốn thời gian gỡ lỗi Mutex trong khi luồng thậm chí chưa bao giờ được tạo.
