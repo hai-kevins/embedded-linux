@@ -585,7 +585,20 @@ Ngay cả trên hệ thống đơn lõi, đa luồng vẫn hiệu quả cho tác
 
 ### 10.4 Tác vụ CPU-Bound (Nặng tính toán)
 
-Tạo thêm luồng không đồng nghĩa với việc tạo thêm lõi CPU. Với các tác vụ nặng tính toán (không có quãng nghỉ I/O), việc tạo 100 luồng trên một máy chỉ có 2 lõi sẽ làm CPU tiêu tốn một lượng lớn thời gian chỉ để thực hiện việc `context switch`, làm suy giảm hiệu suất tổng thể.
+Tạo thêm luồng không đồng nghĩa với việc tạo thêm lõi CPU. Nếu máy chỉ có 2 lõi thì tại một thời điểm chỉ có một số ít luồng CPU-bound có thể thực sự chạy song song; các luồng còn lại phải chờ Scheduler phân chia thời gian CPU.
+
+Ví dụ:
+```text
+2 CPU cores
+   |
+   +--> Thread A chạy trên Core 0
+   +--> Thread B chạy trên Core 1
+   +--> Các thread CPU-bound khác phải chờ đến lượt
+```
+
+Nếu tạo quá nhiều thread CPU-bound, Scheduler phải liên tục chuyển CPU từ thread này sang thread khác. Mỗi lần như vậy xảy ra một `context switch`: trạng thái thực thi của thread cũ được lưu lại và trạng thái của thread mới được nạp vào. Đây là chi phí quản lý, không phải công việc hữu ích của ứng dụng. Việc đổi qua lại giữa nhiều thread cũng có thể làm dữ liệu trong CPU cache bị xáo trộn, khiến hiệu năng giảm thêm.
+
+Vì vậy, với workload CPU-bound, **nhiều thread hơn không đồng nghĩa với nhanh hơn**. Số lượng thread nên được lựa chọn phù hợp với khả năng chạy song song thực tế của CPU, thay vì tạo thật nhiều thread một cách tùy ý.
 
 ---
 
