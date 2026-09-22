@@ -477,7 +477,7 @@ Nó có thể gửi `SIGTERM` để tắt, `SIGCONT` để yêu cầu chạy ti�
 
 ### 8.3 Quyền gửi signal
 
-Có PID không đồng nghĩa bạn được gửi signal. Linux Kernel kiểm tra các quy tắc về `credentials` và `capability` để xem người dùng có đủ quyền tương tác với tiến trình đích hay không.
+Biết PID của một tiến trình **không có nghĩa là bạn luôn có quyền gửi signal tới tiến trình đó**. Khi `kill()` được gọi, Linux Kernel sẽ kiểm tra **thông tin định danh và quyền của tiến trình gửi** (`credentials`) cùng với các **Linux capabilities** liên quan, rồi mới quyết định signal có được phép gửi tới tiến trình đích hay không.
 
 ### 8.4 Hàm `raise(sig)`
 
