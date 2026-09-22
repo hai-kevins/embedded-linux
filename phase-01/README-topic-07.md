@@ -374,10 +374,25 @@ Lệnh `pthread_mutex_unlock()` không chỉ là đổi một cờ. Các hàm đ
 
 ### 3.3 Khái niệm `Atomicity` (Tính nguyên tử) ở mức Giao thức
 
-Trong lập trình đa luồng ở mức ứng dụng, một thao tác được coi là `nguyên tử` (Atomic) khi:
-**Các luồng khác không bao giờ quan sát thấy bất kỳ trạng thái trung gian không hợp lệ nào của nó.**
+Trong lập trình đa luồng ở mức ứng dụng, một thao tác được coi là `nguyên tử` (Atomic) ở mức giao thức khi **các luồng khác không quan sát thấy trạng thái trung gian không hợp lệ của thao tác đó**.
 
-Mutex làm cho một tập hợp các thao tác trở nên nguyên tử theo góc nhìn của các luồng khác cũng tuân thủ cùng một giao thức khóa.
+Điều này **không có nghĩa là trong lúc một luồng đang thực hiện thao tác thì toàn bộ hệ thống phải dừng lại**. Scheduler vẫn có thể chuyển CPU sang luồng khác, interrupt vẫn có thể xảy ra, và các luồng trên những lõi CPU khác vẫn có thể tiếp tục chạy. Điều được bảo đảm là những luồng cùng tuân thủ một giao thức Mutex sẽ không thể truy cập vào vùng trạng thái đang được bảo vệ cho tới khi luồng đang sở hữu Mutex hoàn tất và `unlock()`.
+
+Ví dụ, khi cập nhật một Queue cần nhiều bước:
+
+```c
+pthread_mutex_lock(&mutex);
+
+buffer[tail] = value;
+tail++;
+size++;
+
+pthread_mutex_unlock(&mutex);
+```
+
+Ba câu lệnh cập nhật trên không biến thành một lệnh CPU duy nhất. Tuy nhiên, nếu mọi luồng truy cập Queue đều sử dụng cùng `mutex`, một luồng khác sẽ không thể chen vào giữa để quan sát trạng thái kiểu `buffer` đã cập nhật nhưng `tail` hoặc `size` vẫn còn giá trị cũ. Từ góc nhìn của các luồng tuân thủ giao thức khóa, chúng chỉ quan sát được **trạng thái trước khi cập nhật** hoặc **trạng thái sau khi toàn bộ cập nhật đã hoàn tất**.
+
+Vì vậy, Mutex có thể làm cho **một nhóm nhiều thao tác** trở thành một đơn vị logic nguyên tử ở mức giao thức. Tính nguyên tử này đến từ việc mọi bên cùng tuân thủ đúng ranh giới `lock()` / `unlock()`, chứ không phải vì bên trong `critical section` không còn scheduler, interrupt hay hoạt động của các luồng khác.
 
 ---
 
