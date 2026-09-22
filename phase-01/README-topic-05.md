@@ -105,28 +105,52 @@ Một `signal` đi qua các trạm kiểm soát của Kernel trước khi thực
 ### 2.2 Sơ đồ trạng thái chi tiết
 
 ```text
-[ Sự kiện phát sinh Signal (Generation) ]
-                   |
-                   v
-          Có thể Delivery ngay?
-             /                      Có          Không (Ví dụ đang bị Mask chặn)
-           |               |
-           |               v
-           |           [ PENDING (Nằm chờ) ]
-           |               |
-           |           (Sau khi gỡ chặn/unblock)
-           |               |
-           +-------+-------+
-                   |
-                   v
-       [ SIGNAL DELIVERY (Phân phối) ]
-                   |
-          (Theo cấu hình Disposition)
-          /        |                  /         |             [ Bỏ qua ]  [ Handler ]  [ Mặc định ]
+             [ SIGNAL GENERATION ]
+          Signal được phát sinh/gửi đến
+                     |
+                     v
+              [ SIGNAL PENDING ]
+        Signal đang chờ được phân phối
+                     |
+                     v
+          Signal có đang bị BLOCK
+          bởi signal mask không?
+                /           \
+              Có             Không
+              |                |
+              |                v
+              |        [ Có thể được chọn
+              |          để DELIVERY ]
+              |                |
+              |                v
+              |      [ SIGNAL DELIVERY ]
+              |                |
+              |                v
+              |        Xét signal disposition
+              |          /      |      \
+              |         /       |       \
+              |        v        v        v
+              |    SIG_IGN   Handler   SIG_DFL
+              |       |         |         |
+              |       v         v         v
+              |    Bỏ qua    Chạy      Hành động
+              |              handler    mặc định
+              |
+              +---- chờ đến khi được UNBLOCK ----+
+                                                  |
+                                                  +--> quay lại bước
+                                                       kiểm tra BLOCK
 ```
 
-> **Đọc sơ đồ:** Khi một sự kiện phát sinh (Generated), Kernel kiểm tra xem tiến trình nhận có đang chặn (Block) signal này hay không. Nếu bị chặn, signal sẽ bị giữ lại ở trạng thái `Pending`. Nó chờ ở đó cho tới khi tiến trình gỡ bỏ sự chặn (Unblock), lúc này Kernel mới thực hiện giao hàng (`Delivery`). Sau khi giao, hệ thống áp dụng cách hành xử tương ứng (bỏ qua, chạy Handler, hoặc ngắt chương trình). Đối với các signal được cấu hình là `SIG_IGN` (Ignore), về mặt ngữ nghĩa, signal thường bị loại bỏ (discard) ngay mà không cần chờ đến lúc delivery.
-> **Lưu ý:** “Đã gửi signal” không có nghĩa là “Handler bên kia đã chạy ngay lập tức”.
+> **Đọc sơ đồ:** Sau khi một signal được **phát sinh** (`signal generation`), signal được xem là **pending** trong khoảng thời gian từ lúc phát sinh cho tới khi được **phân phối** (`signal delivery`). Nếu signal đang bị chặn bởi `signal mask`, nó tiếp tục ở trạng thái `pending` và chưa được phân phối. Khi signal không còn bị chặn, Kernel có thể chọn signal đó để thực hiện `delivery`.
+>
+> Khi `signal delivery` xảy ra, hành động cụ thể phụ thuộc vào `signal disposition` đã cấu hình:
+> - `SIG_IGN`: bỏ qua signal.
+> - `Handler`: chuyển luồng điều khiển sang chạy hàm xử lý signal.
+> - `SIG_DFL`: thực hiện hành động mặc định của signal, chẳng hạn `Terminate`, `Terminate + Core dump`, `Stop`, `Continue` hoặc `Ignore`, tùy loại signal.
+>
+> **Lưu ý:** `Block` và `Ignore` là hai khái niệm khác nhau. `Block` chỉ **trì hoãn việc delivery**, khiến signal tiếp tục ở trạng thái `pending`; còn `SIG_IGN` là một `signal disposition` yêu cầu bỏ qua signal. Trên Linux, nếu một signal vừa bị block vừa có disposition là `SIG_IGN`, signal đó không được thêm vào tập pending khi phát sinh. Vì vậy, sơ đồ trên nên được hiểu chủ yếu là luồng của một signal **không bị loại bỏ do `SIG_IGN`**. Ngoài ra, “đã gửi signal” không đồng nghĩa với “handler bên kia đã chạy ngay lập tức”.
+
 
 ---
 
@@ -138,7 +162,7 @@ Khoảnh khắc Kernel thực hiện `signal delivery`, số phận tiến trìn
 
 Mỗi loại `signal` đều được gán một cách hành xử. Tiến trình có 3 lựa chọn:
 
-### 3.2 Hành động mặc định (Default action)
+#### 3.1.1 Hành động mặc định (Default action)
 
 Nếu bạn không cấu hình gì, Kernel áp dụng luật mặc định:
 *   `Terminate`: Kết thúc tiến trình (vd: SIGTERM).
@@ -146,11 +170,11 @@ Nếu bạn không cấu hình gì, Kernel áp dụng luật mặc định:
 *   `Ignore`: Không làm gì (vd: SIGCHLD).
 *   `Stop` / `Continue`: Dừng hoặc tiếp tục chạy.
 
-### 3.3 Bỏ qua (Ignore)
+#### 3.1.2 Bỏ qua (Ignore)
 
 Bạn có quyền cấu hình yêu cầu Kernel hoàn toàn lờ đi một signal (bằng cờ `SIG_IGN`). Khi đó, signal không gây ra tác động nào và không có bất kỳ Handler nào được chạy.
 
-### 3.4 Bắt và xử lý bằng `Handler` (Catch)
+#### 3.1.3 Bắt và xử lý bằng `Handler` (Catch)
 
 Bạn tự viết một hàm C (gọi là Handler) và đăng ký với Kernel. Khi signal được `delivery`, Kernel sẽ ép luồng thực thi tạm nhảy sang chạy hàm Handler của bạn. Chạy xong, nó dùng cơ chế `sigreturn` để quay về dòng code cũ đang chạy dở dang.
 
