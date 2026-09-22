@@ -576,7 +576,7 @@ Nhường việc nặng cho luồng chính (Main Loop) tự làm vào thời đi
 
 Để gán cờ an toàn giữa luồng chính và handler, biến cờ nên được khai báo với kiểu `volatile sig_atomic_t`. 
 *   `volatile`: Tránh việc trình biên dịch (Compiler) tối ưu hóa sai lệch.
-*   `sig_atomic_t`: Đảm bảo loại truy cập đọc/ghi đơn giản có thể thực hiện một cách nguyên tử (atomically) đối với asynchronous signal handling theo chuẩn C. Nó **không** phải là cơ chế đồng bộ tổng quát thay thế cho mutex giữa các luồng.
+*   `sig_atomic_t`: Kiểu dữ liệu phù hợp để chia sẻ một giá trị đơn giản giữa code đang chạy bình thường và `signal handler`. Một thao tác đọc hoặc ghi đơn giản trên biến kiểu này sẽ không bị quan sát ở trạng thái “đang thực hiện dở”. Tuy nhiên, điều đó không có nghĩa các phép toán phức hợp như `counter++` đều atomic, và `sig_atomic_t` cũng không phải cơ chế đồng bộ giữa các thread để thay thế `mutex`.
 
 ### 10.5 Bảo toàn `errno` trong Handler
 
