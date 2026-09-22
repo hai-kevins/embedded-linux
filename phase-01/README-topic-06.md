@@ -277,24 +277,87 @@ Sau lệnh `pthread_create()`, **không có bất kỳ cam kết nào** về vi�
 
 ### 7.1 Vòng đời ở mức khái niệm
 
+Sau khi được tạo bằng `pthread_create()`, một thread không phải lúc nào cũng chạy trên CPU. Trong quá trình tồn tại, thread thường chuyển qua lại giữa một số trạng thái cơ bản:
+
 ```text
-[ Created (Được tạo) ]
-           |
-           v
-  (Đưa vào hàng đợi)
-           |
-           v
-[ Runnable (Sẵn sàng) ] <-------+
-           |                    |
-     (Scheduler chọn)           | (Bị ngắt / Chờ I/O xong)
-           v                    |
- [ Running (Đang chạy) ] -------+
-           |                    | (Chờ Mutex, I/O)
-  (Return / pthread_exit)       |
-           v                    v
-[ Terminated (Đã kết thúc) ] [ Blocked/Sleeping (Ngủ chờ) ]
+pthread_create()
+      |
+      v
+[ Runnable ]
+Thread đã sẵn sàng chạy,
+nhưng đang chờ Scheduler cấp CPU
+      |
+      | Scheduler chọn
+      v
+[ Running ]
+Thread đang thực sự chạy trên CPU
+      |
+      +-----------------------------+
+      |                             |
+      | cần chờ I/O / Mutex /       | bị Scheduler tạm dừng
+      | một sự kiện nào đó          | để thread khác chạy
+      v                             |
+[ Blocked / Sleeping ]              |
+Thread tạm thời chưa thể chạy       |
+      |                             |
+      | điều kiện chờ hoàn thành    |
+      v                             |
+[ Runnable ] <----------------------+
+      |
+      | Scheduler chọn lại
+      v
+[ Running ]
+      |
+      | hàm thread `return`
+      | hoặc gọi `pthread_exit()`
+      v
+[ Terminated ]
+Thread đã kết thúc
 ```
-> **Đọc sơ đồ:** Luồng liên tục luân phiên giữa trạng thái chạy `Running`, nhường CPU để chờ đến lượt ở `Runnable`, hoặc chủ động ngủ `Blocked` khi chờ đợi dữ liệu I/O hay Khóa Mutex. Khi hàm thực thi chính chạy đến lệnh `return` (hoặc gọi `pthread_exit()`), luồng rời khỏi chu kỳ lập lịch và chuyển sang trạng thái `Terminated`. Vòng đời của tài nguyên quản lý luồng này sau đó sẽ phụ thuộc vào thiết lập Joinable/Detached.
+
+Có thể hiểu từng trạng thái như sau:
+
+- **`Runnable` — Sẵn sàng chạy:** Thread đã có đủ điều kiện để chạy nhưng hiện chưa được CPU thực thi. Nó đang chờ Linux Scheduler chọn.
+- **`Running` — Đang chạy:** Thread đang thực sự được một CPU thực thi.
+- **`Blocked / Sleeping` — Đang chờ:** Thread chưa thể tiếp tục vì đang chờ một sự kiện, ví dụ chờ dữ liệu I/O, chờ Mutex hoặc ngủ bằng một API nào đó. Trong thời gian này, CPU có thể được dùng để chạy thread khác.
+- **`Terminated` — Đã kết thúc:** Hàm thực thi của thread đã `return` hoặc thread gọi `pthread_exit()`. Thread không còn được Scheduler cho chạy nữa.
+
+Ví dụ, một thread đọc dữ liệu từ UART có thể trải qua chu trình:
+
+```text
+Runnable
+   |
+   v
+Running
+   |
+   | gọi read() nhưng UART chưa có dữ liệu
+   v
+Blocked
+   |
+   | UART nhận được dữ liệu
+   v
+Runnable
+   |
+   | Scheduler cấp CPU
+   v
+Running
+```
+
+Điểm quan trọng cần nhớ:
+
+> **`Runnable` không có nghĩa là thread đang chạy.** Nó chỉ có nghĩa là thread **có thể chạy và đang chờ CPU**. Chỉ khi được Scheduler chọn thì thread mới chuyển sang `Running`.
+
+Khi thread kết thúc:
+
+```text
+Running
+   |
+   | return / pthread_exit()
+   v
+Terminated
+```
+
+Sau đó, cách tài nguyên quản lý thread được thu hồi phụ thuộc vào thread là **`joinable` hay `detached`**, nội dung sẽ được giải thích ở Mục 8.
 
 ### 7.2 Lệnh `pthread_exit()`
 
