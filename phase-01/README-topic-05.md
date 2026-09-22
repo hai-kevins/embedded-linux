@@ -470,10 +470,10 @@ Nó có thể gửi `SIGTERM` để tắt, `SIGCONT` để yêu cầu chạy ti�
 
 ### 8.2 Ngữ nghĩa của tham số PID trong `kill()`
 
-*   `PID > 0`: Gửi signal tới tiến trình có PID đó.
-*   `PID == 0`: Gửi signal tới mọi tiến trình trong cùng process group với tiến trình gọi.
-*   `PID == -1`: Gửi tới mọi tiến trình mà người dùng có quyền gửi.
-*   `PID < -1`: Gửi tới mọi tiến trình trong process group có ID là `|PID|`.
+1. `PID > 0`: Gửi signal tới **đúng một tiến trình** có PID bằng giá trị này.
+2. `PID == 0`: Gửi signal tới **tất cả tiến trình trong cùng process group** với tiến trình gọi `kill()`.
+3. `PID == -1`: Gửi signal tới **mọi tiến trình mà tiến trình gọi có quyền gửi signal tới**.
+4. `PID < -1`: Gửi signal tới **tất cả tiến trình trong process group có PGID bằng giá trị tuyệt đối của PID** (`|PID|`).
 
 ### 8.3 Quyền gửi signal
 
