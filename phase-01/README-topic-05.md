@@ -594,38 +594,63 @@ Chạy xong Handler, Kernel đối mặt với System Call đang bị dở dang 
 
 ### 11.2 `EINTR` không phải lúc nào cũng là Retry
 
-Khi một blocking call trả về `-1` với `errno == EINTR`, điều đó có nghĩa là **lời gọi đang chờ đã bị một signal làm gián đoạn**. `EINTR` không đồng nghĩa với việc chương trình luôn phải gọi lại (`retry`) ngay lập tức.
+Một số hàm như `read()`, `poll()` hoặc `wait()` có thể phải **dừng lại để chờ dữ liệu hoặc chờ một sự kiện**.
 
-Sau khi gặp `EINTR`, ứng dụng cần xem signal vừa nhận có làm thay đổi trạng thái của chương trình hay không:
+Trong lúc chương trình đang chờ, nếu một signal được `delivery` và handler chạy, lời gọi đang chờ có thể bị gián đoạn:
 
-- Nếu signal chỉ là một thông báo và ứng dụng vẫn cần tiếp tục công việc đang chờ, có thể retry lời gọi.
-- Nếu signal như `SIGTERM` khiến ứng dụng chuyển sang trạng thái chuẩn bị kết thúc, không nên retry blocking call; thay vào đó cần thoát khỏi vòng chờ và thực hiện quá trình shutdown.
-- Với I/O, luôn kiểm tra giá trị trả về. Nếu đã xử lý được một phần dữ liệu, lời gọi có thể trả về số byte đã xử lý thay vì trả `EINTR`.
+```text
+read() / poll() / wait()
+        |
+        v
+   Đang chờ...
+        |
+        | Signal tới
+        v
+   Handler chạy
+        |
+        v
+Lời gọi bị gián đoạn
+        |
+        v
+return -1
+errno = EINTR
+```
+
+Khi gặp `EINTR`, chương trình cần quyết định **có còn muốn tiếp tục công việc đang chờ hay không**.
+
+Điểm quan trọng là không nên chia signal thành “đơn giản” hay “nghiêm trọng”, mà phải xem **signal đó có làm thay đổi trạng thái của ứng dụng hay không**:
+
+- Nếu signal chỉ thông báo một sự kiện và ứng dụng vẫn cần tiếp tục chờ dữ liệu hoặc sự kiện, có thể gọi lại (`retry`) hàm đó.
+- Nếu signal làm ứng dụng chuyển sang trạng thái chuẩn bị kết thúc, ví dụ handler của `SIGTERM` đặt `stop = 1`, thì không nên retry lời gọi đang chờ. Main loop nên nhận ra trạng thái mới, thoát khỏi vòng chờ, đóng các tài nguyên cần thiết và kết thúc tiến trình một cách có kiểm soát (`graceful shutdown`).
 
 Có thể hình dung:
 
 ```text
-Blocking call
-     |
-     | Signal tới
-     v
-Handler chạy
-     |
-     v
-Call trả EINTR
-     |
-     v
-Ứng dụng còn cần tiếp tục chờ?
-       /                  \
-     Có                    Không
-      |                      |
-      v                      v
-    Retry                 Thoát khỏi
-                         blocking call
-                         và xử lý trạng thái mới
+Signal làm gián đoạn lời gọi đang chờ
+                |
+                v
+             EINTR
+                |
+                v
+Signal có làm ứng dụng đổi trạng thái không?
+          /                         \
+        Không                        Có
+         |                           |
+         v                           v
+Ứng dụng vẫn cần chờ?       Ví dụ: SIGTERM làm
+         |                   stop = 1
+         v                           |
+       Retry                         v
+                              Không retry nữa
+                              |
+                              v
+                         Dọn dẹp tài nguyên
+                              |
+                              v
+                         Kết thúc tiến trình
 ```
 
-> **Ghi nhớ:** `EINTR` chỉ cho biết blocking call đã bị signal làm gián đoạn. Việc retry hay không phải dựa vào trạng thái hiện tại và mục đích của ứng dụng.
+> **Ghi nhớ:** `EINTR` chỉ cho biết lời gọi đang chờ đã bị signal làm gián đoạn. Nếu ứng dụng vẫn muốn tiếp tục công việc đang chờ thì có thể retry; nếu signal khiến ứng dụng chuyển sang trạng thái kết thúc, như cách thường xử lý `SIGTERM`, thì không nên retry máy móc.
 
 ---
 
