@@ -656,29 +656,316 @@ Signal có làm ứng dụng đổi trạng thái không?
 
 ## 12. Race condition và `sigsuspend()`
 
-Lập trình với signal thường gặp phải các tình huống tương tranh (race condition) khó phát hiện.
+Lập trình với signal thường gặp một race condition điển hình khi chương trình muốn làm theo logic:
 
-### 12.1 Vấn đề Race Condition với `pause()`
-
-Xem xét kịch bản sau:
 ```text
-[ Luồng chính ]
-1. Kiểm tra biến cờ (Condition = False)
-      |
-      | <--- (Signal đến ngay lúc này!)
-      |      Handler chạy, gán Flag = True.
-      v
-2. Gọi pause() để ngủ chờ Signal
-      |
-      v
-[ Luồng chính ngủ vô thời hạn vì Signal đã bị bỏ lỡ ]
+Kiểm tra xem signal đã tới chưa
+        |
+        +-- Đã tới --> tiếp tục xử lý
+        |
+        +-- Chưa tới --> ngủ để chờ signal
 ```
 
-Vấn đề ở đây là khoảng thời gian (window) giữa bước kiểm tra cờ và bước gọi `pause()`. Nếu Signal chen vào giữa khoảng này, `pause()` sẽ chờ một tín hiệu không bao giờ đến nữa.
+Vấn đề nằm ở **khoảng thời gian giữa lúc kiểm tra điều kiện và lúc thực sự đi ngủ**.
 
-### 12.2 Giải pháp nguyên tử: `sigsuspend()`
+### 12.1 Race condition khi dùng `pause()`
 
-`sigsuspend()` giải quyết vấn đề bằng cách cung cấp một cơ chế **thay đổi Signal Mask và đi vào giấc ngủ (sleep) trong cùng một thao tác nguyên tử (atomic)**. Nó đảm bảo không có bất kỳ Signal nào có thể lọt qua khe hở thời gian giữa việc kiểm tra cờ và lúc tiến trình thực sự ngủ.
+Giả sử handler chỉ đặt một biến cờ:
+
+```c
+volatile sig_atomic_t received = 0;
+
+void handler(int sig)
+{
+    received = 1;
+}
+```
+
+Main loop có thể được viết như sau:
+
+```c
+while (!received) {
+    pause();
+}
+```
+
+Thoạt nhìn, logic này có vẻ đúng. Tuy nhiên, signal có thể tới đúng vào khoảng giữa lúc kiểm tra `received` và lúc gọi `pause()`:
+
+```text
+received = 0
+
+Main kiểm tra received
+        |
+        v
+    thấy == 0
+        |
+        |  <-- SIGUSR1 tới đúng lúc này
+        |          |
+        |          v
+        |      Handler chạy
+        |      received = 1
+        |          |
+        |      Handler return
+        |
+        v
+     pause()
+        |
+        v
+Ngủ chờ signal tiếp theo
+```
+
+Signal ở đây **không bị mất**: nó đã được `delivery` và handler đã chạy. Vấn đề là chương trình đã **bỏ lỡ thời điểm đánh thức**, vì signal xảy ra trước khi `pause()` bắt đầu ngủ.
+
+Nếu sau đó không còn signal nào khác tới, `pause()` có thể chờ vô thời hạn.
+
+Có thể hình dung race condition này như sau:
+
+```text
+Kiểm tra điều kiện
+        |
+        |  <-- signal có thể chen vào ở đây
+        |
+      pause()
+```
+
+### 12.2 Vì sao phải block signal trước?
+
+Để loại bỏ khe hở trên, chương trình trước tiên phải **block signal mà nó đang chờ**.
+
+Ví dụ đang chờ `SIGUSR1`:
+
+```text
+SIGUSR1 bị BLOCK
+```
+
+Nếu `SIGUSR1` tới trong lúc đang bị block:
+
+```text
+SIGUSR1 tới
+    |
+    v
+Đang bị BLOCK
+    |
+    v
+PENDING
+```
+
+Handler chưa chạy ngay. Signal được giữ ở trạng thái `pending`.
+
+Nhờ đó, chương trình có thể an toàn kiểm tra biến `received` mà không sợ handler của `SIGUSR1` chen vào đúng giữa bước kiểm tra.
+
+### 12.3 `sigsuspend()` giải quyết khe hở giữa `unblock` và `sleep`
+
+Sau khi kiểm tra và thấy `received == 0`, chương trình cần:
+
+1. Cho phép `SIGUSR1` được `delivery` trở lại (`unblock`).
+2. Đi ngủ để chờ signal.
+
+Nếu tự làm hai bước riêng biệt:
+
+```text
+UNBLOCK SIGUSR1
+       |
+       |  <-- signal có thể tới ở đây
+       |
+     SLEEP
+```
+
+thì race condition lại xuất hiện.
+
+`sigsuspend()` giải quyết chính vấn đề này.
+
+Về mặt ý tưởng, `sigsuspend()` thực hiện:
+
+```text
+┌────────────────────────────┐
+│       sigsuspend()         │
+│                            │
+│  1. Tạm thay signal mask   │
+│  2. Đi vào trạng thái chờ  │
+│                            │
+└────────────────────────────┘
+```
+
+Hai việc này được thực hiện **nguyên tử đối với việc chờ signal**, nghĩa là không tồn tại khoảng thời gian mà signal đã được unblock nhưng thread vẫn chưa bắt đầu chờ.
+
+Có thể hiểu ngắn gọn:
+
+```text
+Cách nguy hiểm:
+
+UNBLOCK
+   |
+   |  <-- có khe hở
+   |
+SLEEP
+
+
+Dùng sigsuspend():
+
+     UNBLOCK + SLEEP
+     ───────────────
+      một thao tác
+```
+
+### 12.4 Nếu signal tới trước hoặc sau `sigsuspend()` thì sao?
+
+Giả sử `SIGUSR1` đang bị block và main vừa kiểm tra thấy:
+
+```text
+received == 0
+```
+
+#### Trường hợp 1: `SIGUSR1` tới trước khi gọi `sigsuspend()`
+
+Vì signal vẫn đang bị block:
+
+```text
+SIGUSR1 tới
+    |
+    v
+PENDING
+```
+
+Sau đó main gọi `sigsuspend()` với một mask tạm thời cho phép `SIGUSR1`:
+
+```text
+SIGUSR1 đang PENDING
+        |
+        v
+sigsuspend() tạm UNBLOCK SIGUSR1
+        |
+        v
+SIGUSR1 được DELIVERY
+        |
+        v
+Handler chạy
+        |
+        v
+received = 1
+```
+
+Signal không bị bỏ lỡ.
+
+#### Trường hợp 2: `SIGUSR1` tới sau khi `sigsuspend()` đã bắt đầu chờ
+
+```text
+sigsuspend()
+      |
+      v
+Thread đang chờ
+      |
+      | SIGUSR1 tới
+      v
+Signal được DELIVERY
+      |
+      v
+Handler chạy
+      |
+      v
+received = 1
+```
+
+Trường hợp này cũng an toàn.
+
+Có thể tổng hợp:
+
+```text
+                  SIGUSR1 tới
+                       |
+             +---------+---------+
+             |                   |
+        Tới trước              Tới sau
+      sigsuspend()           sigsuspend()
+             |                   |
+             v                   v
+          PENDING          Thread đang chờ
+             |                   |
+             v                   |
+       sigsuspend()              |
+       tạm unblock               |
+             |                   |
+             v                   v
+          DELIVERY            DELIVERY
+             |                   |
+             +---------+---------+
+                       |
+                       v
+                    Handler
+                       |
+                       v
+                 received = 1
+```
+
+### 12.5 Pattern sử dụng chuẩn
+
+Mô hình tổng quát là:
+
+```text
+1. BLOCK signal cần chờ
+       |
+       v
+2. Kiểm tra điều kiện
+       |
+       v
+3. Nếu điều kiện chưa xảy ra:
+       |
+       v
+4. sigsuspend()
+   -> tạm dùng mask cho phép signal đó
+   -> đồng thời đi ngủ để chờ
+       |
+       v
+5. Signal được delivery
+       |
+       v
+6. Handler cập nhật biến cờ
+       |
+       v
+7. sigsuspend() return
+       |
+       v
+8. Kiểm tra lại điều kiện
+```
+
+Ví dụ:
+
+```c
+volatile sig_atomic_t received = 0;
+
+void handler(int sig)
+{
+    received = 1;
+}
+```
+
+```c
+sigset_t block_mask;
+sigset_t old_mask;
+sigset_t wait_mask;
+
+sigemptyset(&block_mask);
+sigaddset(&block_mask, SIGUSR1);
+
+/* Block SIGUSR1 trước */
+sigprocmask(SIG_BLOCK, &block_mask, &old_mask);
+
+/* Tạo mask tạm dùng khi chờ */
+wait_mask = old_mask;
+sigdelset(&wait_mask, SIGUSR1);
+
+/* Chờ đến khi handler xác nhận SIGUSR1 đã tới */
+while (!received) {
+    sigsuspend(&wait_mask);
+}
+
+/* Khôi phục signal mask ban đầu */
+sigprocmask(SIG_SETMASK, &old_mask, NULL);
+```
+
+Nên dùng `while` thay vì `if`, vì `sigsuspend()` có thể thức dậy bởi một signal khác không phải signal mà chương trình đang chờ. Sau mỗi lần thức dậy, chương trình cần kiểm tra lại điều kiện.
+
+> **Ghi nhớ:** `sigsuspend()` không tự giải quyết race condition nếu dùng một mình. Pattern đúng là **block signal trước khi kiểm tra điều kiện**, sau đó dùng `sigsuspend()` để tạm unblock signal và đi ngủ mà không tạo ra khe hở giữa hai thao tác đó.
 
 ---
 
