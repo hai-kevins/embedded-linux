@@ -261,7 +261,7 @@ Trái với Disposition, trong môi trường đa luồng (multi-threading), m�
 
 Để dùng API, bạn điền cấu hình vào một struct, gồm 3 trường quan trọng nhất:
 *   `sa_handler`: Hàm bạn muốn Kernel gọi. (Hoặc điền `SIG_DFL` để khôi phục mặc định, `SIG_IGN` để lơ đi).
-*   `sa_mask`: Tập signal TẠM THỜI bị block trong khoảng thời gian hàm Handler đang chạy, giúp Handler không bị cắt ngang bởi các signal khác. Mặc định, signal đang được xử lý cũng tự động bị block trừ khi bạn dùng cờ `SA_NODEFER`.
+*   `sa_mask`: Tập các signal mà Kernel sẽ **tạm thời block thêm trong lúc Handler đang chạy**. Các signal này được cộng vào `signal mask` hiện tại của luồng, nhằm ngăn chúng được `delivery` và chen ngang Handler. Ngoài các signal được liệt kê trong `sa_mask`, **signal đang kích hoạt Handler cũng mặc định tự động bị block** trong thời gian Handler thực thi, trừ khi sử dụng cờ `SA_NODEFER`. Khi Handler kết thúc bình thường, Kernel khôi phục `signal mask` trước đó.
 *   `sa_flags`: Các cờ tinh chỉnh hành vi đặc biệt.
 
 ### 6.2 Cờ `SA_RESTART` (Khởi động lại System Call)
