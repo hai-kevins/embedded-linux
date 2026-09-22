@@ -266,7 +266,172 @@ Trái với Disposition, trong môi trường đa luồng (multi-threading), m�
 
 ### 6.2 Cờ `SA_RESTART` (Khởi động lại System Call)
 
-Một interrupted blocking call có thể trả về `-1` với lỗi `EINTR`. Nếu bạn dùng cờ `SA_RESTART` khi cấu hình `sigaction()`, một số syscall (như `read()` trên terminal) có thể được Kernel tự động restart sau khi handler kết thúc. *Lưu ý: `SA_RESTART` không áp dụng cho mọi giao diện (ví dụ các hàm chờ timeout như `select`, `poll` thường không được restart).*
+Khi một luồng đang bị chặn trong một lời gọi chờ (`blocking call`) như `read()`, một signal có thể được `delivery` và khiến Kernel tạm dừng lời gọi đó để chuyển sang chạy `handler`.
+
+Mô hình tổng quát:
+
+```text
+[ Blocking system call ]
+          |
+          v
+   Đang ngủ / chờ
+          |
+          | Signal được delivery
+          v
+     [ Handler chạy ]
+          |
+          v
+    Handler kết thúc
+          |
+          v
+  System call đang dở dang
+  sẽ được xử lý thế nào?
+```
+
+Nếu handler **không** được cài với cờ `SA_RESTART`, một số lời gọi có thể kết thúc và trả:
+
+```text
+return = -1
+errno  = EINTR
+```
+
+`EINTR` (`Interrupted system call`) cho biết lời gọi đang chờ đã bị việc xử lý signal làm gián đoạn. Điều này không nhất thiết có nghĩa là file descriptor bị hỏng hay thiết bị gặp lỗi.
+
+Ví dụ:
+
+```text
+read()
+  |
+  | chưa có dữ liệu
+  v
+BLOCK
+  |
+  | SIGINT được delivery
+  v
+handler()
+  |
+  v
+handler return
+  |
+  v
+read() kết thúc
+  |
+  v
+-1, errno = EINTR
+```
+
+Khi dùng:
+
+```c
+sa.sa_flags = SA_RESTART;
+```
+
+Kernel/libc có thể tự động **restart một số interface hỗ trợ restart** sau khi handler kết thúc. Khi đó, ứng dụng có thể không nhìn thấy lỗi `EINTR`.
+
+Ví dụ với `read()` trên một đối tượng phù hợp như terminal:
+
+```text
+read()
+  |
+  | chưa có dữ liệu
+  v
+BLOCK
+  |
+  | Signal được delivery
+  v
+handler()
+  |
+  v
+handler return
+  |
+  v
+SA_RESTART
+  |
+  v
+read() được restart
+  |
+  v
+tiếp tục chờ dữ liệu
+```
+
+Có thể ghi nhớ theo mô hình:
+
+```text
+           Blocking call
+                |
+          Signal delivery
+                |
+                v
+           Handler chạy
+                |
+                v
+         Handler kết thúc
+                |
+                v
+       Interface có hỗ trợ
+          restart không?
+          /           \
+        Có             Không
+        |                |
+        v                v
+   Có SA_RESTART?      return -1
+     /      \          errno = EINTR
+   Có       Không
+    |          |
+    v          v
+ restart    return -1
+  call      errno = EINTR
+```
+
+> **Quan trọng:** `SA_RESTART` **không có nghĩa là mọi system call đều được tự động restart**. Trên Linux, một số interface như `select()`, `pselect()`, `poll()`, `ppoll()`, `epoll_wait()` và `epoll_pwait()` vẫn có thể trả về `-1` với `errno = EINTR` khi bị signal handler làm gián đoạn.
+
+Điều này đặc biệt hữu ích trong thiết kế event loop:
+
+```text
+Main Loop
+   |
+   v
+poll()
+   |
+   | đang chờ sự kiện
+   |
+   | SIGTERM được delivery
+   v
+handler:
+    stop = 1
+   |
+   v
+poll() -> -1, EINTR
+   |
+   v
+Main Loop thức dậy
+   |
+   v
+kiểm tra stop
+   |
+   v
+shutdown
+```
+
+Trong trường hợp này, `EINTR` không chỉ là một "lỗi" cần retry ngay lập tức. Nó có thể là cơ hội để vòng lặp chính thức dậy, kiểm tra trạng thái ứng dụng và quyết định có tiếp tục chờ hay bắt đầu shutdown.
+
+Ngoài ra, `SA_RESTART` được cấu hình **theo từng signal**, vì nó nằm trong `struct sigaction` tương ứng với signal đó. Ví dụ, handler của `SIGUSR1` có thể dùng `SA_RESTART`, trong khi handler của `SIGTERM` không dùng cờ này để cho phép các blocking call trả về `EINTR` và đánh thức main loop.
+
+Một nuance quan trọng với I/O: nếu một lời gọi như `read()` đã xử lý được một phần dữ liệu trước khi signal tới, nó có thể trả về **số byte đã đọc được** thay vì trả `-1` với `EINTR`.
+
+Vì vậy, code bền vững cần phân biệt:
+
+```text
+return > 0     -> đã xử lý được dữ liệu
+return == 0    -> EOF (đối với read)
+return == -1
+    |
+    +-- errno == EINTR -> bị signal làm gián đoạn
+    |
+    +-- lỗi khác       -> xử lý theo lỗi tương ứng
+```
+
+> **Kết luận:** `SA_RESTART` giúp che đi một số lần gián đoạn do signal bằng cách tự động tiếp tục những blocking call hỗ trợ restart sau khi handler kết thúc. Tuy nhiên, đây không phải cơ chế restart chung cho mọi system call; với các interface như `select()` hoặc `poll()`, ứng dụng vẫn phải chuẩn bị xử lý `EINTR`.
 
 ### 6.3 Cờ `SA_SIGINFO`
 
