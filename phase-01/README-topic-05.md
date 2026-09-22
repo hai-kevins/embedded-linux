@@ -594,10 +594,38 @@ Chạy xong Handler, Kernel đối mặt với System Call đang bị dở dang 
 
 ### 11.2 `EINTR` không phải lúc nào cũng là Retry
 
-Một thói quen dễ gây lỗi là tự động `while(retry)` gọi lại hàm khi gặp `EINTR`. Bạn phải phân tích ngữ cảnh:
-*   Signal vừa tới có phải là yêu cầu tắt phần mềm (như `SIGTERM`) không?
-*   Đã có `partial I/O` xảy ra chưa?
-Retry phải dựa trên semantics của API và trạng thái của ứng dụng, không chỉ dựa trên mã `errno`.
+Khi một blocking call trả về `-1` với `errno == EINTR`, điều đó có nghĩa là **lời gọi đang chờ đã bị một signal làm gián đoạn**. `EINTR` không đồng nghĩa với việc chương trình luôn phải gọi lại (`retry`) ngay lập tức.
+
+Sau khi gặp `EINTR`, ứng dụng cần xem signal vừa nhận có làm thay đổi trạng thái của chương trình hay không:
+
+- Nếu signal chỉ là một thông báo và ứng dụng vẫn cần tiếp tục công việc đang chờ, có thể retry lời gọi.
+- Nếu signal như `SIGTERM` khiến ứng dụng chuyển sang trạng thái chuẩn bị kết thúc, không nên retry blocking call; thay vào đó cần thoát khỏi vòng chờ và thực hiện quá trình shutdown.
+- Với I/O, luôn kiểm tra giá trị trả về. Nếu đã xử lý được một phần dữ liệu, lời gọi có thể trả về số byte đã xử lý thay vì trả `EINTR`.
+
+Có thể hình dung:
+
+```text
+Blocking call
+     |
+     | Signal tới
+     v
+Handler chạy
+     |
+     v
+Call trả EINTR
+     |
+     v
+Ứng dụng còn cần tiếp tục chờ?
+       /                  \
+     Có                    Không
+      |                      |
+      v                      v
+    Retry                 Thoát khỏi
+                         blocking call
+                         và xử lý trạng thái mới
+```
+
+> **Ghi nhớ:** `EINTR` chỉ cho biết blocking call đã bị signal làm gián đoạn. Việc retry hay không phải dựa vào trạng thái hiện tại và mục đích của ứng dụng.
 
 ---
 
