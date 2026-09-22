@@ -449,12 +449,15 @@ POSIX cung cấp các hàm chuyên dụng: khởi tạo rỗng (`sigemptyset`), 
 
 ### 7.2 Lệnh `sigprocmask()`
 
-Là hàm dùng để thay đổi Signal Mask cho luồng hiện tại. Có 3 phép toán logic:
-*   `SIG_BLOCK`: Lấy mask đang có, CỘNG thêm tập hợp mới.
-*   `SIG_UNBLOCK`: Lấy mask đang có, TRỪ đi tập hợp mới.
-*   `SIG_SETMASK`: Thay thế hoàn toàn mask cũ bằng tập hợp mới.
+Là hàm dùng để kiểm tra và thay đổi `Signal Mask` của luồng hiện tại. `Signal Mask` là tập các signal đang bị block. Khi gọi `sigprocmask()`, tham số `how` xác định cách tập signal mới được áp dụng vào mask hiện tại:
 
-*(Lưu ý: Trong ứng dụng đa luồng, phải dùng hàm `pthread_sigmask()` thay thế).*
+- `SIG_BLOCK`: Thêm các signal trong tập mới vào mask hiện tại. Các signal đã bị block trước đó vẫn được giữ nguyên.
+- `SIG_UNBLOCK`: Loại các signal trong tập mới ra khỏi mask hiện tại, tức là cho phép chúng được `delivery` trở lại.
+- `SIG_SETMASK`: Thay thế toàn bộ mask hiện tại bằng tập signal mới.
+
+Nếu truyền `oldset` khác `NULL`, Kernel sẽ lưu lại `Signal Mask` cũ vào đó để chương trình có thể khôi phục lại sau này.
+
+*(Lưu ý: Trong ứng dụng đa luồng, nên sử dụng `pthread_sigmask()` thay cho `sigprocmask()`, vì `Signal Mask` là thuộc tính riêng của từng thread.)*
 
 ---
 
