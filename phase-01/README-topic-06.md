@@ -131,17 +131,38 @@ Lập trình viên ứng dụng nên tư duy và viết code trên lớp API `Pt
 
 ### 3.2 Linux dùng `NPTL` (Native POSIX Thread Library)
 
-Khi bạn gọi hàm `pthread_create()` trong thư viện C (glibc), Linux sử dụng thư viện `NPTL` làm lớp thực thi.
+Trên Linux hiện đại, glibc triển khai `Pthreads` bằng **NPTL (Native POSIX Thread Library)**. Vì vậy, khi ứng dụng gọi `pthread_create()`, lời gọi này trước hết được xử lý ở tầng thư viện glibc/NPTL chứ không phải là một system call có tên `pthread_create()`.
+
+Ở mức khái niệm, luồng xử lý có thể hình dung như sau:
 
 ```text
-[ Ứng dụng C ] ---> Gọi API: pthread_create()
-       |
-[ Thư viện glibc (NPTL) ]
-       |
-[ Kernel Linux ] ---> Gọi cơ chế tạo task (dựa trên clone() primitives)
+[ Ứng dụng C ]
+      |
+      | pthread_create()
+      v
+[ glibc / NPTL ]
+      |
+      | Chuẩn bị các thông tin cần thiết cho thread
+      | như stack, TLS và trạng thái quản lý thread
+      |
+      | Sử dụng cơ chế tạo task của Linux
+      | dựa trên clone
+      v
+[ Linux Kernel ]
+      |
+      | Tạo một task mới để Scheduler quản lý
+      v
+[ Thread mới có thể được lập lịch chạy ]
 ```
 
-NPTL là implementation Pthreads của glibc trên Linux. Việc ứng dụng gọi API chuẩn giúp mã nguồn linh hoạt (portable), không bị khóa cứng (lock-in) vào chi tiết hệ thống như `syscall clone()`.
+Điểm quan trọng cần nhớ là:
+
+- `pthread_create()` là **API POSIX** mà lập trình viên sử dụng.
+- `NPTL` là phần **implementation Pthreads của glibc trên Linux**.
+- Kernel Linux cung cấp cơ chế thấp hơn để tạo một `task` mới; NPTL sử dụng cơ chế dựa trên `clone` để tạo thread.
+- Task mới chia sẻ nhiều tài nguyên với các thread khác trong cùng tiến trình, chẳng hạn không gian địa chỉ và bảng File Descriptor, nhưng vẫn có ngữ cảnh thực thi riêng để Kernel có thể lập lịch độc lập.
+
+Trong phạm vi chủ đề này, chỉ cần hiểu mối quan hệ `pthread_create() → glibc/NPTL → Linux Kernel`. Chưa cần đi sâu vào các `CLONE_*` flag, `clone()` syscall cụ thể hay các hàm nội bộ bên trong Kernel.
 
 ### 3.3 Mô hình 1:1
 
