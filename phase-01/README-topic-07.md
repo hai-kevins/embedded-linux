@@ -62,7 +62,7 @@ Nguy hiểm xuất hiện khi dữ liệu đó **có thể bị thay đổi (mut
 
 ### 1.2 Đồng bộ không chỉ là “khóa một biến đơn lẻ”
 
-Nhiều người lầm tưởng đồng bộ là áp một khóa lên một biến số nguyên `count`. Thực tế, thứ chúng ta cần bảo vệ thường lớn hơn: nó là **tính nhất quán của một tập hợp trạng thái (Invariant)**.
+Nhiều người lầm tưởng đồng bộ là áp một khóa lên một biến số nguyên `count`. Thực tế, thứ chúng ta cần bảo vệ thường lớn hơn: đó là **các ràng buộc nhất quán (`invariant`) của trạng thái** — tức những quan hệ logic giữa các trường dữ liệu phải được duy trì đúng khi trạng thái được các luồng khác quan sát.
 
 Giả sử bạn có một cấu trúc hàng đợi (Queue):
 ```c
@@ -73,7 +73,7 @@ struct Queue {
     int buffer[10];
 };
 ```
-Khi Luồng A thêm dữ liệu vào `buffer`, nó cũng phải cập nhật `tail` và `size`. Nếu trong khoảnh khắc Luồng A mới cập nhật `buffer` xong nhưng chưa kịp sửa `size`, Luồng B nhảy vào đọc, Luồng B sẽ nhận được một trạng thái hàng đợi sai lệch, vi phạm tính nhất quán (invariant). Do đó, đối tượng cần bảo vệ là **toàn bộ khối trạng thái logic**, chứ không phải từng biến đơn lẻ.
+Khi Luồng A thêm dữ liệu vào `buffer`, nó cũng phải cập nhật `tail` và `size`. Nếu trong khoảnh khắc Luồng A mới cập nhật `buffer` xong nhưng chưa kịp sửa `size`, Luồng B nhảy vào đọc, Luồng B sẽ nhận được một trạng thái hàng đợi sai lệch, vi phạm **ràng buộc nhất quán (`invariant`)** của hàng đợi. Do đó, đối tượng cần bảo vệ là **toàn bộ khối trạng thái logic**, chứ không phải từng biến đơn lẻ.
 
 ### 1.3 Ba câu hỏi quan trọng trước khi chọn cơ chế đồng bộ
 
@@ -108,33 +108,156 @@ Giả sử Tài khoản đang có `balance = 100`.
 
 > **Kết quả:** Luồng B lưu chậm hơn một chút, đè bẹp kết quả của Luồng A. Tài khoản còn 80 thay vì phải là 70. Nếu thứ tự đảo lại, kết quả lại ra 90. Sự không chắc chắn này chính là `Race condition`.
 
-### 2.2 `data race` là khái niệm chặt chẽ hơn ở cấp trình biên dịch
+### 2.2 `data race` là khái niệm chặt chẽ hơn ở cấp mô hình bộ nhớ
 
-`Data race` xảy ra khi có từ hai luồng trở lên cùng truy cập đồng thời vào một vị trí bộ nhớ, trong đó có ít nhất một luồng đang thực hiện thao tác **ghi (write)**, và các luồng này không sử dụng cơ chế đồng bộ thích hợp theo quy định của mô hình bộ nhớ ngôn ngữ.
+`Data race` xảy ra khi có từ hai luồng trở lên cùng truy cập đồng thời vào **cùng một vị trí bộ nhớ**, trong đó có ít nhất một luồng thực hiện thao tác **ghi (`write`)**, và các truy cập đó không được phối hợp bằng cơ chế đồng bộ phù hợp theo mô hình bộ nhớ của ngôn ngữ.
 
-Trong C/C++, `data race` dẫn tới hành vi không xác định (Undefined Behavior - UB). Trình biên dịch có thể tối ưu hóa sai mã nguồn, dẫn đến hậu quả không thể dự đoán.
+Ví dụ đơn giản:
+
+```c
+int count = 0;
+
+// Thread A
+count++;
+
+// Thread B
+count++;
+```
+
+Thoạt nhìn, ta có thể nghĩ hai phép `count++` chỉ đơn giản chạy lần lượt và kết quả cuối cùng sẽ là `2`. Nhưng về mặt khái niệm, `count++` gồm nhiều bước:
+
+```text
+đọc count
+    ↓
+cộng thêm 1
+    ↓
+ghi lại count
+```
+
+Hai luồng có thể xen kẽ như sau:
+
+```text
+count = 0
+
+Thread A                     Thread B
+   |                            |
+   | đọc count = 0              |
+   |                            | đọc count = 0
+   | tính 0 + 1                 |
+   |                            | tính 0 + 1
+   | ghi count = 1              |
+   |                            | ghi count = 1
+   v                            v
+
+             count = 1
+```
+
+Trong trường hợp này:
+
+```text
+Thread A ── đọc/ghi ──┐
+                      ├── cùng một vị trí nhớ: count
+Thread B ── đọc/ghi ──┘
+
+Có ít nhất một thao tác ghi: Có
+Có đồng bộ thích hợp:          Không
+```
+
+Do đó đây là một `data race`.
+
+Điểm quan trọng là trong C/C++, `data race` trên dữ liệu thông thường dẫn tới **Undefined Behavior (UB)**. Điều này có nghĩa là không thể chỉ suy luận rằng chương trình "cùng lắm tính sai một giá trị". Compiler được phép tối ưu dựa trên các quy tắc của mô hình bộ nhớ; khi chương trình vi phạm các quy tắc đó, hành vi không còn được ngôn ngữ đảm bảo.
+
+Có thể phân biệt ngắn gọn:
+
+```text
+Data race
+= nhiều luồng truy cập cùng vị trí nhớ
++ có ít nhất một bên ghi
++ thiếu synchronization phù hợp
+
+Race condition
+= tính đúng đắn của chương trình phụ thuộc vào
+  timing hoặc thứ tự xen kẽ giữa các thao tác
+```
+
+`Data race` và `race condition` thường xuất hiện cùng nhau, nhưng không phải là hai khái niệm đồng nghĩa.
 
 ### 2.3 Race Condition ở mức logic giao thức (Protocol)
 
-Đôi khi, từng biến đã được bảo vệ bởi khóa, nhưng lỗi logic vẫn xảy ra:
+Ngay cả khi từng lần đọc/ghi đã được đặt dưới Mutex, chương trình vẫn có thể xảy ra `race condition` nếu **ranh giới của thao tác logic được bảo vệ quá hẹp**.
+
+Ví dụ, Luồng A cần kiểm tra xem tài nguyên `X` còn trống hay không rồi mới sử dụng nó:
 
 ```text
 Luồng A:
-  Khóa(M);
-  Kiểm tra: Nếu tài nguyên X còn trống -> Mở Khóa(M).
+  lock(M)
+  kiểm tra X còn trống
+  unlock(M)
 
-  ... (Luồng B xen vào, Khóa M, sử dụng tài nguyên X, Mở Khóa M) ...
+  ... khoảng thời gian không giữ khóa ...
 
-  Khóa(M);
-  (Luồng A sử dụng X dựa trên kết quả kiểm tra cũ) -> LỖI!
-  Mở Khóa(M).
+  lock(M)
+  sử dụng X dựa trên kết quả kiểm tra trước đó
+  unlock(M)
 ```
 
-> Mặc dù từng thao tác đọc/ghi đã được khóa, nhưng ranh giới giao dịch (transaction) lại quá hẹp. Hai thao tác `Kiểm tra -> Hành động` bắt buộc phải được xem như một quyết định nguyên khối không thể bị chia cắt nếu hành động đó phụ thuộc vào kết quả kiểm tra. Nhả khóa ở giữa có thể phá vỡ tính nhất quán của giao thức.
+Thoạt nhìn, cả thao tác kiểm tra lẫn thao tác sử dụng đều có Mutex. Tuy nhiên, sau khi A nhả khóa lần thứ nhất, kết quả kiểm tra `X còn trống` không còn được đảm bảo giữ nguyên.
+
+Một Luồng B có thể chen vào:
+
+```text
+Thread A                              Thread B
+   |                                    |
+   | lock(M)                            |
+   | thấy X = FREE                      |
+   | unlock(M)                          |
+   |                                    |
+   |                                    | lock(M)
+   |                                    | sử dụng / chiếm X
+   |                                    | unlock(M)
+   |                                    |
+   | lock(M)                            |
+   | sử dụng X dựa trên                 |
+   | thông tin cũ: X = FREE             |
+   |                                    |
+```
+
+Sai lầm ở đây không nằm ở một lần đọc hay ghi riêng lẻ, mà nằm ở **mối quan hệ logic giữa `CHECK` và `USE`**:
+
+```text
+CHECK trạng thái
+      ↓
+quyết định dựa trên trạng thái đó
+      ↓
+USE / cập nhật tài nguyên
+```
+
+Nếu hành động phía sau phụ thuộc vào kết quả kiểm tra phía trước, hai bước đó thường phải được xem như **một giao dịch logic (`transaction`) không được phép bị thread khác chen vào giữa**.
+
+Cách thiết kế phù hợp hơn:
+
+```text
+lock(M)
+
+    kiểm tra X
+
+    nếu X phù hợp:
+        sử dụng / cập nhật X
+
+unlock(M)
+```
+
+Như vậy, trong suốt thời gian từ lúc kiểm tra đến lúc hành động, thread khác muốn thao tác xung đột lên `X` bằng cùng Mutex phải chờ.
+
+Điểm cần nhớ:
+
+> **Không có `data race` chưa có nghĩa là không có `race condition`.** Từng truy cập bộ nhớ có thể đã được khóa đúng, nhưng logic tổng thể vẫn sai nếu transaction bị chia nhỏ và thread khác có thể thay đổi trạng thái ở giữa.
 
 ### 2.4 Vùng tới hạn (`critical section`)
 
-`Critical section` là một đoạn mã thay đổi hoặc đọc trạng thái dữ liệu chia sẻ mà các thao tác xung đột không được phép thực hiện đồng thời.
+`Critical section` là **đoạn code thao tác trên shared state mà các thao tác xung đột của thread khác không được phép chạy đồng thời**.
+
+Ví dụ:
 
 ```text
 [ Luồng A ]
@@ -144,13 +267,79 @@ Luồng A:
      v
 +-------------------------------+
 |       CRITICAL SECTION        |
-|  (Cập nhật Trạng thái chung)  |
+|  cập nhật shared state        |
 +-------------------------------+
      |
- unlock(M)
+  unlock(M)
 ```
 
-> **Đọc sơ đồ:** Hành động `lock()` và `unlock()` tạo ranh giới bảo vệ đoạn mã bên trong. Bản thân Khóa Mutex không tự biết nó đang bảo vệ biến nào. Chính **quy ước (protocol) của chương trình** mới quy định rằng mọi luồng muốn truy cập biến đó đều phải lấy cùng một khóa.
+`lock()` và `unlock()` tạo ra ranh giới bảo vệ, nhưng bản thân Mutex **không tự biết nó đang bảo vệ biến hay cấu trúc dữ liệu nào**. Chính protocol của chương trình quy định rằng mọi thread muốn thực hiện thao tác xung đột trên cùng shared state phải sử dụng **cùng một Mutex**.
+
+Ví dụ, nếu cả hai thread đều tuân thủ:
+
+```text
+Muốn truy cập balance
+        |
+        v
+     lock(M)
+        |
+        v
+  truy cập balance
+        |
+        v
+    unlock(M)
+```
+
+thì `balance` mới thực sự được bảo vệ bởi protocol đó. Nếu một thread khác truy cập `balance` mà bỏ qua `M`, Mutex không thể tự ngăn thread đó lại.
+
+Một `critical section` cũng không nhất thiết chỉ gồm một câu lệnh. Nó phải bao phủ **toàn bộ nhóm thao tác cần giữ tính nhất quán**.
+
+Ví dụ với Queue:
+
+```c
+struct Queue {
+    int head;
+    int tail;
+    int size;
+    int buffer[10];
+};
+```
+
+Khi thêm một phần tử, các cập nhật sau có liên quan logic với nhau:
+
+```c
+buffer[tail] = value;
+tail++;
+size++;
+```
+
+Nếu thread khác quan sát Queue sau khi `buffer` đã đổi nhưng `tail` và `size` chưa đổi, nó có thể nhìn thấy một trạng thái trung gian không nhất quán. Vì vậy ba thao tác trên nên nằm trong cùng một critical section:
+
+```c
+pthread_mutex_lock(&mutex);
+
+buffer[tail] = value;
+tail++;
+size++;
+
+pthread_mutex_unlock(&mutex);
+```
+
+Có thể hình dung quan hệ giữa 2.3 và 2.4 như sau:
+
+```text
+2.3 hỏi:
+"Toàn bộ thao tác logic nào không được phép bị thread khác chen vào giữa?"
+
+                    ↓
+
+2.4 trả lời:
+"Đoạn code đó chính là critical section cần được bảo vệ."
+```
+
+Vì vậy, khi xác định `critical section`, không nên chỉ hỏi **"biến nào cần khóa?"**, mà phải hỏi:
+
+> **"Toàn bộ thao tác nào cần được thực hiện như một khối thống nhất để các ràng buộc nhất quán (`invariant`) của shared state được duy trì?"**
 
 ---
 
@@ -530,7 +719,7 @@ Một kỹ thuật để phá vỡ điều kiện "Chờ đợi xoay vòng" là 
 
 Nếu nhiều luồng thường xuyên dồn dập tranh giành một Khóa Mutex, Mutex đó trở thành "điểm nóng" (Contention), dẫn tới thời gian chờ cao và chi phí chuyển đổi ngữ cảnh tăng vọt.
 
-**Nguyên lý thiết kế:** Giữ critical section ngắn gọn **trong giới hạn vẫn bảo toàn được tính nhất quán (invariant) và ý nghĩa giao dịch (transaction semantics)** của nghiệp vụ. Hạn chế tối đa việc giữ khóa khi đang thực hiện các thao tác không xác định thời gian chờ (blocking I/O, tải mạng, ngâm giấc ngủ).
+**Nguyên lý thiết kế:** Giữ critical section ngắn gọn **trong giới hạn vẫn bảo toàn được các ràng buộc nhất quán (`invariant`) và ý nghĩa giao dịch (`transaction semantics`)** của nghiệp vụ. Hạn chế tối đa việc giữ khóa khi đang thực hiện các thao tác không xác định thời gian chờ (blocking I/O, tải mạng, ngâm giấc ngủ).
 
 ---
 
@@ -571,7 +760,7 @@ Khi gặp lỗi, hãy nhóm các triệu chứng và khoanh vùng hệ thống.
 ### 18.2 Câu hỏi gỡ lỗi theo trình tự
 1. Dữ liệu trạng thái chia sẻ (Shared state) nào đang sai?
 2. Mọi truy cập vào dữ liệu đó có tuân theo cùng một giao thức đồng bộ (protocol) không?
-3. Khóa Mutex nào đang bảo vệ `invariant` nào?
+3. Khóa Mutex nào đang bảo vệ **ràng buộc nhất quán (`invariant`)** nào của shared state?
 4. Trật tự lấy khóa (Lock ordering) có nhất quán trên toàn bộ các luồng không?
 5. Mốc trạng thái (Predicate) của Condition Variable là gì? Nó có luôn được đánh giá bên trong vòng lặp `while` không?
 6. Critical section có đang chứa các thao tác chặn (blocking/IO) giữ khóa quá lâu không?
@@ -644,7 +833,7 @@ Bài toán đồng bộ là gì?
 > Trạng thái dữ liệu là cốt lõi của ứng dụng. Condition Variable không chứa dữ liệu; nó hỗ trợ cơ chế chờ và đánh thức. **Việc được đánh thức không đảm bảo Predicate chắc chắn đã đúng** (do `spurious wakeup` hoặc trạng thái đã bị luồng khác thay đổi). Việc sử dụng vòng lặp `while` để kiểm tra lại Predicate sau khi lấy lại Mutex là một quy tắc quan trọng để tránh sai lệch trạng thái.
 
 ### 20.3 Các nguyên lý cốt lõi
-1. Đồng bộ luồng bản chất là bảo vệ **tính nhất quán của tập hợp trạng thái (Invariant)** và thứ tự truy cập.
+1. Đồng bộ luồng bản chất là bảo vệ **các ràng buộc nhất quán (`invariant`) của trạng thái** và thứ tự truy cập.
 2. `Race condition` phụ thuộc vào thời điểm thực thi; `Data race` liên quan đến việc thiếu cơ chế đồng bộ cấp ngôn ngữ (C/C++) gây Undefined Behavior.
 3. Các truy cập xung đột vào một trạng thái chia sẻ cần một chiến lược đồng bộ hóa; Mutex là một trong số đó.
 4. Mutex thiết lập Quyền Sở Hữu: Luồng khóa phải là luồng mở. Tất cả các luồng truy cập phải tuân thủ cùng một giao ước.
