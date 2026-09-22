@@ -411,23 +411,142 @@ Nếu ứng dụng không quan tâm đến kết quả trả về của một lu
 
 ## 9. Thuộc tính, ngăn xếp và chi phí của một luồng
 
-Đa luồng không miễn phí. Mỗi luồng tạo ra đòi hỏi tài nguyên hệ thống hữu hình.
+Đa luồng không miễn phí. Mỗi luồng cần một số tài nguyên riêng, trong đó quan trọng nhất ở mức chương này là **ngăn xếp (stack)**.
 
 ### 9.1 Đối tượng Thuộc tính `pthread_attr_t`
 
-Là đối tượng cấu hình được dùng tại thời điểm gọi `pthread_create()`. Nó cho phép tinh chỉnh trạng thái (Joinable/Detached), thuộc tính lập lịch, kích thước ngăn xếp và vùng bảo vệ (guard size).
+`pthread_attr_t` là đối tượng cấu hình được dùng khi gọi `pthread_create()`. Nó cho phép ứng dụng thiết lập một số thuộc tính của luồng mới, như trạng thái Joinable/Detached, kích thước Stack và kích thước vùng bảo vệ (`guard size`).
+
+Ở mức chương này, chỉ cần nhớ:
+
+```text
+pthread_attr_t
+      |
+      +--> cấu hình trạng thái Joinable / Detached
+      +--> cấu hình kích thước Stack
+      `--> cấu hình Guard region
+```
 
 ### 9.2 Chi phí Ngăn xếp (Stack)
 
-Tiến trình tạo bao nhiêu luồng thì phải tạo bấy nhiêu bộ Ngăn xếp:
+Mỗi luồng cần một Stack riêng để lưu các khung gọi hàm, biến cục bộ và trạng thái phục vụ quá trình thực thi của chính luồng đó.
+
 ```text
-N threads ===> N vùng nhớ Stack riêng biệt
+N threads  ===>  N vùng Stack riêng
 ```
-Kích thước ngăn xếp mặc định phụ thuộc vào kiến trúc và cấu hình hệ thống (glibc, giới hạn `RLIMIT_STACK`). Việc gán một ngăn xếp quá lớn sẽ làm tăng mạnh không gian địa chỉ được dự trữ (address-space reservation), mặc dù nó không ép hệ thống nạp toàn bộ số trang đó vào RAM vật lý (resident physical RAM) ngay lập tức. Tuy nhiên, trên hệ thống nhúng (Embedded) hạn chế RAM, bạn cần đo lường và dùng `pthread_attr_setstacksize()` để cấu hình kích thước phù hợp; thu nhỏ tuỳ tiện có thể gây tràn ngăn xếp (Stack overflow).
+
+Ví dụ:
+
+```text
+[ Không gian địa chỉ ảo chung của process ]
+
++----------------------------+
+| Stack của Thread A         |
++----------------------------+
+| Stack của Thread B         |
++----------------------------+
+| Stack của Thread C         |
++----------------------------+
+| Heap / Data / vùng khác    |
++----------------------------+
+```
+
+Các Stack này đều nằm trong **cùng không gian địa chỉ ảo của process**, nhưng mỗi thread sử dụng một vùng Stack riêng cho quá trình thực thi của mình.
+
+Kích thước Stack mặc định phụ thuộc vào kiến trúc và cấu hình hệ thống; trên Linux dùng glibc, giới hạn `RLIMIT_STACK` cũng có liên quan đến kích thước Stack mặc định của thread.
+
+Một điểm dễ nhầm là:
+
+> Một thread có Stack được cấu hình là vài MB **không có nghĩa Linux lập tức lấy đúng từng đó MB RAM vật lý cho thread đó**.
+
+Trước hết, hệ thống dành một vùng trong **không gian địa chỉ ảo** cho Stack. Các trang RAM vật lý tương ứng thường chỉ thực sự cần đến khi thread sử dụng các phần đó của Stack.
+
+Có thể hình dung:
+
+```text
+Stack được cấu hình: 8 MB
+        |
+        +--> dành một vùng địa chỉ ảo cho Stack
+        |
+        `--> RAM vật lý được sử dụng dần khi
+             thread thực sự chạm tới các trang Stack
+```
+
+Tuy vậy, trên hệ thống Embedded có RAM hạn chế, việc tạo nhiều thread với Stack lớn vẫn cần được kiểm soát. Khi các thread thực sự sử dụng nhiều Stack, tổng lượng RAM tiêu thụ có thể tăng đáng kể.
+
+Ứng dụng có thể dùng `pthread_attr_setstacksize()` để cấu hình kích thước Stack cho thread mới. Nhưng không nên giảm kích thước tùy tiện:
+
+```text
+Stack quá lớn
+    |
+    `--> tốn nhiều không gian địa chỉ và có thể tốn nhiều RAM khi sử dụng
+
+Stack quá nhỏ
+    |
+    `--> có nguy cơ Stack overflow
+```
+
+Vì vậy trên Embedded Linux, kích thước Stack nên được chọn dựa trên nhu cầu thực tế và đo lường, thay vì chỉ giữ mặc định hoặc giảm xuống một giá trị bất kỳ.
 
 ### 9.3 Vùng bảo vệ (Guard region)
 
-Pthreads có thể bố trí một vùng nhớ đệm `guard region/page` sát dưới đáy ngăn xếp. Mục đích là để ngăn chặn một số trường hợp rò rỉ vùng nhớ âm thầm do tràn ngăn xếp; nếu luồng ghi lố vào vùng này, chương trình sẽ phát sinh lỗi phân đoạn (fault) thay vì lặng lẽ ghi đè lên ánh xạ bộ nhớ bên cạnh.
+Pthreads có thể bố trí một **vùng bảo vệ (`guard region`)** ở biên của Stack của một thread. Vùng này được thiết lập để thread không được phép truy cập bình thường.
+
+Mô hình khái niệm:
+
+```text
+[ Stack của Thread A ]
++----------------------------+
+| vùng Stack hợp lệ          |
+|                            |
++----------------------------+
+| Guard region A             |  <-- không được phép truy cập
++----------------------------+
+
+        ... vùng nhớ khác ...
+
+[ Stack của Thread B ]
++----------------------------+
+| vùng Stack hợp lệ          |
+|                            |
++----------------------------+
+| Guard region B             |  <-- không được phép truy cập
++----------------------------+
+```
+
+Nếu Thread A dùng Stack vượt quá giới hạn và chạm vào Guard region:
+
+```text
+Stack Thread A tăng mức sử dụng
+        |
+        v
+vượt khỏi vùng Stack hợp lệ
+        |
+        v
+chạm Guard region
+        |
+        v
+Memory fault
+(thường dẫn tới SIGSEGV)
+```
+
+Mục đích là phát hiện `Stack overflow` sớm hơn, thay vì để Stack tiếp tục ghi tràn sang một vùng nhớ lân cận.
+
+Tuy nhiên, **Guard region không tạo ra sự cách ly tuyệt đối giữa các Stack**. Các thread vẫn dùng chung một không gian địa chỉ ảo. Nếu Thread A có một con trỏ sai nhưng trỏ trực tiếp vào vùng Stack hợp lệ của Thread B, việc ghi vào đó vẫn có thể xảy ra.
+
+Do đó cần phân biệt:
+
+```text
+Guard region giúp phát hiện:
+Stack vượt biên --> chạm vùng bảo vệ --> fault
+
+Guard region không ngăn được:
+con trỏ sai --> trỏ trực tiếp vào vùng nhớ hợp lệ của thread khác
+```
+
+Ở mức chương này, chỉ cần nhớ:
+
+> **Mỗi thread có Stack riêng. Guard region đặt ở biên Stack để giúp phát hiện một số trường hợp Stack overflow, nhưng nó không biến Stack của các thread thành những vùng bộ nhớ cách ly hoàn toàn.**
 
 ---
 
