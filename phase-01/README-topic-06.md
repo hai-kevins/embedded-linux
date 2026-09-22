@@ -742,19 +742,32 @@ Có thể tóm tắt chương bằng các mô hình sau:
 ### 15.2 Vòng đời của một Pthread
 
 ```text
-      pthread_create()  (Tạo mới)
-             |
-             v
-   [ Trạng thái Chạy (Runnable/Running/Blocked) ]
-             |
-             v
-      return / pthread_exit() (Hàm thực thi kết thúc)
-             |
-             v
-        [ TERMINATED ]
-       /               (Joinable)        (Detached)
-     |                 |
-pthread_join()    Tự động thu hồi RAM
+                        pthread_create()
+                               |
+                               v
+                     [ Thread được tạo ]
+                               |
+                               v
+                +-----------------------------+
+                |   Runnable / Running /      |
+                |   Blocked (chờ I/O, ...)    |
+                +-----------------------------+
+                               |
+                  return / pthread_exit()
+                               |
+                               v
+                        [ Terminated ]
+                               |
+                 +-------------+-------------+
+                 |                           |
+                 v                           v
+           [ Joinable ]                 [ Detached ]
+                 |                           |
+      chờ pthread_join()             tự động thu hồi
+                 |                   tài nguyên quản lý
+                 v                      của thread
+        thu hồi tài nguyên
+        quản lý của thread
 ```
 
 > Thiết kế đa luồng cần quản lý vòng đời rõ ràng. Việc một luồng là `Joinable` (cần `pthread_join()`) hay `Detached` quyết định cách tài nguyên của luồng được thu hồi. Quản lý sai trạng thái này có thể dẫn tới việc giữ tài nguyên lâu hơn cần thiết.

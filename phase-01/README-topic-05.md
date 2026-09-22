@@ -1,1082 +1,812 @@
-# Chủ đề 5 — Signal trong Linux
+# Chủ đề 6 — Đa luồng trong Linux (Multithreading)
 
-> **Mục tiêu:** Hiểu rõ `signal` là cơ chế thông báo bất đồng bộ của UNIX/Linux: từ khoảnh khắc phát sinh (`signal generation`), trạng thái chờ đợi (`pending`), cho tới lúc được phân phối (`signal delivery`) và xử lý.
+> **Mục tiêu:** Hiểu luồng (`thread`) là gì, tại sao một tiến trình có thể (và cần) có nhiều luồng. Nắm vững ranh giới giữa những tài nguyên dùng chung và dùng riêng, cùng vòng đời cơ bản: `pthread_create() → chạy → kết thúc → pthread_join() / detach`.
 >
-> **Quy ước ngôn ngữ:** Phần giải thích dùng Tiếng Việt, nhưng thuật ngữ `signal` được giữ nguyên để không nhầm lẫn với tín hiệu điện phần cứng trong hệ nhúng. Các thuật ngữ chuẩn như `signal generation`, `pending`, `signal delivery`, `signal disposition`, `signal mask`, `handler`, `async-signal-safe` cùng tên API, cờ và mã lỗi được giữ nguyên tiếng Anh để đối chiếu tài liệu POSIX.
+> **Quy ước ngôn ngữ:** Phần giải thích dùng Tiếng Việt. Giữ nguyên các thuật ngữ/API chuẩn như `thread`, `Pthreads`, `NPTL`, `pthread_t`, `joinable`, `detached`, `concurrency`, `parallelism`, `race condition`, `atomic operation`, `signal mask`, `TID`, `PID` để thuận tiện cho việc tra cứu tài liệu quốc tế.
 >
-> **Phạm vi:** `signal generation` → `pending` → `signal delivery`, `signal disposition`, `signal mask`, `sigaction()`, `sigprocmask()`, `kill()`, `raise()`, hàm xử lý (handler), `async-signal-safety`, `EINTR`, `SA_RESTART`, và các signal quan trọng.
+> **Phạm vi:** So sánh Tiến trình và Luồng, kiến trúc `Pthreads` và `NPTL`, định danh luồng (PID vs TID), không gian địa chỉ, tạo luồng, vòng đời, quản lý tài nguyên (joinable/detached), ngăn xếp (stack), `concurrency` vs `parallelism`, rủi ro `race condition` cơ bản, và cách quan sát luồng trên Linux.
 >
-> Chương này là **lý thuyết nền tảng**, được thiết kế để định hình tư duy về luồng thực thi bất đồng bộ, không có bài thực hành.
+> Chương này là **lý thuyết nền tảng** chuẩn bị cho lập trình đa luồng. Các cơ chế khóa (Mutex), biến điều kiện (Condition variable) và đồng bộ chi tiết sẽ thuộc **Chủ đề 7**.
 
-Signal nên được hiểu là **một cơ chế thông báo do Kernel can thiệp và chuyển tới tiến trình (hoặc luồng)**, hoàn toàn khác biệt với một lời gọi hàm (function call) bình thường. Khi một signal phát sinh, nó có thể bị chặn lại (`pending`), bị lờ đi, thực thi hành động mặc định của Kernel, hoặc khiến luồng chương trình rẽ ngang vào một đoạn mã xử lý do bạn tự định nghĩa (`handler`).
-
-Điểm cốt lõi của signal không nằm ở việc ghi nhớ tên gọi `SIGINT` hay `SIGTERM`, mà ở việc thấu hiểu **thời điểm `signal delivery` xảy ra** và những **giới hạn khắt khe** khi handler bất ngờ chen ngang vào giữa luồng thực thi đang chạy dở dang của ứng dụng.
+Một tiến trình có thể chứa nhiều luồng thực thi. Các luồng **dùng chung phần lớn tài nguyên của tiến trình** (như không gian địa chỉ RAM, danh sách tệp đang mở `file descriptor`), nhưng mỗi luồng vẫn cần một không gian riêng tư (ngăn xếp/stack, thanh ghi CPU) để ghi nhớ mình đang làm việc đến đâu. Bản chất “dùng chung nhiều nhưng chạy độc lập” giúp việc phối hợp công việc thuận tiện, nhưng đồng thời tạo ra nguy cơ `race condition` nếu dữ liệu dùng chung không được đồng bộ đúng cách.
 
 ---
 
 ## Mục lục
 
-- [1. `signal` là gì?](#1-signal-là-gì)
-- [2. Vòng đời của một `signal`](#2-vòng-đời-của-một-signal)
-- [3. Tiến trình làm gì khi nhận `signal`?](#3-tiến-trình-làm-gì-khi-nhận-signal)
-- [4. Các signal thường gặp](#4-các-signal-thường-gặp)
-- [5. `disposition`, `signal mask` và trạng thái `pending`](#5-disposition-signal-mask-và-trạng-thái-pending)
-- [6. `sigaction()`: cấu hình `signal disposition`](#6-sigaction-cấu-hình-signal-disposition)
-- [7. `signal set` và `sigprocmask()`](#7-signal-set-và-sigprocmask)
-- [8. Gửi signal bằng `kill()` và `raise()`](#8-gửi-signal-bằng-kill-và-raise)
-- [9. `signal handler` chen vào luồng chạy như thế nào?](#9-signal-handler-chen-vào-luồng-chạy-như-thế-nào)
-- [10. Vì sao hàm xử lý signal phải rất hạn chế?](#10-vì-sao-hàm-xử-lý-signal-phải-rất-hạn-chế)
-- [11. Signal và `system call`: `EINTR`, `SA_RESTART`](#11-signal-và-system-call-eintr-sa_restart)
-- [12. Race condition và `sigsuspend()`](#12-race-condition-và-sigsuspend)
-- [13. Tư duy gỡ lỗi signal](#13-tư-duy-gỡ-lỗi-signal)
+- [1. `Multithreading` là gì?](#1-multithreading-là-gì)
+- [2. Tiến trình và luồng khác nhau thế nào?](#2-tiến-trình-và-luồng-khác-nhau-thế-nào)
+- [3. POSIX Threads và NPTL](#3-posix-threads-và-nptl)
+- [4. Định danh luồng: `pthread_t`, TID và PID](#4-định-danh-luồng-pthread_t-tid-và-pid)
+- [5. Các luồng dùng chung gì và có gì riêng?](#5-các-luồng-dùng-chung-gì-và-có-gì-riêng)
+- [6. `pthread_create()`: tạo một luồng mới](#6-pthread_create-tạo-một-luồng-mới)
+- [7. Vòng đời và cách một luồng kết thúc](#7-vòng-đời-và-cách-một-luồng-kết-thúc)
+- [8. Luồng joinable và detached](#8-luồng-joinable-và-detached)
+- [9. Thuộc tính, ngăn xếp và chi phí của một luồng](#9-thuộc-tính-ngăn-xếp-và-chi-phí-của-một-luồng)
+- [10. `concurrency` và `parallelism`](#10-concurrency-và-parallelism)
+- [11. Vì sao dùng chung bộ nhớ dẫn tới `race condition`?](#11-vì-sao-dùng-chung-bộ-nhớ-dẫn-tới-race-condition)
+- [12. Quan sát luồng trên Linux](#12-quan-sát-luồng-trên-linux)
+- [13. Tư duy gỡ lỗi đa luồng](#13-tư-duy-gỡ-lỗi-đa-luồng)
 - [14. Liên hệ với Embedded Linux](#14-liên-hệ-với-embedded-linux)
 - [15. Tổng kết](#15-tổng-kết)
 - [16. Tài liệu tham khảo](#16-tài-liệu-tham-khảo)
 
 ---
 
-## 1. `signal` là gì?
+## 1. `Multithreading` là gì?
 
-`signal` là một phương thức truyền thông điệp bất đồng bộ, trong đó Kernel hoặc một tiến trình khác gửi một thông báo tới tiến trình đích để báo hiệu một sự kiện (ví dụ: yêu cầu kết thúc, vi phạm bộ nhớ, hoặc ngắt từ bàn phím). Nó là cơ chế thông báo/điều khiển (notification/control mechanism), không phải là một kênh truyền dữ liệu (data channel) như pipe, socket hay shared memory.
+Multithreading (Đa luồng) là kỹ thuật cho phép một tiến trình chia nhỏ công việc thành nhiều dòng thực thi (luồng) chạy song hành hoặc xen kẽ nhau.
 
-### 1.1 `signal` không phải lời gọi hàm thông thường
+### 1.1 Từ một dòng tới nhiều dòng thực thi
 
-Trong lập trình tuần tự, luồng kiểm soát là **đồng bộ và tường minh**:
+Chương trình truyền thống chỉ có một luồng thực thi (thường gọi là main thread):
 ```text
-[ Code đang chạy ] 
-       |
-  (Gọi hàm A) 
-       v
-    [ Hàm A ] 
-       |
-  (Return về) 
-       v
-[ Code tiếp tục chạy ]
+[ Tiến trình ] ---> (Luồng A thực hiện tuần tự từ trên xuống dưới)
 ```
 
-Ngược lại, `signal` mang tính **bất đồng bộ**:
+Chương trình đa luồng:
 ```text
-[ Code đang chạy bình thường ]
-            |
-            | (Bất ngờ có sự kiện từ bên ngoài / hoặc lỗi)
-            v
-[ Kernel đóng băng luồng hiện tại, chuẩn bị Signal Delivery ]
-            |
-            v
-[ Ép luồng nhảy sang chạy Signal Handler (nếu có) ]
-            |
-            v
-[ Trả về dòng code đang chạy dở dang trước đó ]
+                 [ Tiến trình ]
+                       |
+          +------------+------------+
+          |            |            |
+          v            v            v
+      [ Luồng A ]  [ Luồng B ]  [ Luồng C ]
+```
+Dù nằm chung một tiến trình, bộ lập lịch (`scheduler`) của Linux Kernel có thể phân bổ CPU để chúng chạy một cách độc lập.
+
+### 1.2 Vì sao cần nhiều luồng?
+
+Một ứng dụng thực tế hiếm khi chỉ làm một việc tuần tự. Giả sử ứng dụng của bạn cần: (1) Đọc dữ liệu từ cảm biến, (2) Xử lý số liệu, và (3) Hiển thị lên màn hình.
+
+Nếu dùng 1 luồng duy nhất:
+```text
+(Đọc cảm biến) ---> [ Bị chặn (Block) chờ thiết bị phản hồi ] ---> (Xử lý và Hiển thị bị đóng băng)
 ```
 
-> **Đọc sơ đồ:** Thời điểm `signal delivery` xảy ra hoàn toàn nằm ngoài sự kiểm soát của dòng code bạn đang viết. Sự kiện có thể giáng xuống ngay giữa lúc chương trình đang thực hiện lệnh `malloc()` hoặc đang mở một kết nối mạng. Đây chính là gốc rễ tạo ra những quy tắc nghiêm ngặt về `signal mask` và `async-signal-safety`.
+Nếu dùng đa luồng:
+```text
+[ Luồng 1: Đọc cảm biến ] ---> (Bị block chờ thiết bị)
+[ Luồng 2: Hiển thị     ] ---> (Vẫn lấy dữ liệu cũ vẽ lên màn hình bình thường)
+[ Luồng 3: Mạng         ] ---> (Vẫn nhận lệnh từ User bình thường)
+```
+Tránh tình trạng "chờ một việc mà chặn toàn bộ dòng thực thi" là lý do lớn nhất để dùng đa luồng.
 
-### 1.2 Nguồn tạo ra signal
+### 1.3 Luồng không chỉ là “một hàm chạy nền”
 
-`signal` là một cơ chế giao tiếp đa dụng, nó có thể được sinh ra từ:
-*   Tiến trình khác: Gọi hàm API `kill()`.
-*   Terminal: Người dùng nhấn `Ctrl+C` (tạo `SIGINT`).
-*   Kernel (Thông báo trạng thái): Tiến trình con kết thúc tạo ra `SIGCHLD`; Ghi vào một `pipe/socket` đã bị đóng tạo ra `SIGPIPE`.
-*   CPU/Memory Fault: Truy cập con trỏ NULL tạo ra `SIGSEGV` (Segmentation fault); chia cho 0 tạo ra `SIGFPE`.
-
-### 1.3 “Bất đồng bộ” không có nghĩa là hoàn toàn ngẫu nhiên
-
-Một số signal thực chất gắn chặt (đồng bộ) với câu lệnh đang thực thi, ví dụ như lỗi truy cập vùng nhớ `SIGSEGV`.
-Tuy nhiên, phần lớn các signal như `SIGTERM` (yêu cầu tắt) đều đến từ bên ngoài (bất đồng bộ). Cả hai trường hợp đều đi chung một con đường xử lý, nhưng cách bạn suy luận để debug sẽ rất khác nhau.
+Một luồng thường bắt đầu bằng cách thực thi một hàm C, nhưng bản thân nó là một **ngữ cảnh thực thi** hoàn chỉnh mang trong mình: bộ đếm lệnh (đang chạy tới dòng code nào), thanh ghi CPU, ngăn xếp (chứa biến cục bộ), và trạng thái lập lịch riêng để Kernel quản lý.
 
 ---
 
-## 2. Vòng đời của một `signal`
+## 2. Tiến trình và luồng khác nhau thế nào?
 
-Một `signal` đi qua các trạm kiểm soát của Kernel trước khi thực sự tác động đến tiến trình.
+Tiến trình cung cấp ranh giới cách ly tài nguyên mạnh mẽ; Luồng chia sẻ tài nguyên nhiều hơn, giúp giao tiếp nhanh nhưng đổi lại rủi ro cách ly lỗi (fault isolation) thấp hơn.
 
-### 2.1 Ba khái niệm nền tảng
+### 2.1 Tiến trình là vùng chứa tài nguyên
 
-```text
-[ Signal Generation (Phát sinh) ]
-             |
-             v
-         [ Pending (Đang chờ) ]
-             |
-             v
-[ Signal Delivery (Phân phối xử lý) ]
-```
+Nhắc lại Topic 04, một tiến trình có một không gian bộ nhớ ảo khổng lồ, chứa mã lệnh, heap, bảng tệp đang mở. Nếu bạn tạo một **tiến trình mới** (bằng `fork()`), Kernel xây dựng một vùng chứa độc lập với không gian địa chỉ riêng. Các tiến trình chia sẻ dữ liệu thường yêu cầu các cơ chế giao tiếp liên tiến trình (IPC).
 
-### 2.2 Sơ đồ trạng thái chi tiết
+### 2.2 Luồng nằm trong cùng tiến trình
 
 ```text
-             [ SIGNAL GENERATION ]
-          Signal được phát sinh/gửi đến
-                     |
-                     v
-              [ SIGNAL PENDING ]
-        Signal đang chờ được phân phối
-                     |
-                     v
-          Signal có đang bị BLOCK
-          bởi signal mask không?
-                /           \
-              Có             Không
-              |                |
-              |                v
-              |        [ Có thể được chọn
-              |          để DELIVERY ]
-              |                |
-              |                v
-              |      [ SIGNAL DELIVERY ]
-              |                |
-              |                v
-              |        Xét signal disposition
-              |          /      |      \
-              |         /       |       \
-              |        v        v        v
-              |    SIG_IGN   Handler   SIG_DFL
-              |       |         |         |
-              |       v         v         v
-              |    Bỏ qua    Chạy      Hành động
-              |              handler    mặc định
-              |
-              +---- chờ đến khi được UNBLOCK ----+
-                                                  |
-                                                  +--> quay lại bước
-                                                       kiểm tra BLOCK
++-------------------------------------------------------------+
+|                      [ TIẾN TRÌNH ]                         |
+|  Tài nguyên dùng chung (Shared):                            |
+|    Mã lệnh (Code) / Dữ liệu toàn cục (Data/BSS) / Heap      |
+|    Bảng File Descriptor / Thư mục làm việc (cwd)            |
+|                                                             |
+|  +-----------------------+       +-----------------------+  |
+|  | [ Luồng A ]           |       | [ Luồng B ]           |  |
+|  | - Ngăn xếp (Stack A)  |       | - Ngăn xếp (Stack B)  |  |
+|  | - Thanh ghi CPU (A)   |       | - Thanh ghi CPU (B)   |  |
+|  | - Signal Mask (A)     |       | - Signal Mask (B)     |  |
+|  +-----------------------+       +-----------------------+  |
++-------------------------------------------------------------+
 ```
 
-> **Đọc sơ đồ:** Sau khi một signal được **phát sinh** (`signal generation`), signal được xem là **pending** trong khoảng thời gian từ lúc phát sinh cho tới khi được **phân phối** (`signal delivery`). Nếu signal đang bị chặn bởi `signal mask`, nó tiếp tục ở trạng thái `pending` và chưa được phân phối. Khi signal không còn bị chặn, Kernel có thể chọn signal đó để thực hiện `delivery`.
->
-> Khi `signal delivery` xảy ra, hành động cụ thể phụ thuộc vào `signal disposition` đã cấu hình:
-> - `SIG_IGN`: bỏ qua signal.
-> - `Handler`: chuyển luồng điều khiển sang chạy hàm xử lý signal.
-> - `SIG_DFL`: thực hiện hành động mặc định của signal, chẳng hạn `Terminate`, `Terminate + Core dump`, `Stop`, `Continue` hoặc `Ignore`, tùy loại signal.
->
-> **Lưu ý:** `Block` và `Ignore` là hai khái niệm khác nhau. `Block` chỉ **trì hoãn việc delivery**, khiến signal tiếp tục ở trạng thái `pending`; còn `SIG_IGN` là một `signal disposition` yêu cầu bỏ qua signal. Trên Linux, nếu một signal vừa bị block vừa có disposition là `SIG_IGN`, signal đó không được thêm vào tập pending khi phát sinh. Vì vậy, sơ đồ trên nên được hiểu chủ yếu là luồng của một signal **không bị loại bỏ do `SIG_IGN`**. Ngoài ra, “đã gửi signal” không đồng nghĩa với “handler bên kia đã chạy ngay lập tức”.
+> **Đọc sơ đồ:** Không gian bộ nhớ lớn (Heap, Data) được dùng chung. Luồng A và Luồng B có thể cùng đọc/ghi một biến toàn cục `int counter` trực tiếp. Tuy nhiên, mỗi luồng được cấp một Ngăn xếp (Stack) và bộ thanh ghi CPU riêng. Điều đáng chú ý là `Signal mask` cũng thuộc cấu trúc riêng của từng luồng (kết nối với kiến thức Topic 05).
 
+### 2.3 So sánh nhanh
+
+| Thuộc tính | Đa Tiến Trình (Multi-Processing) | Đa Luồng (Multi-Threading) |
+| :--- | :--- | :--- |
+| **Không gian địa chỉ** | Tách biệt hoàn toàn (Có COW sau fork) | Dùng chung 100% |
+| **Dữ liệu Heap/Toàn cục** | Không dùng chung trực tiếp (mặc định) | Chia sẻ chung |
+| **Bảng File Descriptor** | Tách biệt (dù có thể kế thừa) | Cùng chung một bảng |
+| **Tốc độ giao tiếp** | Thường cần IPC (Pipe, Socket, Shm) | Truy cập thẳng bộ nhớ chung |
+| **Cách ly lỗi (Fault Isolation)** | Tốt. Tiến trình A sập, tiến trình B vẫn chạy | Kém. Luồng A gây lỗi bộ nhớ, toàn tiến trình chết. |
 
 ---
 
-## 3. Tiến trình làm gì khi nhận `signal`?
+## 3. POSIX Threads và NPTL
 
-Khoảnh khắc Kernel thực hiện `signal delivery`, số phận tiến trình phụ thuộc vào các thiết lập gọi là `signal disposition` (cách hành xử).
+`Pthreads` là tiêu chuẩn giao diện lập trình, còn `NPTL` là kiến trúc triển khai tiêu chuẩn đó trên Linux.
 
-### 3.1 `signal disposition` (Cách hành xử)
+### 3.1 `Pthreads` là gì?
 
-Mỗi loại `signal` đều được gán một cách hành xử. Tiến trình có 3 lựa chọn:
+`POSIX Threads` (`Pthreads`) là một bộ giao diện API chuẩn hóa quốc tế để viết ứng dụng đa luồng trên các hệ điều hành UNIX-like.
+Các hàm cốt lõi: `pthread_create()`, `pthread_join()`, `pthread_detach()`, `pthread_mutex_lock()`...
 
-#### 3.1.1 Hành động mặc định (Default action)
+Lập trình viên ứng dụng nên tư duy và viết code trên lớp API `Pthreads` thay vì thao tác trực tiếp với các cơ chế tạo luồng cấp thấp của nhân hệ điều hành.
 
-Nếu bạn không cấu hình gì, Kernel áp dụng luật mặc định:
-*   `Terminate`: Kết thúc tiến trình (vd: SIGTERM).
-*   `Terminate + Core dump`: Kết thúc tiến trình và ghi trạng thái RAM ra file `core` để debug (vd: SIGSEGV).
-*   `Ignore`: Không làm gì (vd: SIGCHLD).
-*   `Stop` / `Continue`: Dừng hoặc tiếp tục chạy.
+### 3.2 Linux dùng `NPTL` (Native POSIX Thread Library)
 
-#### 3.1.2 Bỏ qua (Ignore)
+Trên Linux hiện đại, glibc triển khai `Pthreads` bằng **NPTL (Native POSIX Thread Library)**. Vì vậy, khi ứng dụng gọi `pthread_create()`, lời gọi này trước hết được xử lý ở tầng thư viện glibc/NPTL chứ không phải là một system call có tên `pthread_create()`.
 
-Bạn có quyền cấu hình yêu cầu Kernel hoàn toàn lờ đi một signal (bằng cờ `SIG_IGN`). Khi đó, signal không gây ra tác động nào và không có bất kỳ Handler nào được chạy.
+Ở mức khái niệm, luồng xử lý có thể hình dung như sau:
 
-#### 3.1.3 Bắt và xử lý bằng `Handler` (Catch)
+```text
+[ Ứng dụng C ]
+      |
+      | pthread_create()
+      v
+[ glibc / NPTL ]
+      |
+      | Chuẩn bị các thông tin cần thiết cho thread
+      | như stack, TLS và trạng thái quản lý thread
+      |
+      | Sử dụng cơ chế tạo task của Linux
+      | dựa trên clone
+      v
+[ Linux Kernel ]
+      |
+      | Tạo một task mới để Scheduler quản lý
+      v
+[ Thread mới có thể được lập lịch chạy ]
+```
 
-Bạn tự viết một hàm C (gọi là Handler) và đăng ký với Kernel. Khi signal được `delivery`, Kernel sẽ ép luồng thực thi tạm nhảy sang chạy hàm Handler của bạn. Chạy xong, nó dùng cơ chế `sigreturn` để quay về dòng code cũ đang chạy dở dang.
+Điểm quan trọng cần nhớ là:
 
-### 3.5 Hai ngoại lệ: `SIGKILL` và `SIGSTOP`
+- `pthread_create()` là **API POSIX** mà lập trình viên sử dụng.
+- `NPTL` là phần **implementation Pthreads của glibc trên Linux**.
+- Kernel Linux cung cấp cơ chế thấp hơn để tạo một `task` mới; NPTL sử dụng cơ chế dựa trên `clone` để tạo thread.
+- Task mới chia sẻ nhiều tài nguyên với các thread khác trong cùng tiến trình, chẳng hạn không gian địa chỉ và bảng File Descriptor, nhưng vẫn có ngữ cảnh thực thi riêng để Kernel có thể lập lịch độc lập.
 
-Kernel không cho phép tiến trình can thiệp vào hai signal này. Bạn không thể Bắt (Catch), Bỏ qua (Ignore) hay Chặn (Block) chúng. Đây là cơ chế của Kernel để đảm bảo luôn có thể kiểm soát được hệ thống khi ứng dụng bị treo.
+Trong phạm vi chủ đề này, chỉ cần hiểu mối quan hệ `pthread_create() → glibc/NPTL → Linux Kernel`. Chưa cần đi sâu vào các `CLONE_*` flag, `clone()` syscall cụ thể hay các hàm nội bộ bên trong Kernel.
+
+### 3.3 Mô hình 1:1
+
+Kiến trúc NPTL ánh xạ theo tỷ lệ 1:1: Mỗi một luồng POSIX (Pthread) bạn tạo ra trên userspace sẽ tương ứng với đúng một "Task" (thực thể lập lịch) thực sự bên trong Kernel.
+Nhờ đó, trên máy tính đa lõi (multi-core):
+```text
+Lõi CPU số 0 ---> Chạy Luồng A
+Lõi CPU số 1 ---> Chạy Luồng B
+```
+Các luồng trong cùng một tiến trình có thể thực sự chạy song song cùng một lúc.
 
 ---
 
-## 4. Các signal thường gặp
+## 4. Định danh luồng: `pthread_t`, TID và PID
 
-Không cần học thuộc toàn bộ bảng Signal. Hãy nắm vững ngữ nghĩa của các loại phổ biến. *(Luôn dùng tên macro như `SIGINT` thay vì hard-code số `9` hay `15` trong mã nguồn).*
+Các định danh `pthread_t`, TID và PID phục vụ các lớp API và mục đích quản lý khác nhau, vì vậy không nên đánh đồng chúng.
 
-### 4.1 `SIGINT` (Interrupt)
+### 4.1 `pthread_t` (Định danh POSIX)
 
-Ngắt từ bàn phím (thường do gõ `Ctrl+C`). Được Terminal gửi tới nhóm tiến trình đang chạy ở Tiền cảnh (Foreground process group).
+`pthread_t` là một kiểu dữ liệu do POSIX định nghĩa để quản lý luồng ở tầng ứng dụng.
+*   Bạn **không được phép** coi nó là một con số nguyên đơn giản (`int`), vì nó là kiểu dữ liệu có cách biểu diễn phụ thuộc hệ thống (trên nhiều hệ thống Linux, nó là con trỏ).
+*   Để lấy ID của luồng đang chạy: `pthread_self()`.
+*   Để so sánh 2 luồng: Phải dùng hàm `pthread_equal(t1, t2)`.
 
-### 4.2 `SIGTERM` (Terminate)
+### 4.2 Góc nhìn từ Kernel: PID và TID
 
-Yêu cầu kết thúc. 
-Ứng dụng CÓ THỂ bắt (catch) signal này. Nó là tiêu chuẩn cho quá trình `graceful shutdown`: Khi nhận `SIGTERM`, Service sẽ ngừng nhận request mới, ghi nốt dữ liệu, đóng kết nối mạng rồi mới kết thúc.
+Bên trong Kernel, mọi đơn vị thực thi được quản lý bởi bộ lập lịch đều gọi là `task` và được cấp một mã `TID` (Thread ID).
+Khi một tiến trình khởi tạo, nó có một luồng duy nhất (Main thread).
+Khi Main thread tạo ra các luồng con, kiến trúc nhóm sẽ như sau:
 
-### 4.3 `SIGKILL` (Kill)
+```text
+             (Tiến trình)  PID / TGID = 4200
+                                |
+             +------------------+------------------+
+             |                  |                  |
+      Main Thread (A)     Worker Thread (B)  Worker Thread (C)
+      TID = 4200          TID = 4201         TID = 4255
+```
 
-Yêu cầu kết thúc bắt buộc.
-Do không thể bị Catch hay Block, Kernel sẽ kết thúc tiến trình ngay lập tức. Ứng dụng không có cơ hội gọi các lệnh dọn dẹp bộ nhớ hay lưu file. Vì vậy, `SIGKILL` (`kill -9`) chỉ nên dùng như giải pháp cuối cùng.
+> **Đọc sơ đồ:** Nhóm các luồng này được Kernel gộp lại thành một Thread Group. Khái niệm `PID` mà ứng dụng lấy bằng hàm `getpid()` thực chất là Thread Group ID (TGID = 4200). Luồng chính có TID bằng đúng PID (4200). Các luồng con có TID cấp phát độc lập (ví dụ 4201, 4255 - không nhất thiết liên tiếp), nhưng chúng vẫn báo cáo chung một `PID` (4200) để hệ thống nhận diện chúng thuộc về cùng một tiến trình. Để lấy được giá trị TID thực sự, ta phải dùng `gettid()`.
 
-### 4.4 `SIGCHLD` (Child)
-
-Được Kernel gửi cho Tiến trình cha khi một Tiến trình con thay đổi trạng thái (kết thúc, bị dừng). 
-`SIGCHLD` đóng vai trò thông báo; tiến trình cha vẫn phải chủ động gọi hàm `wait()` / `waitpid()` để thực sự thu hồi trạng thái của tiến trình con. Việc đặt disposition của `SIGCHLD` thành `SIG_IGN` có những hệ quả đặc biệt trong POSIX (có thể khiến tiến trình con tự động bị reap mà không thành zombie, nhưng chi tiết phụ thuộc cấu hình).
-
-### 4.5 Các lỗi trầm trọng (Faults)
-
-*   `SIGSEGV` (Segmentation fault): Vi phạm quy tắc bảo vệ bộ nhớ, hoặc giải tham chiếu con trỏ NULL.
-*   `SIGILL` (Illegal instruction): CPU gặp phải mã máy không hợp lệ.
-*   `SIGFPE` (Floating-point exception): Các lỗi toán học (không chỉ dành riêng cho số thực, mà bao gồm cả lỗi chia cho 0).
-*   `SIGPIPE`: Cố gắng ghi vào một đường ống (`pipe`/`socket`) mà đầu đọc bên kia đã đóng kết nối. (Thường phải Ignore signal này để ứng dụng tự xử lý qua mã lỗi `EPIPE` của hàm write).
+**Tóm lại:**
+*   `getpid()` -> Lấy định danh tiến trình (TGID).
+*   `gettid()` -> Lấy định danh task hiện tại của Kernel (TID).
+*   `pthread_self()` -> Định danh cấu trúc quản lý luồng ở tầng thư viện C.
 
 ---
 
-## 5. `disposition`, `signal mask` và trạng thái `pending`
+## 5. Các luồng dùng chung gì và có gì riêng?
 
-Đây là ba mảng khái niệm hay bị nhầm lẫn nhất.
-*   **`Disposition` (Cách xử lý):** Hành động được áp dụng khi signal được phân phối.
-*   **`Signal mask` (Tập chặn):** Danh sách các signal đang bị tiến trình/luồng chặn tại thời điểm hiện tại.
-*   **`Pending` (Chờ xử lý):** Signal đã phát sinh nhưng chưa được phân phối.
+### 5.1 Phần dùng chung (Shared)
 
-### 5.1 `Disposition` có phạm vi toàn tiến trình
+Các luồng như người chung một nhà:
+*   Không gian bộ nhớ ảo (Mã lệnh, Dữ liệu toàn cục, Heap, vùng Mmap).
+*   Bảng File Descriptor: Nếu Luồng A mở tệp `/dev/ttyS0` và nhận `fd = 5`, Luồng B hoàn toàn có quyền gọi hàm `write(5, ...)` (việc đồng bộ truy cập sẽ thảo luận sau).
+*   Thư mục làm việc (`cwd`), Umask.
+*   Cách xử lý tín hiệu toàn cục (Signal disposition).
 
-Cách hành xử được chia sẻ chung cho mọi luồng (Thread) trong một tiến trình. Nếu một luồng thay đổi Handler của `SIGTERM`, thì toàn bộ tiến trình sẽ áp dụng disposition mới đó.
+### 5.2 Phần riêng tư (Private)
 
-### 5.2 `Signal mask` (Tập chặn)
+Các luồng giữ những không gian riêng để vận hành luồng thực thi:
+*   Ngăn xếp (Stack): Chứa các khung lời gọi hàm và biến cục bộ.
+*   Thanh ghi CPU và Bộ đếm lệnh (Instruction pointer).
+*   Tấm khiên tín hiệu (`Signal mask`): Mỗi luồng có một mask chặn tín hiệu riêng biệt (Kết nối Topic 05).
+*   Mã lỗi `errno`: Biến này được triển khai theo cơ chế cục bộ cho từng luồng (thread-local), đảm bảo lỗi do I/O của Luồng A sẽ không đè bẹp mã lỗi của Luồng B.
 
-Là tập hợp các loại signal đang bị CHẶN (Block) tại thời điểm hiện tại.
+### 5.3 Ngăn xếp riêng nhưng không cách ly vật lý
 
 ```text
-[ Signal Mask đang Block SIGUSR1 ]
-             |
-   (Signal SIGUSR1 phát sinh)
-             |
-             v
-[ Signal bị giữ ở trạng thái PENDING ]
-             |
-   (Ứng dụng gỡ chặn: Unblock)
-             |
-             v
-[ SIGNAL DELIVERY: Chạy Handler ]
+[ Không gian địa chỉ ảo chung của Tiến trình ]
++-------------------------------+
+| Stack của Luồng A             | <--- (Biến cục bộ int x nằm ở đây)
++-------------------------------+
+| Stack của Luồng B             | <--- (Luồng B cầm con trỏ trỏ tới x)
++-------------------------------+
+| Heap chung                    |
++-------------------------------+
 ```
 
-> **Đọc sơ đồ:** Block không làm signal biến mất. Nó chỉ bắt tín hiệu đó đứng chờ (Pending). Khi ứng dụng Unblock, tín hiệu đó sẽ được phân phối. Đây là khác biệt cốt lõi giữa **Block** (tạm hoãn phân phối) và **Ignore** (loại bỏ signal).
-
-### 5.3 `Signal mask` là của riêng từng luồng
-
-Trái với Disposition, trong môi trường đa luồng (multi-threading), mỗi luồng (Thread) tự giữ một `Signal mask` riêng biệt. (Chi tiết ở Topic 6).
+Mặc dù được gọi là "riêng", Stack của các luồng vẫn nằm chung trong một không gian địa chỉ ảo. Nếu Luồng A rò rỉ địa chỉ con trỏ của biến `x` sang cho Luồng B, Luồng B hoàn toàn có thể truy cập `x`.
+Rủi ro: Việc truyền con trỏ tới biến trên stack đòi hỏi sự đảm bảo về vòng đời (lifetime). Nếu Luồng A kết thúc hàm, vùng Stack A bị thu hồi, con trỏ của Luồng B sẽ trỏ vào vùng nhớ không hợp lệ, dẫn đến hành vi không xác định (undefined behavior).
 
 ---
 
-## 6. `sigaction()`: cấu hình `signal disposition`
+## 6. `pthread_create()`: tạo một luồng mới
 
-Để đăng ký một Handler (cấu hình disposition), API chuẩn của POSIX là `sigaction()`. Ưu tiên sử dụng API này thay cho hàm `signal()` cũ vì `signal()` có lịch sử ngữ nghĩa thiếu nhất quán giữa các hệ điều hành.
+### 6.1 Mô hình `pthread_create()`
 
-### 6.1 Cấu trúc `struct sigaction`
-
-Để dùng API, bạn điền cấu hình vào một struct, gồm 3 trường quan trọng nhất:
-*   `sa_handler`: Hàm bạn muốn Kernel gọi. (Hoặc điền `SIG_DFL` để khôi phục mặc định, `SIG_IGN` để lơ đi).
-*   `sa_mask`: Tập các signal mà Kernel sẽ **tạm thời block thêm trong lúc Handler đang chạy**. Các signal này được cộng vào `signal mask` hiện tại của luồng, nhằm ngăn chúng được `delivery` và chen ngang Handler. Ngoài các signal được liệt kê trong `sa_mask`, **signal đang kích hoạt Handler cũng mặc định tự động bị block** trong thời gian Handler thực thi, trừ khi sử dụng cờ `SA_NODEFER`. Khi Handler kết thúc bình thường, Kernel khôi phục `signal mask` trước đó.
-*   `sa_flags`: Các cờ tinh chỉnh hành vi đặc biệt.
-
-### 6.2 Cờ `SA_RESTART` (Khởi động lại System Call)
-
-Khi một luồng đang bị chặn trong một lời gọi chờ (`blocking call`) như `read()`, một signal có thể được `delivery` và khiến Kernel tạm dừng lời gọi đó để chuyển sang chạy `handler`.
-
-Mô hình tổng quát:
+Khác với `fork()` nhân bản tiến trình, `pthread_create()` yêu cầu bạn chỉ định rõ một **hàm C** (start routine) để luồng mới bắt đầu chạy từ đó.
 
 ```text
-[ Blocking system call ]
-          |
-          v
-   Đang ngủ / chờ
-          |
-          | Signal được delivery
-          v
-     [ Handler chạy ]
-          |
-          v
-    Handler kết thúc
-          |
-          v
-  System call đang dở dang
-  sẽ được xử lý thế nào?
+[ Luồng gọi lệnh (Creator) ]
+             |
+      pthread_create(&thread_id, NULL, my_worker_func, &data)
+             |
+             +-----------------------+
+             |                       |
+             v                       v
+[ Vẫn tiếp tục chạy ]       [ Luồng Mới (New Thread) ]
+                            Bắt đầu thực thi my_worker_func(&data)
 ```
 
-Nếu handler **không** được cài với cờ `SA_RESTART`, một số lời gọi có thể kết thúc và trả:
+Luồng mới sẽ thừa kế một bản sao `signal mask` của luồng gọi nó, sau đó tự điều chỉnh mask riêng của mình.
+
+### 6.2 Thứ tự thực thi không được bảo đảm
+
+Sau lệnh `pthread_create()`, **không có bất kỳ cam kết nào** về việc luồng tạo (creator) hay luồng mới sẽ được Scheduler cấp quyền chạy tiếp trước. Không nên viết logic chương trình dựa trên giả định rằng "luồng tạo sẽ chạy thêm vài dòng code trước khi luồng mới kịp khởi động".
+
+---
+
+## 7. Vòng đời và cách một luồng kết thúc
+
+### 7.1 Vòng đời ở mức khái niệm
+
+Sau khi được tạo bằng `pthread_create()`, một thread không phải lúc nào cũng chạy trên CPU. Trong quá trình tồn tại, thread thường chuyển qua lại giữa một số trạng thái cơ bản:
 
 ```text
-return = -1
-errno  = EINTR
+pthread_create()
+      |
+      v
+[ Runnable ]
+Thread đã sẵn sàng chạy,
+nhưng đang chờ Scheduler cấp CPU
+      |
+      | Scheduler chọn
+      v
+[ Running ]
+Thread đang thực sự chạy trên CPU
+      |
+      +-----------------------------+
+      |                             |
+      | cần chờ I/O / Mutex /       | bị Scheduler tạm dừng
+      | một sự kiện nào đó          | để thread khác chạy
+      v                             |
+[ Blocked / Sleeping ]              |
+Thread tạm thời chưa thể chạy       |
+      |                             |
+      | điều kiện chờ hoàn thành    |
+      v                             |
+[ Runnable ] <----------------------+
+      |
+      | Scheduler chọn lại
+      v
+[ Running ]
+      |
+      | hàm thread `return`
+      | hoặc gọi `pthread_exit()`
+      v
+[ Terminated ]
+Thread đã kết thúc
 ```
 
-`EINTR` (`Interrupted system call`) cho biết lời gọi đang chờ đã bị việc xử lý signal làm gián đoạn. Điều này không nhất thiết có nghĩa là file descriptor bị hỏng hay thiết bị gặp lỗi.
+Có thể hiểu từng trạng thái như sau:
+
+- **`Runnable` — Sẵn sàng chạy:** Thread đã có đủ điều kiện để chạy nhưng hiện chưa được CPU thực thi. Nó đang chờ Linux Scheduler chọn.
+- **`Running` — Đang chạy:** Thread đang thực sự được một CPU thực thi.
+- **`Blocked / Sleeping` — Đang chờ:** Thread chưa thể tiếp tục vì đang chờ một sự kiện, ví dụ chờ dữ liệu I/O, chờ Mutex hoặc ngủ bằng một API nào đó. Trong thời gian này, CPU có thể được dùng để chạy thread khác.
+- **`Terminated` — Đã kết thúc:** Hàm thực thi của thread đã `return` hoặc thread gọi `pthread_exit()`. Thread không còn được Scheduler cho chạy nữa.
+
+Ví dụ, một thread đọc dữ liệu từ UART có thể trải qua chu trình:
+
+```text
+Runnable
+   |
+   v
+Running
+   |
+   | gọi read() nhưng UART chưa có dữ liệu
+   v
+Blocked
+   |
+   | UART nhận được dữ liệu
+   v
+Runnable
+   |
+   | Scheduler cấp CPU
+   v
+Running
+```
+
+Điểm quan trọng cần nhớ:
+
+> **`Runnable` không có nghĩa là thread đang chạy.** Nó chỉ có nghĩa là thread **có thể chạy và đang chờ CPU**. Chỉ khi được Scheduler chọn thì thread mới chuyển sang `Running`.
+
+Khi thread kết thúc:
+
+```text
+Running
+   |
+   | return / pthread_exit()
+   v
+Terminated
+```
+
+Sau đó, cách tài nguyên quản lý thread được thu hồi phụ thuộc vào thread là **`joinable` hay `detached`**, nội dung sẽ được giải thích ở Mục 8.
+
+### 7.2 Lệnh `pthread_exit()`
+
+Lệnh `pthread_exit(value)` kết thúc riêng rẽ luồng đang gọi nó; các luồng khác trong cùng tiến trình vẫn tiếp tục hoạt động. Việc gọi `return value;` từ hàm khởi tạo (start routine) cũng có tác dụng tương tự.
+
+### 7.3 Khác biệt với `exit()`
+
+*   `pthread_exit()`: Kết thúc một luồng.
+*   `exit()` (hoặc `return` từ hàm `main()`): Kết thúc **toàn bộ tiến trình**, vì vậy các luồng còn lại trong tiến trình cũng kết thúc.
+
+---
+
+## 8. Luồng joinable và detached
+
+Khi một luồng hoàn tất (`Terminated`), tài nguyên quản lý của nó cần được hệ thống dọn dẹp. Pthreads chia cách thức dọn dẹp thành hai loại: Joinable và Detached.
+
+### 8.1 Luồng `joinable` (Mặc định)
+
+Luồng được tạo ra mặc định ở trạng thái `Joinable`. Nghĩa là khi luồng chết đi, hệ thống vẫn giữ lại thông tin (trạng thái kết thúc) để chờ một luồng khác tới thu nhận.
+
+```text
+[ Luồng Đích (Target Thread) ]
+      |
+ (Terminated)
+      |
+      | (Giữ lại kết quả trả về)
+      v
+[ Một Luồng Khác gọi pthread_join() ] ---> (Có thể bị Block chờ nếu luồng đích chưa kết thúc)
+      |
+      v
+[ Nhận kết quả. Tài nguyên quản lý luồng đích được thu dọn hoàn toàn (Reclaimed) ]
+```
+> Pthreads không có quan hệ cha/con theo kiểu PPID của tiến trình. Bất kỳ luồng nào trong cùng tiến trình cũng có thể gọi `pthread_join()` để thu hồi luồng khác. Nếu bạn tạo luồng Joinable mà quên gọi `join()`, ứng dụng sẽ tích tụ các thông tin không được thu hồi, dẫn tới rò rỉ tài nguyên (resource leak).
+
+### 8.2 Luồng `detached` (Tự thu hồi)
+
+Nếu ứng dụng không quan tâm đến kết quả trả về của một luồng, bạn có thể thiết lập nó là Detached (gọi `pthread_detach()` hoặc truyền thuộc tính lúc tạo).
+
+```text
+[ Luồng Đích (Detached) ]
+      |
+ (Terminated)
+      |
+      v
+[ Hệ thống tự động thu dọn toàn bộ tài nguyên, không cần ai gọi join() ]
+```
+
+> **Hiểu lầm phổ biến:** Từ `Detached` (tách rời) ĐƠN THUẦN CHỈ ĐỊNH NGHĨA chính sách quản lý tài nguyên sau khi kết thúc. Nó KHÔNG CÓ NGHĨA là luồng đó chạy ngầm (background daemon), cũng không làm thay đổi đặc quyền, ưu tiên lập lịch hay ngăn cản nó chạy song song với các luồng khác.
+
+---
+
+## 9. Thuộc tính, ngăn xếp và chi phí của một luồng
+
+Đa luồng không miễn phí. Mỗi luồng cần một số tài nguyên riêng, trong đó quan trọng nhất ở mức chương này là **ngăn xếp (stack)**.
+
+### 9.1 Đối tượng Thuộc tính `pthread_attr_t`
+
+`pthread_attr_t` là đối tượng cấu hình được dùng khi gọi `pthread_create()`. Nó cho phép ứng dụng thiết lập một số thuộc tính của luồng mới, như trạng thái Joinable/Detached, kích thước Stack và kích thước vùng bảo vệ (`guard size`).
+
+Ở mức chương này, chỉ cần nhớ:
+
+```text
+pthread_attr_t
+      |
+      +--> cấu hình trạng thái Joinable / Detached
+      +--> cấu hình kích thước Stack
+      `--> cấu hình Guard region
+```
+
+### 9.2 Chi phí Ngăn xếp (Stack)
+
+Mỗi luồng cần một Stack riêng để lưu các khung gọi hàm, biến cục bộ và trạng thái phục vụ quá trình thực thi của chính luồng đó.
+
+```text
+N threads  ===>  N vùng Stack riêng
+```
 
 Ví dụ:
 
 ```text
-read()
-  |
-  | chưa có dữ liệu
-  v
-BLOCK
-  |
-  | SIGINT được delivery
-  v
-handler()
-  |
-  v
-handler return
-  |
-  v
-read() kết thúc
-  |
-  v
--1, errno = EINTR
+[ Không gian địa chỉ ảo chung của process ]
+
++----------------------------+
+| Stack của Thread A         |
++----------------------------+
+| Stack của Thread B         |
++----------------------------+
+| Stack của Thread C         |
++----------------------------+
+| Heap / Data / vùng khác    |
++----------------------------+
 ```
 
-Khi dùng:
+Các Stack này đều nằm trong **cùng không gian địa chỉ ảo của process**, nhưng mỗi thread sử dụng một vùng Stack riêng cho quá trình thực thi của mình.
 
-```c
-sa.sa_flags = SA_RESTART;
-```
+Kích thước Stack mặc định phụ thuộc vào kiến trúc và cấu hình hệ thống; trên Linux dùng glibc, giới hạn `RLIMIT_STACK` cũng có liên quan đến kích thước Stack mặc định của thread.
 
-Kernel/libc có thể tự động **restart một số interface hỗ trợ restart** sau khi handler kết thúc. Khi đó, ứng dụng có thể không nhìn thấy lỗi `EINTR`.
+Một điểm dễ nhầm là:
 
-Ví dụ với `read()` trên một đối tượng phù hợp như terminal:
+> Một thread có Stack được cấu hình là vài MB **không có nghĩa Linux lập tức lấy đúng từng đó MB RAM vật lý cho thread đó**.
 
-```text
-read()
-  |
-  | chưa có dữ liệu
-  v
-BLOCK
-  |
-  | Signal được delivery
-  v
-handler()
-  |
-  v
-handler return
-  |
-  v
-SA_RESTART
-  |
-  v
-read() được restart
-  |
-  v
-tiếp tục chờ dữ liệu
-```
-
-Có thể ghi nhớ theo mô hình:
-
-```text
-           Blocking call
-                |
-          Signal delivery
-                |
-                v
-           Handler chạy
-                |
-                v
-         Handler kết thúc
-                |
-                v
-       Interface có hỗ trợ
-          restart không?
-          /           \
-        Có             Không
-        |                |
-        v                v
-   Có SA_RESTART?      return -1
-     /      \          errno = EINTR
-   Có       Không
-    |          |
-    v          v
- restart    return -1
-  call      errno = EINTR
-```
-
-> **Quan trọng:** `SA_RESTART` **không có nghĩa là mọi system call đều được tự động restart**. Trên Linux, một số interface như `select()`, `pselect()`, `poll()`, `ppoll()`, `epoll_wait()` và `epoll_pwait()` vẫn có thể trả về `-1` với `errno = EINTR` khi bị signal handler làm gián đoạn.
-
-Điều này đặc biệt hữu ích trong thiết kế event loop:
-
-```text
-Main Loop
-   |
-   v
-poll()
-   |
-   | đang chờ sự kiện
-   |
-   | SIGTERM được delivery
-   v
-handler:
-    stop = 1
-   |
-   v
-poll() -> -1, EINTR
-   |
-   v
-Main Loop thức dậy
-   |
-   v
-kiểm tra stop
-   |
-   v
-shutdown
-```
-
-Trong trường hợp này, `EINTR` không chỉ là một "lỗi" cần retry ngay lập tức. Nó có thể là cơ hội để vòng lặp chính thức dậy, kiểm tra trạng thái ứng dụng và quyết định có tiếp tục chờ hay bắt đầu shutdown.
-
-Ngoài ra, `SA_RESTART` được cấu hình **theo từng signal**, vì nó nằm trong `struct sigaction` tương ứng với signal đó. Ví dụ, handler của `SIGUSR1` có thể dùng `SA_RESTART`, trong khi handler của `SIGTERM` không dùng cờ này để cho phép các blocking call trả về `EINTR` và đánh thức main loop.
-
-Một nuance quan trọng với I/O: nếu một lời gọi như `read()` đã xử lý được một phần dữ liệu trước khi signal tới, nó có thể trả về **số byte đã đọc được** thay vì trả `-1` với `EINTR`.
-
-Vì vậy, code bền vững cần phân biệt:
-
-```text
-return > 0     -> đã xử lý được dữ liệu
-return == 0    -> EOF (đối với read)
-return == -1
-    |
-    +-- errno == EINTR -> bị signal làm gián đoạn
-    |
-    +-- lỗi khác       -> xử lý theo lỗi tương ứng
-```
-
-> **Kết luận:** `SA_RESTART` giúp che đi một số lần gián đoạn do signal bằng cách tự động tiếp tục những blocking call hỗ trợ restart sau khi handler kết thúc. Tuy nhiên, đây không phải cơ chế restart chung cho mọi system call; với các interface như `select()` hoặc `poll()`, ứng dụng vẫn phải chuẩn bị xử lý `EINTR`.
-
-### 6.3 Cờ `SA_SIGINFO`
-
-Cho phép handler nhận thêm thông tin chi tiết về nguồn gốc của signal (ai gửi, tại sao gửi) thông qua cấu trúc `siginfo_t`.
-
----
-
-## 7. `signal set` và `sigprocmask()`
-
-Làm sao để thay đổi Signal Mask? Bằng cách dùng tập hợp tín hiệu (`sigset_t`) và áp dụng nó.
-
-### 7.1 Thao tác với `sigset_t`
-
-POSIX cung cấp các hàm chuyên dụng: khởi tạo rỗng (`sigemptyset`), nạp tất cả (`sigfillset`), thêm một signal (`sigaddset`), xóa (`sigdelset`).
-
-### 7.2 Lệnh `sigprocmask()`
-
-Là hàm dùng để kiểm tra và thay đổi `Signal Mask` của luồng hiện tại. `Signal Mask` là tập các signal đang bị block. Khi gọi `sigprocmask()`, tham số `how` xác định cách tập signal mới được áp dụng vào mask hiện tại:
-
-- `SIG_BLOCK`: Thêm các signal trong tập mới vào mask hiện tại. Các signal đã bị block trước đó vẫn được giữ nguyên.
-- `SIG_UNBLOCK`: Loại các signal trong tập mới ra khỏi mask hiện tại, tức là cho phép chúng được `delivery` trở lại.
-- `SIG_SETMASK`: Thay thế toàn bộ mask hiện tại bằng tập signal mới.
-
-Nếu truyền `oldset` khác `NULL`, Kernel sẽ lưu lại `Signal Mask` cũ vào đó để chương trình có thể khôi phục lại sau này.
-
-*(Lưu ý: Trong ứng dụng đa luồng, nên sử dụng `pthread_sigmask()` thay cho `sigprocmask()`, vì `Signal Mask` là thuộc tính riêng của từng thread.)*
-
----
-
-## 8. Gửi signal bằng `kill()` và `raise()`
-
-### 8.1 Hàm `kill()`
-
-Cái tên `kill` mang tính lịch sử. Bản chất của lệnh này là: **Gửi một signal tới một tiến trình hoặc nhóm tiến trình**. 
-Nó có thể gửi `SIGTERM` để tắt, `SIGCONT` để yêu cầu chạy tiếp, hoặc gửi signal `0` để kiểm tra sự tồn tại/quyền truy cập đối với tiến trình đích.
-
-### 8.2 Ngữ nghĩa của tham số PID trong `kill()`
-
-1. `PID > 0`: Gửi signal tới **đúng một tiến trình** có PID bằng giá trị này.
-2. `PID == 0`: Gửi signal tới **tất cả tiến trình trong cùng process group** với tiến trình gọi `kill()`.
-3. `PID == -1`: Gửi signal tới **mọi tiến trình mà tiến trình gọi có quyền gửi signal tới**.
-4. `PID < -1`: Gửi signal tới **tất cả tiến trình trong process group có PGID bằng giá trị tuyệt đối của PID** (`|PID|`).
-
-### 8.3 Quyền gửi signal
-
-Biết PID của một tiến trình **không có nghĩa là bạn luôn có quyền gửi signal tới tiến trình đó**. Khi `kill()` được gọi, Linux Kernel sẽ kiểm tra **thông tin định danh và quyền của tiến trình gửi** (`credentials`) cùng với các **Linux capabilities** liên quan, rồi mới quyết định signal có được phép gửi tới tiến trình đích hay không.
-
-### 8.4 Hàm `raise(sig)`
-
-Yêu cầu gửi signal tới chính tiến trình hiện tại. Trong chương trình đa luồng (multi-threaded), theo ngữ nghĩa hiện đại, `raise()` nhắm thẳng tới luồng (calling thread) đã gọi nó, không phải gửi cho một luồng ngẫu nhiên trong tiến trình.
-
----
-
-## 9. `signal handler` chen vào luồng chạy như thế nào?
-
-Handler không phải là một luồng (thread) mới hay một tiến trình con. Nó chạy trên chính luồng đang bị cắt ngang.
-
-### 9.1 Sự chuyển luồng điều khiển (Control Transfer)
-
-```text
-[ Luồng chính đang chạy ] 
-           |
-(Signal Delivery xảy ra)
-           |
-           v
-[ Kernel lưu ngữ cảnh thanh ghi CPU của Luồng chính ]
-           |
-[ Kernel chuẩn bị Signal Frame trên Stack, đổi con trỏ lệnh ]
-           |
-           v
-[ HÀM HANDLER CHẠY Ở USERSPACE ]
-           |
-   (Handler kết thúc)
-           |
-           v
-[ Cơ chế sigreturn được kích hoạt ]
-           |
-[ Khôi phục lại ngữ cảnh thanh ghi cũ ]
-           |
-           v
-[ Luồng chính tiếp tục chạy ]
-```
-
-> **Đọc sơ đồ:** Kernel tự cấu trúc lại thanh ghi và ngăn xếp (Stack) của luồng hiện tại để ép nó chuyển sang chạy hàm Handler. Khi hàm Handler kết thúc, nó sử dụng cơ chế `sigreturn` để báo Kernel khôi phục lại hiện trạng cũ. Vì Handler dùng chung không gian với luồng chính, nếu nó làm thay đổi các biến toàn cục không an toàn, luồng chính sẽ bị ảnh hưởng. Ứng dụng không nên tự gọi `sigreturn()`.
-
----
-
-## 10. Vì sao hàm xử lý signal phải rất hạn chế?
-
-Vì bản chất chen ngang, mã trong handler phải giả định rằng trạng thái chương trình đang dang dở.
-
-### 10.1 Khái niệm `async-signal-safe`
-
-POSIX liệt kê một tập hợp các hàm C được xem là `async-signal-safe` (an toàn khi bị ngắt bất đồng bộ). 
-Chỉ những hàm trong danh sách này (như `write()`, `read()`, `_exit()`) mới được phép gọi an toàn từ bên trong Handler.
-
-**Nhiều hàm thư viện C quen thuộc KHÔNG an toàn:**
-Bạn KHÔNG ĐƯỢC dùng `printf()`, `malloc()`, `free()` bên trong Handler.
-
-### 10.2 Ví dụ Deadlock nội bộ
-
-```text
-[ Luồng chính đang gọi printf("Log...") ]
-           |
-           |--> printf lấy Khóa (Mutex Lock) nội bộ của thư viện stdio
-           |
-   (Signal Delivery chen ngang luồng)
-           v
-[ Chuyển sang chạy Handler ]
-           |
-           |--> Handler lại gọi printf("Signal received!")
-           |
-           v
-   printf thứ 2 cố gắng lấy Khóa Mutex. 
-   Nhưng Khóa đang bị chính Luồng này giữ dở dang ở trên.
-           |
-           v
-[ TIẾN TRÌNH TREO CỨNG (DEADLOCK) ]
-```
-
-> **Đọc sơ đồ:** Handler chen ngang ngay lúc chương trình đang giữ một khóa (lock) nội bộ của `libc`. Handler lại gọi hàm yêu cầu chính khóa đó, dẫn đến việc luồng tự chờ chính mình nhả khóa vô thời hạn. Do đó, handler phải giới hạn thao tác vào những API phù hợp với async-signal context.
-
-### 10.3 Thiết kế Handler chuẩn mực
-
-Nguyên tắc tốt: **Handler làm tối thiểu công việc.**
-
-```text
-[ Signal Handler ]
-      |
-      |--> Chỉ gán một biến cờ (Flag) đơn giản, an toàn.
-      |
-  (Return ngay)
-      v
-[ Vòng lặp chính (Main Loop) của chương trình ]
-      |
-      |--> Kiểm tra Flag -> Gọi hàm xử lý logic phức tạp, ghi log.
-```
-
-Nhường việc nặng cho luồng chính (Main Loop) tự làm vào thời điểm an toàn giúp giảm rủi ro `async-signal-safety`. (Lưu ý: mô hình flag là pattern tốt, nhưng bản thân việc đồng bộ flag này giữa các luồng khác nhau lại là một vấn đề riêng biệt).
-
-### 10.4 Biến `volatile sig_atomic_t`
-
-Để gán cờ an toàn giữa luồng chính và handler, biến cờ nên được khai báo với kiểu `volatile sig_atomic_t`. 
-*   `volatile`: Tránh việc trình biên dịch (Compiler) tối ưu hóa sai lệch.
-*   `sig_atomic_t`: Kiểu dữ liệu phù hợp để chia sẻ một giá trị đơn giản giữa code đang chạy bình thường và `signal handler`. Một thao tác đọc hoặc ghi đơn giản trên biến kiểu này sẽ không bị quan sát ở trạng thái “đang thực hiện dở”. Tuy nhiên, điều đó không có nghĩa các phép toán phức hợp như `counter++` đều atomic, và `sig_atomic_t` cũng không phải cơ chế đồng bộ giữa các thread để thay thế `mutex`.
-
-### 10.5 Bảo toàn `errno` trong Handler
-
-Handler có thể làm thay đổi biến `errno` nếu nó gọi các hàm hệ thống. Một handler được viết cẩn thận sẽ lưu lại giá trị `errno` lúc bắt đầu và phục hồi nó trước khi kết thúc để tránh làm hỏng trạng thái của luồng bị gián đoạn.
-
----
-
-## 11. Signal và `system call`: `EINTR`, `SA_RESTART`
-
-### 11.1 Gián đoạn System call (Mã lỗi `EINTR`)
-
-Khi một luồng đang ngủ chờ trong một System Call bị chặn (ví dụ chờ `read()`). Một Signal được phân phối tới, Kernel đánh thức luồng, bắt nó chạy Handler.
-
-Chạy xong Handler, Kernel đối mặt với System Call đang bị dở dang kia. Tùy thuộc vào cờ `SA_RESTART` và loại API, System call có thể tự động restart, hoặc trả về không gian người dùng với giá trị `-1` và mã lỗi `errno = EINTR` (Interrupted System Call). (Nếu có `partial I/O` xảy ra, hàm có thể trả về số lượng byte đã xử lý thay vì lỗi `EINTR`).
-
-### 11.2 `EINTR` không phải lúc nào cũng là Retry
-
-Một số hàm như `read()`, `poll()` hoặc `wait()` có thể phải **dừng lại để chờ dữ liệu hoặc chờ một sự kiện**.
-
-Trong lúc chương trình đang chờ, nếu một signal được `delivery` và handler chạy, lời gọi đang chờ có thể bị gián đoạn:
-
-```text
-read() / poll() / wait()
-        |
-        v
-   Đang chờ...
-        |
-        | Signal tới
-        v
-   Handler chạy
-        |
-        v
-Lời gọi bị gián đoạn
-        |
-        v
-return -1
-errno = EINTR
-```
-
-Khi gặp `EINTR`, chương trình cần quyết định **có còn muốn tiếp tục công việc đang chờ hay không**.
-
-Điểm quan trọng là không nên chia signal thành “đơn giản” hay “nghiêm trọng”, mà phải xem **signal đó có làm thay đổi trạng thái của ứng dụng hay không**:
-
-- Nếu signal chỉ thông báo một sự kiện và ứng dụng vẫn cần tiếp tục chờ dữ liệu hoặc sự kiện, có thể gọi lại (`retry`) hàm đó.
-- Nếu signal làm ứng dụng chuyển sang trạng thái chuẩn bị kết thúc, ví dụ handler của `SIGTERM` đặt `stop = 1`, thì không nên retry lời gọi đang chờ. Main loop nên nhận ra trạng thái mới, thoát khỏi vòng chờ, đóng các tài nguyên cần thiết và kết thúc tiến trình một cách có kiểm soát (`graceful shutdown`).
+Trước hết, hệ thống dành một vùng trong **không gian địa chỉ ảo** cho Stack. Các trang RAM vật lý tương ứng thường chỉ thực sự cần đến khi thread sử dụng các phần đó của Stack.
 
 Có thể hình dung:
 
 ```text
-Signal làm gián đoạn lời gọi đang chờ
-                |
-                v
-             EINTR
-                |
-                v
-Signal có làm ứng dụng đổi trạng thái không?
-          /                         \
-        Không                        Có
-         |                           |
-         v                           v
-Ứng dụng vẫn cần chờ?       Ví dụ: SIGTERM làm
-         |                   stop = 1
-         v                           |
-       Retry                         v
-                              Không retry nữa
-                                     |
-                                     v
-                             Dọn dẹp tài nguyên
-                                     |
-                                     v
-                             Kết thúc tiến trình
+Stack được cấu hình: 8 MB
+        |
+        +--> dành một vùng địa chỉ ảo cho Stack
+        |
+        `--> RAM vật lý được sử dụng dần khi
+             thread thực sự chạm tới các trang Stack
 ```
 
-> **Ghi nhớ:** `EINTR` chỉ cho biết lời gọi đang chờ đã bị signal làm gián đoạn. Nếu ứng dụng vẫn muốn tiếp tục công việc đang chờ thì có thể retry; nếu signal khiến ứng dụng chuyển sang trạng thái kết thúc, như cách thường xử lý `SIGTERM`, thì không nên retry máy móc.
+Tuy vậy, trên hệ thống Embedded có RAM hạn chế, việc tạo nhiều thread với Stack lớn vẫn cần được kiểm soát. Khi các thread thực sự sử dụng nhiều Stack, tổng lượng RAM tiêu thụ có thể tăng đáng kể.
+
+Ứng dụng có thể dùng `pthread_attr_setstacksize()` để cấu hình kích thước Stack cho thread mới. Nhưng không nên giảm kích thước tùy tiện:
+
+```text
+Stack quá lớn
+    |
+    `--> tốn nhiều không gian địa chỉ và có thể tốn nhiều RAM khi sử dụng
+
+Stack quá nhỏ
+    |
+    `--> có nguy cơ Stack overflow
+```
+
+Vì vậy trên Embedded Linux, kích thước Stack nên được chọn dựa trên nhu cầu thực tế và đo lường, thay vì chỉ giữ mặc định hoặc giảm xuống một giá trị bất kỳ.
+
+### 9.3 Vùng bảo vệ (Guard region)
+
+Pthreads có thể bố trí một **vùng bảo vệ (`guard region`)** ở biên của Stack của một thread. Vùng này được thiết lập để thread không được phép truy cập bình thường.
+
+Mô hình khái niệm:
+
+```text
+[ Stack của Thread A ]
++----------------------------+
+| vùng Stack hợp lệ          |
+|                            |
++----------------------------+
+| Guard region A             |  <-- không được phép truy cập
++----------------------------+
+
+        ... vùng nhớ khác ...
+
+[ Stack của Thread B ]
++----------------------------+
+| vùng Stack hợp lệ          |
+|                            |
++----------------------------+
+| Guard region B             |  <-- không được phép truy cập
++----------------------------+
+```
+
+Nếu Thread A dùng Stack vượt quá giới hạn và chạm vào Guard region:
+
+```text
+Stack Thread A tăng mức sử dụng
+        |
+        v
+vượt khỏi vùng Stack hợp lệ
+        |
+        v
+chạm Guard region
+        |
+        v
+Memory fault
+(thường dẫn tới SIGSEGV)
+```
+
+Mục đích là phát hiện `Stack overflow` sớm hơn, thay vì để Stack tiếp tục ghi tràn sang một vùng nhớ lân cận.
+
+Tuy nhiên, **Guard region không tạo ra sự cách ly tuyệt đối giữa các Stack**. Các thread vẫn dùng chung một không gian địa chỉ ảo. Nếu Thread A có một con trỏ sai nhưng trỏ trực tiếp vào vùng Stack hợp lệ của Thread B, việc ghi vào đó vẫn có thể xảy ra.
+
+Do đó cần phân biệt:
+
+```text
+Guard region giúp phát hiện:
+Stack vượt biên --> chạm vùng bảo vệ --> fault
+
+Guard region không ngăn được:
+con trỏ sai --> trỏ trực tiếp vào vùng nhớ hợp lệ của thread khác
+```
+
+Ở mức chương này, chỉ cần nhớ:
+
+> **Mỗi thread có Stack riêng. Guard region đặt ở biên Stack để giúp phát hiện một số trường hợp Stack overflow, nhưng nó không biến Stack của các thread thành những vùng bộ nhớ cách ly hoàn toàn.**
 
 ---
 
-## 12. Race condition và `sigsuspend()`
+## 10. `concurrency` và `parallelism`
 
-Lập trình với signal thường gặp một race condition điển hình khi chương trình muốn làm theo logic:
+Hai khái niệm cốt lõi của khoa học máy tính mà mọi lập trình viên đều phải phân định. Nó không loại trừ lẫn nhau, một hệ thống đa lõi có thể vừa cung cấp tính đồng thời, vừa hỗ trợ tính song song.
 
+### 10.1 Concurrency (Đồng thời)
+
+Nhiều luồng có khoảng thời gian sống hoặc tiến trình công việc chồng lấp lên nhau.
+
+**(Chạy trên 1 lõi CPU duy nhất)**
 ```text
-Kiểm tra xem signal đã tới chưa
-        |
-        +-- Đã tới --> tiếp tục xử lý
-        |
-        +-- Chưa tới --> ngủ để chờ signal
+Thời gian --->
+Luồng A:  [==X==]          [====]
+Luồng B:         [===]
+Luồng C:              [==]
 ```
+> Scheduler luân phiên thực thi A, B, C. Các luồng có thể tạo cảm giác chạy đồng thời dù tại một thời điểm một lõi CPU chỉ thực thi một luồng.
 
-Vấn đề nằm ở **khoảng thời gian giữa lúc kiểm tra điều kiện và lúc thực sự đi ngủ**.
+### 10.2 Parallelism (Song song)
 
-### 12.1 Race condition khi dùng `pause()`
+Nhiều luồng thực sự (physically) được thực thi đồng thời trên các tài nguyên tính toán khác nhau.
 
-Giả sử handler chỉ đặt một biến cờ:
-
-```c
-volatile sig_atomic_t received = 0;
-
-void handler(int sig)
-{
-    received = 1;
-}
-```
-
-Main loop có thể được viết như sau:
-
-```c
-while (!received) {
-    pause();
-}
-```
-
-Thoạt nhìn, logic này có vẻ đúng. Tuy nhiên, signal có thể tới đúng vào khoảng giữa lúc kiểm tra `received` và lúc gọi `pause()`:
-
+**(Chạy trên 3 lõi CPU riêng biệt)**
 ```text
-received = 0
-
-Main kiểm tra received
-        |
-        v
-    thấy == 0
-        |
-        |  <-- SIGUSR1 tới đúng lúc này
-        |          |
-        |          v
-        |      Handler chạy
-        |      received = 1
-        |          |
-        |      Handler return
-        |
-        v
-     pause()
-        |
-        v
-Ngủ chờ signal tiếp theo
+Thời gian --->
+CPU Lõi 0 (Luồng A):  [========]
+CPU Lõi 1 (Luồng B):  [========]
+CPU Lõi 2 (Luồng C):  [========]
 ```
 
-Signal ở đây **không bị mất**: nó đã được `delivery` và handler đã chạy. Vấn đề là chương trình đã **bỏ lỡ thời điểm đánh thức**, vì signal xảy ra trước khi `pause()` bắt đầu ngủ.
+### 10.3 Tại sao tác vụ I/O lại hợp với Concurrency?
 
-Nếu sau đó không còn signal nào khác tới, `pause()` có thể chờ vô thời hạn.
+Ngay cả trên hệ thống đơn lõi, đa luồng vẫn hiệu quả cho tác vụ I/O (mạng, đọc ổ đĩa). Khi Luồng A bị chặn (sleep) chờ dữ liệu mạng, Scheduler sẽ lập tức cấp CPU cho Luồng B để thực hiện tính toán.
 
-Có thể hình dung race condition này như sau:
+### 10.4 Tác vụ CPU-Bound (Nặng tính toán)
 
-```text
-Kiểm tra điều kiện
-        |
-        |  <-- signal có thể chen vào ở đây
-        |
-      pause()
-```
-
-### 12.2 Vì sao phải block signal trước?
-
-Để loại bỏ khe hở trên, chương trình trước tiên phải **block signal mà nó đang chờ**.
-
-Ví dụ đang chờ `SIGUSR1`:
-
-```text
-SIGUSR1 bị BLOCK
-```
-
-Nếu `SIGUSR1` tới trong lúc đang bị block:
-
-```text
-SIGUSR1 tới
-    |
-    v
-Đang bị BLOCK
-    |
-    v
-PENDING
-```
-
-Handler chưa chạy ngay. Signal được giữ ở trạng thái `pending`.
-
-Nhờ đó, chương trình có thể an toàn kiểm tra biến `received` mà không sợ handler của `SIGUSR1` chen vào đúng giữa bước kiểm tra.
-
-### 12.3 `sigsuspend()` giải quyết khe hở giữa `unblock` và `sleep`
-
-Sau khi kiểm tra và thấy `received == 0`, chương trình cần:
-
-1. Cho phép `SIGUSR1` được `delivery` trở lại (`unblock`).
-2. Đi ngủ để chờ signal.
-
-Nếu tự làm hai bước riêng biệt:
-
-```text
-UNBLOCK SIGUSR1
-       |
-       |  <-- signal có thể tới ở đây
-       |
-     SLEEP
-```
-
-thì race condition lại xuất hiện.
-
-`sigsuspend()` giải quyết chính vấn đề này.
-
-Về mặt ý tưởng, `sigsuspend()` thực hiện:
-
-```text
-┌────────────────────────────┐
-│       sigsuspend()         │
-│                            │
-│  1. Tạm thay signal mask   │
-│  2. Đi vào trạng thái chờ  │
-│                            │
-└────────────────────────────┘
-```
-
-Hai việc này được thực hiện **nguyên tử đối với việc chờ signal**, nghĩa là không tồn tại khoảng thời gian mà signal đã được unblock nhưng thread vẫn chưa bắt đầu chờ.
-
-Có thể hiểu ngắn gọn:
-
-```text
-Cách nguy hiểm:
-
-UNBLOCK
-   |
-   |  <-- có khe hở
-   |
-SLEEP
-
-
-Dùng sigsuspend():
-
-     UNBLOCK + SLEEP
-     ───────────────
-      một thao tác
-```
-
-### 12.4 Nếu signal tới trước hoặc sau `sigsuspend()` thì sao?
-
-Giả sử `SIGUSR1` đang bị block và main vừa kiểm tra thấy:
-
-```text
-received == 0
-```
-
-#### Trường hợp 1: `SIGUSR1` tới trước khi gọi `sigsuspend()`
-
-Vì signal vẫn đang bị block:
-
-```text
-SIGUSR1 tới
-    |
-    v
-PENDING
-```
-
-Sau đó main gọi `sigsuspend()` với một mask tạm thời cho phép `SIGUSR1`:
-
-```text
-SIGUSR1 đang PENDING
-        |
-        v
-sigsuspend() tạm UNBLOCK SIGUSR1
-        |
-        v
-SIGUSR1 được DELIVERY
-        |
-        v
-Handler chạy
-        |
-        v
-received = 1
-```
-
-Signal không bị bỏ lỡ.
-
-#### Trường hợp 2: `SIGUSR1` tới sau khi `sigsuspend()` đã bắt đầu chờ
-
-```text
-sigsuspend()
-      |
-      v
-Thread đang chờ
-      |
-      | SIGUSR1 tới
-      v
-Signal được DELIVERY
-      |
-      v
-Handler chạy
-      |
-      v
-received = 1
-```
-
-Trường hợp này cũng an toàn.
-
-Có thể tổng hợp:
-
-```text
-                  SIGUSR1 tới
-                       |
-             +---------+---------+
-             |                   |
-        Tới trước              Tới sau
-      sigsuspend()           sigsuspend()
-             |                   |
-             v                   v
-          PENDING          Thread đang chờ
-             |                   |
-             v                   |
-       sigsuspend()              |
-       tạm unblock               |
-             |                   |
-             v                   v
-          DELIVERY            DELIVERY
-             |                   |
-             +---------+---------+
-                       |
-                       v
-                    Handler
-                       |
-                       v
-                 received = 1
-```
-
-### 12.5 Pattern sử dụng chuẩn
-
-Mô hình tổng quát là:
-
-```text
-1. BLOCK signal cần chờ
-       |
-       v
-2. Kiểm tra điều kiện
-       |
-       v
-3. Nếu điều kiện chưa xảy ra:
-       |
-       v
-4. sigsuspend()
-   -> tạm dùng mask cho phép signal đó
-   -> đồng thời đi ngủ để chờ
-       |
-       v
-5. Signal được delivery
-       |
-       v
-6. Handler cập nhật biến cờ
-       |
-       v
-7. sigsuspend() return
-       |
-       v
-8. Kiểm tra lại điều kiện
-```
+Tạo thêm luồng không đồng nghĩa với việc tạo thêm lõi CPU. Nếu máy chỉ có 2 lõi thì tại một thời điểm chỉ có một số ít luồng CPU-bound có thể thực sự chạy song song; các luồng còn lại phải chờ Scheduler phân chia thời gian CPU.
 
 Ví dụ:
-
-```c
-volatile sig_atomic_t received = 0;
-
-void handler(int sig)
-{
-    received = 1;
-}
+```text
+2 CPU cores
+   |
+   +--> Thread A chạy trên Core 0
+   +--> Thread B chạy trên Core 1
+   +--> Các thread CPU-bound khác phải chờ đến lượt
 ```
 
-```c
-sigset_t block_mask;
-sigset_t old_mask;
-sigset_t wait_mask;
+Nếu tạo quá nhiều thread CPU-bound, Scheduler phải liên tục chuyển CPU từ thread này sang thread khác. Mỗi lần như vậy xảy ra một `context switch`: trạng thái thực thi của thread cũ được lưu lại và trạng thái của thread mới được nạp vào. Đây là chi phí quản lý, không phải công việc hữu ích của ứng dụng. Việc đổi qua lại giữa nhiều thread cũng có thể làm dữ liệu trong CPU cache bị xáo trộn, khiến hiệu năng giảm thêm.
 
-sigemptyset(&block_mask);
-sigaddset(&block_mask, SIGUSR1);
-
-/* Block SIGUSR1 trước */
-sigprocmask(SIG_BLOCK, &block_mask, &old_mask);
-
-/* Tạo mask tạm dùng khi chờ */
-wait_mask = old_mask;
-sigdelset(&wait_mask, SIGUSR1);
-
-/* Chờ đến khi handler xác nhận SIGUSR1 đã tới */
-while (!received) {
-    sigsuspend(&wait_mask);
-}
-
-/* Khôi phục signal mask ban đầu */
-sigprocmask(SIG_SETMASK, &old_mask, NULL);
-```
-
-Nên dùng `while` thay vì `if`, vì `sigsuspend()` có thể thức dậy bởi một signal khác không phải signal mà chương trình đang chờ. Sau mỗi lần thức dậy, chương trình cần kiểm tra lại điều kiện.
-
-> **Ghi nhớ:** `sigsuspend()` không tự giải quyết race condition nếu dùng một mình. Pattern đúng là **block signal trước khi kiểm tra điều kiện**, sau đó dùng `sigsuspend()` để tạm unblock signal và đi ngủ mà không tạo ra khe hở giữa hai thao tác đó.
+Vì vậy, với workload CPU-bound, **nhiều thread hơn không đồng nghĩa với nhanh hơn**. Số lượng thread nên được lựa chọn phù hợp với khả năng chạy song song thực tế của CPU, thay vì tạo thật nhiều thread một cách tùy ý.
 
 ---
 
-## 13. Tư duy gỡ lỗi signal
+## 11. Vì sao dùng chung bộ nhớ dẫn tới `race condition`?
 
-Khi làm việc với Signal, hãy kiểm tra theo chuỗi logic thay vì hoang mang.
+`Race condition` (Điều kiện tương tranh) phát sinh khi tính đúng đắn của chương trình phụ thuộc vào chuỗi thời điểm và thứ tự thực thi (timing/order) của các luồng.
+Dạng nguy hiểm nhất là `data race`, xảy ra khi hai hay nhiều luồng có những thao tác truy cập đồng thời vào một bộ nhớ chia sẻ, trong đó có ít nhất một thao tác ghi, mà không sử dụng bất kỳ cơ chế đồng bộ (synchronization) hợp lý nào. Việc này theo chuẩn ngôn ngữ (C/C++) sẽ dẫn đến hành vi không xác định (Undefined Behavior).
 
-### 13.1 “Tại sao Handler không chạy?”
+### 11.1 Ví dụ: tăng biến đếm
 
-*   Signal có thực sự được phát sinh không? (Do ai gửi, gửi đúng PID không).
-*   Luồng hiện tại có đang bật `Signal Mask` chặn nó lại (Pending) không?
-*   Cách xử lý (Disposition) có bị thiết lập nhầm thành `SIG_IGN` (Bỏ qua) không?
-*   Tiến trình còn sống không?
-*   Signal đó là `SIGKILL` hoặc `SIGSTOP` thì không có handler.
+Mã nguồn C: `counter++`
 
-### 13.2 “Tại sao gửi nhiều Signal mà Handler chỉ chạy ít hơn?”
+Mô hình thao tác ở mức khái niệm (không khẳng định trình biên dịch sẽ sinh chính xác 3 lệnh):
+1.  Đọc giá trị từ bộ nhớ.
+2.  Tăng giá trị đó lên 1.
+3.  Ghi lại vào bộ nhớ.
 
-Signal tiêu chuẩn (Standard signal) KHÔNG phải là một hàng đợi (Queue).
-Nhiều lần phát sinh cùng một standard signal trong lúc nó đang bị block có thể không tạo thành nhiều mục `pending` riêng biệt. Khi Unblock, Handler có thể chỉ chạy 1 lần.
+**Sự xen kẽ tai hại:**
+Giả sử `counter = 10`.
+```text
+[ Luồng A ]                          [ Luồng B ]
+1. Đọc counter (thấy 10)
+                                     1. Đọc counter (cũng thấy 10)
+2. Cộng 10 + 1 = 11
+                                     2. Cộng 10 + 1 = 11
+3. Ghi số 11 về bộ nhớ
+                                     3. Ghi số 11 về bộ nhớ
+```
+> **Kết quả:** Ta có 2 luồng cùng thực hiện lệnh tăng biến đếm, kỳ vọng kết quả là 12. Nhưng do sự chồng lấp truy cập, giá trị cuối cùng lưu lại là 11. Dữ liệu đã bị sai lệch hoàn toàn.
 
-### 13.3 “Đang chạy, thêm Handler vào là Crash/Treo”
+### 11.2 Các giải pháp đồng bộ (Sẽ học ở Topic 07)
 
-Nghi ngờ ngay lập tức: 
-*   Bạn đã gọi hàm vi phạm `async-signal-safe` (như `printf`, `malloc`) bên trong Handler?
-*   Handler bị deadlock trên một lock nội bộ.
+Các truy cập xung đột đồng thời (concurrent conflicting accesses) vào các trạng thái dùng chung bắt buộc phải có một chiến lược đồng bộ. Tuy nhiên, việc chia sẻ biến mà không dùng khóa (lock) **không phải lúc nào cũng gây lỗi**. Các dữ liệu bất biến (Read-only data), thao tác nguyên tử (Atomics), hay thiết kế truyền tin nhắn (Message passing) hoàn toàn hợp lệ. Khóa Mutex chỉ là một trong những giải pháp đồng bộ cơ bản nhất sẽ được giới thiệu ở Topic 07.
 
-### 13.4 “Lệnh `read()` / `wait()` tự dưng bung lỗi -1”
+---
 
-Kiểm tra ngay `errno` có phải bằng `EINTR` không. Nếu đúng, kiểm tra lại cờ `SA_RESTART` và chính sách shutdown của ứng dụng.
+## 12. Quan sát luồng trên Linux
+
+Không nên chỉ dựa vào các dòng log `printf`; hãy dùng thêm các công cụ quan sát của Kernel để xác thực.
+
+### 12.1 Quan sát thư mục `/proc/<pid>/task/`
+
+Như đã học ở phần định danh (Mục 4), nếu tiến trình của bạn có PID = 4200, bạn có thể kiểm tra:
+```text
+/proc/4200/task/
+```
+Thư mục này cho phép quan sát chi tiết từng Linux task (TID) đang chạy trong tiến trình đó (vd: `4200/`, `4201/`, `4202/`). Bằng cách phân tích, bạn có thể xác nhận chương trình thật sự sinh ra bao nhiêu luồng, và luồng TID nào đang ngủ (sleeping), đang chạy hay bị kẹt.
+Bên cạnh đó, file `/proc/thread-self` cung cấp một lối đi tắt để biểu diễn thông tin trạng thái cho "luồng hiện tại" đang truy cập nó.
+
+### 12.2 Công cụ `ps` và `top`
+
+*   Lệnh `ps -eLf` hiển thị chi tiết thông tin lập lịch của mọi luồng (LWP - Light Weight Process / TID).
+*   Trong `top`, nhấn phím `H` để bật chế độ theo dõi từng luồng. Bạn có thể phát hiện việc CPU 100% chỉ thuộc về 1 luồng duy nhất bị kẹt, trong khi các luồng khác đang chờ hoặc ngủ.
+
+### 12.3 Đặt tên cho Luồng
+
+Lập trình viên chuyên nghiệp dùng hàm đặt tên cho luồng (vd: `Sensor-Thrd`, `Net-Thrd`). Tên này sẽ hiển thị lên công cụ `top`/`htop`, biến việc gỡ lỗi trở nên trực quan. Tuy nhiên, tên chỉ để con người và công cụ debug đọc, không dùng nó thay thế cho `pthread_t` hay TID trong các API hệ thống.
+
+---
+
+## 13. Tư duy gỡ lỗi đa luồng
+
+Khi ứng dụng đa luồng gặp sự cố, hãy chia lỗi thành các nhóm chuyên biệt thay vì vội vàng suy luận "luồng bị treo".
+
+### 13.1 Quy trình phân lớp chuẩn
+
+```text
+1. Vòng đời       -> Hàm tạo luồng có thành công không? Main có thoát quá sớm không?
+          |
+2. Nhận diện      -> Đang phân tích log dựa trên pthread_t, PID hay TID?
+          |
+3. Thu hồi        -> Luồng là Joinable hay Detached? Có gây rò rỉ (leak) không?
+          |
+4. Đồng bộ        -> Có rủi ro Data race khi dùng chung biến không? Con trỏ Stack truyền vào còn sống không?
+```
+Kiểm tra theo chuỗi này giúp tránh việc tốn thời gian gỡ lỗi Mutex trong khi luồng thậm chí chưa bao giờ được tạo.
+
+### 13.2 Vì sao luồng mới chưa chạy?
+
+*   Lỗi rất cơ bản: Hàm `main()` kết thúc tiến trình quá sớm trước khi luồng mới kịp khởi động.
+*   Luồng mới bị khóa ngay tại lệnh I/O (ví dụ mạng) đầu tiên.
+*   Thứ tự lập lịch không tuân theo suy đoán chủ quan của bạn.
+
+### 13.3 Timing và ảnh hưởng của logging
+
+Thêm lệnh `printf` hay log có thể làm lỗi tự nhiên biến mất. Việc thêm log làm thay đổi thời gian thực thi (timing), khiến hai luồng lệch pha nhau và né được điểm tương tranh dữ liệu. Việc lỗi tạm thời biến mất không chứng minh rằng mã nguồn đã an toàn.
 
 ---
 
 ## 14. Liên hệ với Embedded Linux
 
-Trong hệ thống nhúng (Embedded Linux), Signal đóng vai trò quan trọng trong việc dừng service, reload cấu hình, và nhận thông báo tiến trình con.
+Trên các hệ thống Nhúng (Embedded Linux), việc lựa chọn kiến trúc xử lý tác vụ là một quyết định kỹ thuật sâu sắc.
 
-### 14.1 `Graceful shutdown` (Tắt máy có kiểm soát)
+### 14.1 Phân chia công việc linh hoạt
 
-Một service khi nhận `SIGTERM` sẽ chuyển trạng thái:
-```text
-[ RUNNING ] -> Nhận SIGTERM -> Đổi cờ Flag -> Quay lại Main Loop -> [ STOPPING ] -> Dọn dẹp tài nguyên -> [ EXIT ]
-```
-Signal nên được xem là yêu cầu thay đổi trạng thái ứng dụng, không phải là lệnh ngắt điện lập tức.
+Một ứng dụng IoT thường thiết kế các luồng chuyên trách: `Sensor thread`, `Processing thread`, `Network thread`, và `Logging thread`. Vì mỗi tiến trình có thể độc lập chịu độ trễ (delay) từ thiết bị và mạng, việc tách chúng giúp hệ thống duy trì được tính phản hồi.
 
-### 14.2 Reload cấu hình bằng `SIGHUP`
+### 14.2 Dùng chung File Descriptor và Ownership
 
-Một số daemon dùng `SIGHUP` như **quy ước ứng dụng** để reload cấu hình. Tuy nhiên, Linux Kernel không quy định bắt buộc "SIGHUP luôn là reload config".
+Các luồng trong hệ thống chia sẻ chung Bảng tệp (File Descriptor Table).
+*   Nếu Luồng A mở UART `/dev/ttyS0` thành `fd 5`, Luồng B cũng có thể gọi hàm ghi vào `fd 5` đó.
+*   Tuy nhiên, phải xây dựng thiết kế quyền sở hữu (ownership) rõ ràng: Luồng nào chịu trách nhiệm cấu hình (open/ioctl), luồng nào nắm quyền đóng tệp (close), và luồng nào chịu trách nhiệm đọc/ghi, để tránh tình trạng tranh chấp cấu hình thiết bị.
 
-### 14.3 Quản lý Worker
+### 14.3 Luồng hay Tiến trình?
 
-Một tiến trình giám sát (Supervisor) có thể kết hợp `fork()`, `SIGCHLD` và `waitpid()` để quản lý vòng đời các tiến trình con. Tuy nhiên, thiết kế tốt là để handler chỉ ghi nhận sự kiện (hoặc dùng các cơ chế như `signalfd`), còn vòng lặp chính (main loop) sẽ chịu trách nhiệm gọi `waitpid()` và `fork` lại worker mới. Không nên đặt logic nghiệp vụ phức tạp trực tiếp vào trong Signal Handler.
-
-### 14.4 Bắt bệnh hệ thống (Fault diagnostics)
-
-Các tín hiệu `SIGSEGV`, `SIGBUS`, `SIGILL` là dấu hiệu quan trọng khi debug lỗi ứng dụng trên thiết bị. Mặc dù vậy, tên signal chỉ mô tả lớp sự kiện; để tìm nguyên nhân gốc rễ vẫn cần đến backtrace, thanh ghi, bản đồ bộ nhớ và logs.
+Ranh giới thiết kế hệ thống Nhúng:
+*   **Đa Luồng (Threads):** Lựa chọn hàng đầu khi các tác vụ đòi hỏi chia sẻ dữ liệu khổng lồ với độ trễ tối thiểu (chạy trong cùng một miền tài nguyên).
+*   **Đa Tiến trình (Processes):** Được dùng để đảm bảo cách ly lỗi (fault isolation), quản lý cấp quyền (privileges) và khả năng khởi động lại các mô-đun độc lập. Một hệ thống Embedded hoàn chỉnh thường là sự kết hợp khéo léo giữa cả hai mô hình này.
 
 ---
 
 ## 15. Tổng kết
 
-Sơ đồ vòng đời của một Signal:
+Có thể tóm tắt chương bằng các mô hình sau:
+
+### 15.1 Kiến trúc tài nguyên
 
 ```text
-   [ Sự kiện / Lệnh kill() ]
-             |
-             v
- [ SIGNAL GENERATED (Phát sinh) ]
-             |
-             +---------> Bị Mask chặn lại -> [ Trạng thái PENDING ]
-             |                                    |
-             |                                (Gỡ Mask)
-             v                                    |
-  [ SIGNAL DELIVERY (Phân phối) ] <---------------+
-             |
-      (Kiểm tra Disposition)
-             |
-    +--------+--------+
-    |        |        |
-    v        v        v
-[ Mặc định ] [ Lờ đi ] [ Chạy Hàm Handler ] ---> Rủi ro Async-Safe / Trả về EINTR
+                         TIẾN TRÌNH
+                             |
+          +------------------+------------------+
+          |                                     |
+          v                                     v
+   Tài Nguyên Dùng Chung (Shared)             Luồng (Threads)
+   ------------------------------             -------
+   Không gian bộ nhớ ảo                       Luồng A
+   Heap / Dữ liệu toàn cục                      |- Stack riêng A
+   Bảng File Descriptor                         |- Thanh ghi CPU A
+   Thư mục làm việc (cwd)                       |- TID / pthread_t A
+                                                `- Signal mask A
+
+                                              Luồng B
+                                                |- Stack riêng B
+                                                |- Thanh ghi CPU B
+                                                |- TID / pthread_t B
+                                                `- Signal mask B
 ```
 
-> **Đọc sơ đồ:** Hành trình diễn giải nguyên lý: Phát sinh (Generation) không có nghĩa là Phân phối ngay (Delivery). Tín hiệu có thể bị giữ ở khâu Pending do `Signal Mask` bảo vệ. Khi lọt qua được và tiến hành Delivery, số phận của tín hiệu mới được phán quyết bởi `Disposition`. Nếu chạy vào Handler, nó tạo ra rủi ro gián đoạn System Call (`EINTR`) và treo hệ thống nếu lập trình viên không hiểu rõ giới hạn `Async-signal-safe`.
+> **Đọc sơ đồ:** Tiến trình cung cấp không gian tài nguyên dùng chung, còn mỗi luồng có một ngữ cảnh thực thi (`execution context`) riêng bên trong tiến trình đó. Vì các luồng cùng truy cập một không gian địa chỉ, việc trao đổi dữ liệu thuận tiện hơn, nhưng dữ liệu dùng chung cần có chiến lược đồng bộ hóa (`synchronization`) phù hợp. Đây là một khác biệt quan trọng giữa đa luồng và đa tiến trình.
 
-**Các nguyên tắc khắc cốt ghi tâm:**
-1. Signal mang tính bất đồng bộ, cắt ngang dòng code hiện tại.
-2. `Generation` (tạo) khác biệt hoàn toàn với `Delivery` (phân phối).
-3. `Disposition` là cách ứng xử; `Mask` là tập các signal đang bị chặn.
-4. Block (chặn) giữ signal ở trạng thái chờ; Ignore (lờ đi) sẽ loại bỏ signal.
-5. `SIGKILL` và `SIGSTOP` không thể bị bắt hay chặn.
-6. `SIGTERM` là yêu cầu kết thúc có thể xử lý; `SIGKILL` là thao tác cưỡng bức của Kernel.
-7. Ưu tiên dùng `sigaction()` để cài đặt Handler.
-8. Handler chạy chung không gian ngữ cảnh với luồng bị cắt ngang.
-9. CHỈ sử dụng các hàm `async-signal-safe` bên trong Handler.
-10. Mã lỗi `EINTR` báo hiệu System Call bị Signal làm gián đoạn; cần phân tích ngữ cảnh trước khi gọi lại (retry).
-11. Signal tiêu chuẩn ở trạng thái Pending không phải là Message Queue bảo toàn số lượng.
+### 15.2 Vòng đời của một Pthread
+
+```text
+                        pthread_create()
+                               |
+                               v
+                     [ Thread được tạo ]
+                               |
+                               v
+                +-----------------------------+
+                |   Runnable / Running /      |
+                |   Blocked (chờ I/O, ...)    |
+                +-----------------------------+
+                               |
+                  return / pthread_exit()
+                               |
+                               v
+                        [ Terminated ]
+                               |
+                 +-------------+-------------+
+                 |                           |
+                 v                           v
+           [ Joinable ]                 [ Detached ]
+                 |                           |
+      chờ pthread_join()             tự động thu hồi
+                 |                   tài nguyên quản lý
+                 v                      của thread
+        thu hồi tài nguyên
+        quản lý của thread
+```
+
+> Thiết kế đa luồng cần quản lý vòng đời rõ ràng. Việc một luồng là `Joinable` (cần `pthread_join()`) hay `Detached` quyết định cách tài nguyên của luồng được thu hồi. Quản lý sai trạng thái này có thể dẫn tới việc giữ tài nguyên lâu hơn cần thiết.
+
+### 15.3 Các nguyên lý cốt lõi
+1. Luồng là một dòng thực thi nằm bên trong một tiến trình.
+2. Các luồng cùng tiến trình chia sẻ chung bộ nhớ ảo và tài nguyên File Descriptor.
+3. Mỗi luồng bảo toàn Ngăn xếp (Stack), mã lỗi `errno` và ngữ cảnh CPU riêng biệt.
+4. `Pthreads` là bộ giao diện POSIX; Linux/glibc hiện đại triển khai nó bằng kiến trúc `NPTL`.
+5. `pthread_t` (Mã ứng dụng POSIX) hoàn toàn khác biệt với `TID` (Mã tác vụ của Kernel).
+6. Hàm `pthread_create()` không tạo ra tiến trình mới, và không cam kết thứ tự luồng nào sẽ được chạy trước.
+7. `pthread_exit()` kết thúc luồng đang gọi; `exit()` kết thúc toàn bộ tiến trình.
+8. Sự khác biệt giữa Joinable và Detached nằm ở cách thu hồi tài nguyên của luồng.
+9. Đa luồng tạo ra khả năng Chạy đồng thời (Concurrency), trong khi việc Chạy song song (Parallelism) đòi hỏi phân bổ luồng trên nhiều lõi phần cứng.
+10. Truy cập đồng thời thiếu đồng bộ vào dữ liệu chia sẻ có thể gây `Data Race` và Hành vi không xác định. Cơ chế khóa sẽ được khai mở ở Topic 07.
 
 ---
 
 ## 16. Tài liệu tham khảo
 
-Phần này liệt kê nguồn chuẩn về signal và các API POSIX liên quan.
+Phần này liệt kê nguồn chuẩn về pthread và luồng trên Linux.
 
-- `signal(7)`: https://man7.org/linux/man-pages/man7/signal.7.html
-- `sigaction(2)`: https://man7.org/linux/man-pages/man2/sigaction.2.html
-- `sigprocmask(2)`: https://man7.org/linux/man-pages/man2/sigprocmask.2.html
-- `sigpending(2)`: https://man7.org/linux/man-pages/man2/sigpending.2.html
-- `kill(2)`: https://man7.org/linux/man-pages/man2/kill.2.html
-- `signal-safety(7)`: https://man7.org/linux/man-pages/man7/signal-safety.7.html
-- `wait(2)`: https://man7.org/linux/man-pages/man2/wait.2.html
-- POSIX.1-2024: https://pubs.opengroup.org/onlinepubs/9799919799/
-- The Linux Programming Interface: https://man7.org/tlpi/
+### POSIX.1-2024 / The Open Group
 
-> **Điều hướng:** [← Chủ đề 4 — Tiến trình](README-topic-04.md) · [Chủ đề 6 — Đa luồng →](README-topic-06.md)
+- https://pubs.opengroup.org/onlinepubs/9799919799/
+- `pthread_create()`: https://pubs.opengroup.org/onlinepubs/9799919799/functions/pthread_create.html
+- `pthread_join()`: https://pubs.opengroup.org/onlinepubs/9799919799/functions/pthread_join.html
+- `pthread_detach()`: https://pubs.opengroup.org/onlinepubs/9799919799/functions/pthread_detach.html
+- `pthread_exit()`: https://pubs.opengroup.org/onlinepubs/9799919799/functions/pthread_exit.html
+
+### Linux man-pages
+
+- `pthreads(7)`: https://man7.org/linux/man-pages/man7/pthreads.7.html
+- `pthread_create(3)`: https://man7.org/linux/man-pages/man3/pthread_create.3.html
+- `pthread_self(3)`: https://man7.org/linux/man-pages/man3/pthread_self.3.html
+- `pthread_equal(3)`: https://man7.org/linux/man-pages/man3/pthread_equal.3.html
+- `gettid(2)`: https://man7.org/linux/man-pages/man2/gettid.2.html
+- `nptl(7)`: https://man7.org/linux/man-pages/man7/nptl.7.html
+- `pthread_attr_setstacksize(3)`: https://man7.org/linux/man-pages/man3/pthread_attr_setstacksize.3.html
+- `proc_pid_task(5)`: https://man7.org/linux/man-pages/man5/proc_pid_task.5.html
+
+> **Điều hướng:** [← Chủ đề 5 — Signal](README-topic-05.md) · [Chủ đề 7 — Đồng bộ luồng →](README-topic-07.md)
