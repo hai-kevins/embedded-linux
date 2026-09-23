@@ -1033,11 +1033,21 @@ Vòng chờ khép kín này khiến hệ thống rơi vào bế tắc toàn cụ
 
 ### 14.2 Bốn điều kiện Coffman
 
-Các điều kiện cần đồng thời cho deadlock loại tài nguyên:
-1.  **Loại trừ lẫn nhau (Mutual Exclusion)**
-2.  **Giữ và Chờ (Hold and Wait)**
-3.  **Không thể Tước đoạt (No Preemption)**
-4.  **Chờ đợi xoay vòng (Circular Wait)**
+Với deadlock do tranh chấp tài nguyên, bốn điều kiện Coffman sau phải **cùng tồn tại**:
+
+1. **Loại trừ lẫn nhau (Mutual Exclusion):** Có ít nhất một tài nguyên chỉ cho phép một luồng sử dụng tại một thời điểm. Ví dụ, một Mutex chỉ có thể được một luồng sở hữu tại một thời điểm.
+2. **Giữ và Chờ (Hold and Wait):** Một luồng đang giữ ít nhất một tài nguyên nhưng vẫn tiếp tục chờ thêm tài nguyên khác. Ví dụ, Luồng A đang giữ `M1` nhưng chờ lấy `M2`.
+3. **Không thể Tước đoạt (No Preemption):** Tài nguyên đang được một luồng giữ không thể bị hệ thống tự ý thu hồi để cấp cho luồng khác; luồng đang sở hữu phải tự giải phóng nó theo đúng giao thức.
+4. **Chờ đợi xoay vòng (Circular Wait):** Các luồng tạo thành một vòng chờ khép kín. Ví dụ, A giữ `M1` và chờ `M2`, trong khi B giữ `M2` và chờ `M1`.
+
+```text
+A giữ M1 ──> chờ M2
+   ^              |
+   |              v
+chờ M1 <── B giữ M2
+```
+
+Nếu phá vỡ được ít nhất một trong bốn điều kiện trên thì loại deadlock này không thể hình thành. Trong thực tế, một kỹ thuật phổ biến là phá điều kiện **Circular Wait** bằng cách áp dụng `lock ordering` nhất quán, ví dụ luôn lấy `M1` trước `M2` ở mọi luồng.
 
 ### 14.3 `Self-deadlock`
 
