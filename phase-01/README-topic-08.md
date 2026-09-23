@@ -210,13 +210,14 @@ Sơ đồ này chỉ là **điểm khởi đầu**, không phải quy tắc tuy�
 
 ## 3. Unnamed Pipe: `byte stream` giữa các tiến trình
 
-Unnamed Pipe (Ống vô danh) là một kênh truyền dữ liệu dạng `byte stream` do Kernel quản lý. Do không có `pathname`, nó thường được dùng khi các tiến trình có thể trao đổi `file descriptor` với nhau.
+Unnamed Pipe (Ống vô danh) là một kênh truyền dữ liệu dạng `byte stream` do Kernel quản lý. Nó không có `pathname` để một tiến trình khác tự tìm tới bằng `open()`, vì vậy thường được dùng giữa các tiến trình có thể **kế thừa hoặc chuyển giao `file descriptor`** cho nhau.
 
 ### 3.1 `pipe()` tạo ra gì?
 
-Hàm `pipe(fd_array)` tạo ra một đối tượng Pipe bên trong Kernel và trả về 2 `file descriptor`:
-*   `fd[0]`: Mở ở chế độ đọc (Read end).
-*   `fd[1]`: Mở ở chế độ ghi (Write end).
+Hàm `pipe(fd_array)` tạo ra **một đối tượng Pipe trong Kernel** và trả về 2 `file descriptor` cho tiến trình gọi:
+
+*   `fd[0]`: Đầu đọc (`read end`).
+*   `fd[1]`: Đầu ghi (`write end`).
 
 ```text
 Writer
@@ -225,7 +226,7 @@ write(fd[1])
   |
   v
 +------------------------+
-| kernel pipe buffer     |
+|   Kernel Pipe Buffer   |
 +------------------------+
   |
 read(fd[0])
@@ -234,30 +235,53 @@ read(fd[0])
 Reader
 ```
 
-> **Đọc sơ đồ:** Dữ liệu đẩy vào `fd[1]` đi qua một vùng đệm (buffer) của Kernel và được đọc ra ở `fd[0]`. Hai `fd` này tham chiếu tới cùng một đối tượng Pipe duy nhất. Việc đóng đúng các bản sao `read/write end` quyết định đến các sự kiện EOF và `SIGPIPE` về sau.
+> **Đọc sơ đồ:** `fd[0]` và `fd[1]` không phải hai Pipe khác nhau. Chúng là hai `file descriptor` dùng để truy cập hai đầu của **cùng một Pipe object** trong Kernel. Dữ liệu ghi vào `fd[1]` đi vào buffer của Pipe và được lấy ra bằng `fd[0]`.
 
-### 3.2 Phạm vi sử dụng của Unnamed Pipe
+Bản thân `fd[0]` và `fd[1]` chỉ là các số nguyên dùng làm `handle` trong tiến trình; dữ liệu thực tế nằm trong đối tượng Pipe do Kernel quản lý.
 
-Vì không có `pathname`, các tiến trình độc lập không thể tự gọi `open()` để kết nối vào Unnamed Pipe. Để hai tiến trình giao tiếp được qua kênh này, `fd` thường được **kế thừa thông qua `fork()`** (mô hình tiến trình cha - con), hoặc được truyền bằng một cơ chế chuyển giao đặc biệt (như truyền qua Unix Domain Socket).
+### 3.2 Vì sao Unnamed Pipe thường đi cùng `fork()`?
+
+Vì Unnamed Pipe không có `pathname`, hai tiến trình khởi chạy độc lập không thể chỉ biết một cái tên rồi gọi `open()` để kết nối vào nó như FIFO.
+
+Cách phổ biến là tiến trình cha tạo Pipe **trước khi `fork()`**:
 
 ```text
-[ Tiến trình Cha ]
-       |
-     pipe()
-       |
-     fork()
-     /     [ Cha ]  [ Con ]
+        [ Tiến trình Cha ]
+                |
+              pipe()
+                |
+              fork()
+             /      \
+            v        v
+        [ Cha ]    [ Con ]
+         fd[]       fd[]
+            \        /
+             \      /
+           cùng Pipe
+          trong Kernel
 ```
 
-Sau `fork()`, cả tiến trình cha và con đều sở hữu các file descriptor trỏ tới cùng một đối tượng Pipe trong Kernel.
+Sau `fork()`, tiến trình con kế thừa các `file descriptor` đang mở của tiến trình cha. Vì vậy cả Cha và Con đều có các `fd` tham chiếu tới **cùng một đối tượng Pipe trong Kernel**, chứ không phải mỗi tiến trình có một Pipe riêng.
 
-### 3.3 Thiết lập giao thức luồng dữ liệu
+Ngoài `fork()`, `file descriptor` cũng có thể được chuyển cho một tiến trình khác bằng cơ chế đặc biệt như Unix Domain Socket; phần này thuộc chủ đề Socket Programming.
 
-Để truyền dữ liệu từ Cha -> Con một chiều theo đúng ngữ nghĩa, hai bên cần đóng các đầu ống không sử dụng:
-*   **Cha:** Đóng đầu đọc `fd[0]`, chỉ giữ `fd[1]` để ghi.
-*   **Con:** Đóng đầu ghi `fd[1]`, chỉ giữ `fd[0]` để đọc.
+### 3.3 Thiết lập hướng truyền dữ liệu
 
-Việc đóng các đầu thừa không chỉ để tiết kiệm tài nguyên; nó ảnh hưởng trực tiếp tới cách Kernel đánh giá EOF và gửi tín hiệu `SIGPIPE`.
+Ngay sau `fork()`, cả Cha và Con đều đang giữ cả `fd[0]` và `fd[1]`. Nếu thiết kế chỉ cần truyền dữ liệu một chiều từ **Cha -> Con**, hai bên nên đóng ngay đầu không sử dụng:
+
+*   **Cha:** `close(fd[0])`, chỉ giữ `fd[1]` để ghi.
+*   **Con:** `close(fd[1])`, chỉ giữ `fd[0]` để đọc.
+
+```text
+[ Cha ]                                  [ Con ]
+ fd[1]                                     fd[0]
+   |                                         ^
+   |                                         |
+   +----------> [ Kernel Pipe ] -------------+
+       write()                     read()
+```
+
+Quy tắc thực tế là: **đầu Pipe nào tiến trình không sử dụng thì nên đóng ngay**. Việc này không chỉ tiết kiệm `file descriptor`; số lượng đầu đọc/ghi còn đang mở còn ảnh hưởng trực tiếp đến cách Kernel xác định EOF và `SIGPIPE`, được giải thích chi tiết ở phần 4.
 
 ---
 
