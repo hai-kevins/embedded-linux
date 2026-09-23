@@ -104,26 +104,107 @@ Với nhiều cơ chế IPC, cần phân biệt giữa **đối tượng IPC t�
 
 ## 2. Trước khi chọn IPC cần hỏi những gì?
 
-Trước khi bắt tay vào thiết kế, cần làm rõ các yêu cầu hệ thống sau:
+Trước khi chọn một cơ chế IPC, không nên bắt đầu từ câu hỏi "API nào dễ dùng nhất?". Trước hết cần xác định **ứng dụng đang cần truyền dữ liệu hay chỉ cần phối hợp/báo hiệu**, sau đó mới xét mô hình dữ liệu, cách các tiến trình tìm nhau, hướng giao tiếp, kích thước dữ liệu và hành vi khi phía bên kia chưa sẵn sàng.
 
-### 2.1 Dữ liệu là `byte stream` hay từng `message`?
+### 2.1 Cần truyền dữ liệu hay chỉ cần đồng bộ/báo hiệu?
 
-*   **`Byte stream` (Pipe/FIFO):** Dữ liệu truyền đi dưới dạng chuỗi liên tục (VD: `A B C D E F`). Người đọc không phân biệt được các lần ghi ban đầu.
-*   **`Message` (Message Queue):** Dữ liệu có ranh giới (`message boundary`). Ghi `[Thư 1]`, `[Thư 2]`, hệ thống giữ nguyên ranh giới từng thông điệp độc lập.
-*   **Shared Memory:** Không tự mang ngữ nghĩa luồng hay thông điệp; ứng dụng tự định nghĩa cấu trúc dữ liệu.
+Đây là câu hỏi đầu tiên vì không phải mọi IPC đều được dùng để mang payload dữ liệu.
 
-### 2.2 Có cần tên định danh để các tiến trình tự tìm nhau không?
+*   **Cần truyền dữ liệu:** Có thể cân nhắc `Pipe`, `FIFO`, `POSIX Message Queue` hoặc `POSIX Shared Memory`.
+*   **Cần đồng bộ/phối hợp:** `POSIX Semaphore` phù hợp khi một process cần chờ một trạng thái/tài nguyên trở nên sẵn sàng hoặc cần điều phối quyền truy cập.
+*   **Cần báo một sự kiện/điều khiển:** `Signal` phù hợp với các thông báo ngắn như yêu cầu dừng, tiếp tục hoặc báo một sự kiện đã xảy ra; nó không nên được xem như kênh truyền payload dữ liệu thông thường.
 
-*   **Unnamed Pipe:** Không có tên (`pathname`) trong hệ thống tệp để một tiến trình độc lập có thể gọi `open()`.
-*   **FIFO / MQ / SHM:** Đều có tên cụ thể (ví dụ `/my_queue`). Hai tiến trình khởi chạy độc lập hoàn toàn có thể tham chiếu tới cùng một đối tượng biết trước thông qua cái tên này.
+Trong thực tế, một hệ thống có thể kết hợp nhiều cơ chế. Ví dụ, Producer ghi một khung ảnh lớn vào `POSIX Shared Memory`, sau đó dùng `Semaphore` để báo cho Consumer rằng dữ liệu đã sẵn sàng.
 
-### 2.3 Giao tiếp một chiều hay hai chiều?
+### 2.2 Dữ liệu là `byte stream`, từng `message` hay vùng nhớ dùng chung?
 
-Theo chuẩn POSIX, Pipe nên được xem là kênh truyền **một chiều (unidirectional)** từ người ghi (writer) tới người đọc (reader). Muốn trao đổi hai chiều bằng Pipe, phương pháp di động (portable) nhất là tạo 2 ống Pipe (A->B và B->A). Message Queue và Shared Memory có thể xây dựng giao thức giao tiếp hai chiều linh hoạt hơn ở cấp độ ứng dụng.
+Nếu cần truyền dữ liệu, tiếp theo phải xác định ngữ nghĩa dữ liệu mong muốn:
 
-### 2.4 Dữ liệu lớn hay nhỏ?
+*   **`Byte stream` — Pipe/FIFO:** Dữ liệu là một chuỗi byte liên tục. Các lần `write()` ban đầu không tạo ra `message boundary`; phía nhận phải tự làm `framing` nếu cần tách thành từng bản tin.
+*   **`Message` — POSIX Message Queue:** Mỗi lần gửi tạo ra một message độc lập và Kernel giữ ranh giới của từng message.
+*   **Shared Memory:** Không tự định nghĩa dữ liệu là stream hay message. Ứng dụng tự thiết kế cấu trúc nằm trong vùng nhớ chung và tự quy định cách các process đọc/ghi nó.
 
-Dữ liệu nhỏ (như lệnh điều khiển, sự kiện) phù hợp với cơ chế theo mô hình thông điệp. Dữ liệu lớn (như khung ảnh camera, block âm thanh) phù hợp hơn với Shared Memory, vì hai bên có thể truy cập thẳng vào vùng dữ liệu thay vì sao chép toàn bộ khối dữ liệu đó qua kênh truyền của Kernel trong mỗi lần giao tiếp.
+Ví dụ, nếu ứng dụng cần gửi từng lệnh nhỏ độc lập như `START`, `STOP`, `SET_MODE`, mô hình `message` thường tự nhiên hơn `byte stream`. Ngược lại, nếu cần truyền một luồng byte liên tục, Pipe/FIFO có thể đơn giản hơn.
+
+### 2.3 Các tiến trình có quan hệ với nhau hay khởi chạy độc lập?
+
+Cách các process gặp nhau ảnh hưởng trực tiếp đến lựa chọn IPC:
+
+*   **Unnamed Pipe:** Không có tên để một process bất kỳ tự tìm đến. Nó phù hợp tự nhiên khi các `file descriptor` được kế thừa qua `fork()` hoặc được truyền cho process khác bằng một cơ chế riêng.
+*   **FIFO:** Có `pathname` trong filesystem, vì vậy các process không có quan hệ cha-con vẫn có thể cùng mở một FIFO nếu biết đường dẫn và có quyền truy cập.
+*   **POSIX Message Queue / POSIX Shared Memory / named POSIX Semaphore:** Có tên định danh. Các process khởi chạy độc lập có thể cùng tham chiếu tới một đối tượng nếu biết trước tên đó và đáp ứng quyền truy cập.
+*   **Signal:** Không dùng một tên IPC object chung; bên gửi xác định process/thread đích cần nhận signal.
+
+Nói ngắn gọn: nếu hai process phải **tự tìm nhau sau khi được khởi động độc lập**, cần đặc biệt chú ý đến cơ chế định danh và vòng đời của IPC object.
+
+### 2.4 Giao tiếp một chiều hay cần trao đổi theo cả hai hướng?
+
+Theo ngữ nghĩa chuẩn, Pipe/FIFO nên được xem là kênh truyền **một chiều (`unidirectional`)** từ writer tới reader. Nếu cần request/response bằng Pipe theo cách dễ hiểu và di động, thường dùng hai Pipe riêng:
+
+```text
+Process A  ---- Pipe 1 ---->  Process B
+Process A  <--- Pipe 2 -----  Process B
+```
+
+`POSIX Message Queue` và `POSIX Shared Memory` linh hoạt hơn, nhưng ứng dụng vẫn phải thiết kế rõ ai là Producer/Consumer, dữ liệu nào đi theo hướng nào và ai sở hữu từng trạng thái. `Semaphore` và `Signal` chủ yếu phục vụ phối hợp/báo hiệu nên không nên đánh giá chúng theo khái niệm "kênh dữ liệu hai chiều" như Pipe.
+
+### 2.5 Payload lớn hay nhỏ?
+
+Kích thước và tần suất truyền dữ liệu có ảnh hưởng lớn đến chi phí IPC:
+
+*   **Dữ liệu nhỏ**, chẳng hạn command, event hoặc trạng thái điều khiển, thường phù hợp với `Pipe/FIFO` hoặc đặc biệt là `POSIX Message Queue` khi cần giữ `message boundary`.
+*   **Dữ liệu lớn**, chẳng hạn frame camera, block audio hoặc tensor, thường phù hợp hơn với `POSIX Shared Memory`, vì các process có thể cùng ánh xạ vùng dữ liệu thay vì phải liên tục chuyển toàn bộ payload qua một kênh truyền có bộ đệm của Kernel.
+
+Shared Memory giảm nhu cầu sao chép payload qua cơ chế gửi/nhận, nhưng đổi lại ứng dụng phải tự giải quyết **đồng bộ, ownership và vòng đời dữ liệu**. Vì vậy không nên chọn Shared Memory chỉ vì nó "nhanh hơn" nếu dữ liệu nhỏ và giao thức đơn giản.
+
+### 2.6 Nếu phía bên kia chưa sẵn sàng thì chương trình phải làm gì?
+
+Nhiều IPC API có thể **block** khi chưa thể hoàn thành thao tác ngay:
+
+*   Pipe/FIFO rỗng có thể làm `read()` chờ dữ liệu.
+*   Pipe/FIFO đầy có thể làm `write()` chờ chỗ trống.
+*   FIFO có thể block ngay tại `open()` khi chưa có đầu đối diện phù hợp.
+*   Message Queue rỗng có thể làm `mq_receive()` chờ; queue đầy có thể làm `mq_send()` chờ.
+*   `sem_wait()` có thể chờ cho tới khi Semaphore cho phép tiếp tục.
+
+Vì vậy trước khi chọn cơ chế IPC cần xác định: **được phép chờ hay không**, có cần `nonblocking`/timeout hay không, và khi Producer nhanh hơn Consumer thì ứng dụng sẽ xử lý `backpressure` như thế nào. Nội dung này sẽ được phân tích kỹ hơn ở phần 9.
+
+### 2.7 IPC object cần tồn tại bao lâu và ai chịu trách nhiệm dọn dẹp?
+
+Không phải mọi IPC object đều có vòng đời giống process tạo ra nó.
+
+*   **Unnamed Pipe:** Thường tự biến mất khi không còn `file descriptor` nào tham chiếu tới nó.
+*   **FIFO:** `pathname` vẫn tồn tại trong filesystem cho tới khi được xóa.
+*   **POSIX Message Queue:** Có thể tiếp tục tồn tại cho tới khi được `mq_unlink()` hoặc hệ thống khởi động lại.
+*   **POSIX Shared Memory:** Tên được gỡ bằng `shm_unlink()`, còn đối tượng thực sự chỉ bị hủy sau khi các tham chiếu còn lại kết thúc.
+*   **Named POSIX Semaphore:** Có tên và cần chính sách `sem_unlink()` phù hợp.
+
+Trong Embedded Linux, điều này đặc biệt quan trọng khi service có thể bị crash rồi được Supervisor khởi động lại. Thiết kế phải xác định rõ **process nào tạo object, process nào được phép unlink, và trạng thái cũ sau crash có được tái sử dụng hay phải dọn sạch**.
+
+### 2.8 Tóm tắt luồng suy nghĩ khi lựa chọn
+
+Có thể dùng chuỗi câu hỏi sau trước khi quyết định:
+
+```text
+Cần truyền payload?
+ |
+ +-- Không --> Chỉ cần đồng bộ/báo hiệu?
+ |              |
+ |              +-- Đồng bộ trạng thái/tài nguyên --> Semaphore
+ |              +-- Báo sự kiện/điều khiển --------> Signal
+ |
+ +-- Có
+     |
+     +-- Cần byte stream? ---------> Pipe / FIFO
+     |
+     +-- Cần message boundary? ----> POSIX Message Queue
+     |
+     +-- Payload lớn, cần dùng chung vùng dữ liệu?
+                                    -> POSIX Shared Memory
+                                       + cơ chế đồng bộ phù hợp
+```
+
+Sơ đồ này chỉ là **điểm khởi đầu**, không phải quy tắc tuyệt đối. Quyết định cuối cùng còn phụ thuộc vào quan hệ giữa các process, vòng đời IPC object, yêu cầu blocking/nonblocking, quyền truy cập và độ phức tạp mà ứng dụng có thể chấp nhận.
 
 ---
 
