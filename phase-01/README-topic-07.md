@@ -1057,15 +1057,46 @@ Xảy ra khi cấu hình Mutex ở dạng tiêu chuẩn (Normal), một luồng 
 
 ## 15. `Starvation` và `livelock`
 
-Hai biến thể vấn đề đồng bộ tinh vi hơn deadlock.
+Hai biến thể vấn đề đồng bộ tinh vi hơn deadlock. Khác với deadlock, hệ thống có thể vẫn đang chạy nhưng một phần công việc không tiến triển đúng cách.
 
 ### 15.1 `Starvation`
 
-Hệ thống vẫn đang tiến triển, nhưng một luồng liên tục bị bỏ lại, thiếu cơ hội chạy hoặc không giành được tài nguyên (khóa Mutex) trong thời gian dài (thường do chính sách ưu tiên bất công).
+`Starvation` xảy ra khi hệ thống vẫn tiến triển, nhưng một luồng liên tục bị bỏ lại, thiếu cơ hội chạy hoặc không giành được tài nguyên (như khóa Mutex) trong thời gian dài, thường do chính sách ưu tiên hoặc phân phối tài nguyên không công bằng.
+
+Ví dụ:
+
+```text
+Luồng A lấy Mutex -> làm việc -> nhả Mutex
+Luồng C lấy Mutex -> làm việc -> nhả Mutex
+Luồng A lại lấy Mutex trước
+Luồng C lại lấy Mutex trước
+...
+
+Luồng B: -------------------- tiếp tục chờ -------------------->
+```
+
+Hệ thống không deadlock vì A và C vẫn tiến triển, nhưng B bị "đói" tài nguyên quá lâu.
 
 ### 15.2 `Livelock`
 
-Các luồng không bị ngủ kẹt như Deadlock. Chúng vẫn hoạt động, vẫn phản ứng với nhau, nhưng cứ liên tục thay đổi trạng thái để tránh né xung đột mà công việc chính thì không thể tiến triển. CPU vẫn bận nhưng công việc chính không tiến triển.
+`Livelock` xảy ra khi các luồng không bị ngủ kẹt như deadlock. Chúng vẫn chạy, vẫn thay đổi trạng thái và phản ứng với nhau, nhưng cứ liên tục né tránh xung đột nên công việc chính không thể hoàn thành. CPU có thể vẫn bận nhưng tiến độ thực tế gần như bằng không.
+
+Ví dụ hai luồng cùng cố nhường nhau:
+
+```text
+Luồng A thử làm việc -> thấy xung đột -> nhường -> thử lại
+Luồng B thử làm việc -> thấy xung đột -> nhường -> thử lại
+
+A và B vẫn chạy, nhưng cứ lặp lại mà không hoàn thành công việc.
+```
+
+Có thể phân biệt nhanh:
+
+```text
+Deadlock   : một nhóm luồng mắc kẹt và không ai tiếp tục được.
+Starvation : hệ thống vẫn chạy, nhưng một luồng bị bỏ lại quá lâu.
+Livelock   : các luồng vẫn hoạt động, nhưng công việc chính không tiến triển.
+```
 
 ---
 
