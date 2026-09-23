@@ -501,48 +501,214 @@ Trên các nền tảng khác nhau, kiểu mặc định có thể trỏ về No
 
 ## 7. `Condition variable`: ngủ để chờ trạng thái thay đổi
 
-Condition Variable (CV) cho phép luồng ngủ trong khi điều kiện chưa đúng và được đánh thức khi trạng thái có thể đã thay đổi. Nó luôn gắn liền với một mốc trạng thái dữ liệu (predicate) cụ thể.
+`Condition Variable` (CV) được dùng khi một luồng **chưa thể tiếp tục công việc vì trạng thái dữ liệu hiện tại chưa phù hợp**, và thay vì liên tục kiểm tra trạng thái đó, luồng có thể đi vào trạng thái chờ (`wait`).
+
+Ví dụ trong mô hình `producer–consumer`, Consumer chỉ có thể lấy dữ liệu khi hàng đợi có ít nhất một phần tử:
+
+```c
+queue_size > 0
+```
+
+Nếu hàng đợi đang rỗng, Consumer có thể ngủ để nhường CPU cho công việc khác. Khi Producer thêm dữ liệu, nó thông báo qua Condition Variable để Consumer được đánh thức và kiểm tra lại trạng thái.
 
 ### 7.1 Vấn đề của việc kiểm tra liên tục
 
-Giả sử Consumer chờ lấy dữ liệu từ một Hàng đợi (Queue). Việc kiểm tra liên tục bằng vòng lặp rỗng (busy-wait) sẽ lãng phí chu kỳ CPU.
-Ta mong muốn một cơ chế:
-```text
-Hàng đợi rỗng
-    |
-Consumer chờ (ngủ)
-    |
-Producer thêm data
-    |
-Đánh thức Consumer
+Giả sử Consumer đang chờ dữ liệu xuất hiện trong một Queue.
+
+Một cách không tốt là liên tục kiểm tra:
+
+```c
+while (queue_size == 0) {
+    // tiếp tục kiểm tra
+}
 ```
 
-### 7.2 `condition variable` không chứa điều kiện nghiệp vụ
+Đây là dạng `busy-wait`: luồng vẫn chiếm thời gian CPU chỉ để lặp lại việc kiểm tra dù chưa có công việc hữu ích.
 
-Bản thân CV không biết Hàng đợi rỗng hay đầy. Điều kiện logic thực sự (Predicate) như `queue_size > 0` phải nằm trong Dữ liệu chia sẻ. Condition Variable chỉ là cơ chế ngủ/đánh thức gắn liền với việc kiểm tra predicate đó.
+Điều mong muốn là:
+
+```text
+Queue rỗng
+    |
+    v
+Consumer kiểm tra trạng thái
+    |
+    v
+Chưa có dữ liệu
+    |
+    v
+Consumer đi vào trạng thái chờ
+    |
+    |   CPU có thể chạy công việc khác
+    |
+Producer thêm dữ liệu
+    |
+    v
+Producer thông báo
+    |
+    v
+Consumer được đánh thức
+```
+
+Condition Variable cung cấp cơ chế `wait/wakeup` cho mô hình này.
+
+### 7.2 `Condition Variable` không chứa điều kiện nghiệp vụ
+
+Mặc dù tên là `Condition Variable`, bản thân đối tượng này **không lưu điều kiện mà chương trình đang chờ**.
+
+Ví dụ:
+
+```c
+queue_size > 0
+```
+
+mới là điều kiện logic thực sự. Điều kiện logic như vậy thường được gọi là **`predicate`**.
+
+Có thể phân biệt:
+
+```text
+Shared state:
+    queue_size
+
+Predicate:
+    queue_size > 0
+
+Condition Variable:
+    cơ chế để luồng ngủ và được đánh thức
+    khi trạng thái có khả năng đã thay đổi
+```
+
+Condition Variable không biết Queue đang rỗng hay có dữ liệu. Khi một luồng được đánh thức, ý nghĩa chỉ nên hiểu là:
+
+> Trạng thái mà luồng đang quan tâm **có thể đã thay đổi**, hãy kiểm tra lại predicate.
+
+Vì vậy, dữ liệu chia sẻ và predicate mới là nguồn sự thật; Condition Variable chỉ hỗ trợ việc chờ và đánh thức.
 
 ### 7.3 Vì sao phải đi cùng Mutex?
 
-Predicate nằm trong dữ liệu dùng chung nên phải được kiểm tra một cách nhất quán để tránh các lỗi tranh chấp.
+Predicate thường phụ thuộc vào dữ liệu dùng chung.
 
-Mô hình:
-```text
-Shared data
-      |
-      +--> Predicate
-      |
-     Mutex
-      |
-Condition Variable
+Ví dụ:
+
+```c
+queue_size > 0
 ```
 
-Mutex bảo đảm việc kiểm tra và thay đổi trạng thái chia sẻ diễn ra có trật tự, còn Condition Variable hỗ trợ chuyển luồng sang trạng thái chờ.
+Trong đó `queue_size` có thể được:
+
+- Producer thay đổi khi thêm dữ liệu.
+- Consumer đọc và thay đổi khi lấy dữ liệu.
+
+Do đó việc kiểm tra và cập nhật trạng thái này cũng cần được đồng bộ bằng Mutex.
+
+Mô hình:
+
+```text
+        Shared Queue
+             |
+             v
+        queue_size
+             |
+             v
+   Predicate: size > 0
+             ^
+             |
+      Mutex bảo vệ
+             |
+             v
+   Condition Variable
+    wait / wakeup
+```
+
+Hai công cụ có nhiệm vụ khác nhau:
+
+```text
+Mutex
+    -> bảo vệ việc đọc và thay đổi shared state.
+
+Condition Variable
+    -> cho phép luồng ngủ khi predicate chưa đúng
+       và được đánh thức khi trạng thái có thể đã thay đổi.
+```
+
+Mẫu sử dụng cơ bản:
+
+```c
+pthread_mutex_lock(&mutex);
+
+while (queue_size == 0) {
+    pthread_cond_wait(&cond, &mutex);
+}
+
+/* Queue đang ở trạng thái phù hợp để xử lý */
+
+pthread_mutex_unlock(&mutex);
+```
 
 ### 7.4 `pthread_cond_wait()` làm hai việc quan trọng
 
-Về mặt khái niệm, `pthread_cond_wait()` cung cấp cơ chế thực hiện nguyên tử: **nhả mutex và chuyển luồng sang trạng thái chờ**. Điều này đóng khoảng hở có thể khiến một thông báo đánh thức bị bỏ lỡ giữa lúc luồng kiểm tra điều kiện và lúc luồng thực sự đi ngủ.
+Trước khi gọi:
 
-Khi luồng thức dậy từ `pthread_cond_wait()`, nó phải tự động **lấy lại Mutex** trước khi hàm này trả về quyền điều khiển cho mã gọi.
+```c
+pthread_cond_wait(&cond, &mutex);
+```
+
+luồng phải đang giữ `mutex`.
+
+Về mặt giao thức, hàm này thực hiện một thao tác rất quan trọng:
+
+```text
+nhả Mutex
+    +
+đưa luồng vào trạng thái chờ
+```
+
+hai việc này được phối hợp như một thao tác nguyên tử đối với cơ chế chờ.
+
+Điều này tránh xuất hiện khoảng hở nguy hiểm kiểu:
+
+```text
+Consumer kiểm tra predicate
+        |
+        v
+predicate chưa đúng
+        |
+        v
+nhả Mutex
+        |
+        |  <-- nếu có khoảng hở ở đây,
+        |      Producer có thể thay đổi trạng thái
+        |      và phát tín hiệu trước khi
+        |      Consumer thực sự bắt đầu chờ
+        v
+Consumer mới bắt đầu ngủ
+```
+
+`pthread_cond_wait()` được thiết kế để tránh khoảng hở giữa **nhả Mutex** và **bắt đầu chờ**.
+
+Khi Condition Variable đánh thức luồng, `pthread_cond_wait()` chưa lập tức trả về. Luồng phải **lấy lại chính Mutex đó trước**, sau đó hàm mới trả quyền điều khiển cho chương trình:
+
+```text
+đang giữ Mutex
+      |
+      v
+pthread_cond_wait()
+      |
+      +--> nhả Mutex
+      |
+      +--> đi vào trạng thái chờ
+                |
+                | được đánh thức
+                v
+          lấy lại Mutex
+                |
+                v
+ pthread_cond_wait() trả về
+```
+
+Nhờ đó, khi luồng quay lại kiểm tra predicate, nó lại đang giữ Mutex và có thể truy cập shared state theo đúng giao thức đồng bộ.
+
+> **Ý chính:** Mutex bảo vệ trạng thái dữ liệu; Condition Variable giúp luồng chờ trạng thái thay đổi; còn `pthread_cond_wait()` kết nối hai cơ chế này bằng cách nhả Mutex và đi vào trạng thái chờ một cách an toàn, sau đó lấy lại Mutex trước khi trả về.
 
 ---
 
