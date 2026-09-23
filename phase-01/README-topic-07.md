@@ -1102,23 +1102,43 @@ Livelock   : các luồng vẫn hoạt động, nhưng công việc chính khôn
 
 ## 16. `Lock ordering`, `critical-section granularity` và `contention`
 
-Mục tiêu của thiết kế đồng bộ là giữ tính đúng đắn mà không tạo contention không cần thiết.
+Mục tiêu của thiết kế đồng bộ là giữ tính đúng đắn mà không tạo `contention` không cần thiết.
 
 ### 16.1 Quy tắc `lock ordering` nhất quán
 
-Một kỹ thuật để phá vỡ điều kiện "Chờ đợi xoay vòng" là chọn **một thứ tự toàn cục** cho các Mutex và buộc mọi nhánh code phải khóa chúng theo đúng một chiều (Ví dụ: luôn lấy `M1` trước `M2` và không khóa theo chiều ngược lại).
+Khi một đoạn code cần giữ nhiều Mutex, mọi luồng nên lấy chúng theo **cùng một thứ tự toàn cục**. Ví dụ, nếu quy ước luôn lấy `M1` trước `M2`, không nhánh code nào được lấy `M2` rồi mới chờ `M1`.
+
+```text
+Đúng:                    Nguy hiểm:
+A: lock(M1)              A: lock(M1)
+A: lock(M2)              B: lock(M2)
+                         A: chờ M2
+B: lock(M1)              B: chờ M1
+B: lock(M2)                    -> Deadlock
+```
+
+Quy tắc này giúp phá vỡ khả năng hình thành `circular wait`, từ đó giảm nguy cơ `deadlock`.
 
 ### 16.2 Độ mịn của Vùng tới hạn (Lock Granularity)
 
-Độ mịn phải cân bằng giữa hiệu suất và việc duy trì tính nhất quán.
-*   **Khóa thô (Coarse-grained):** Dùng ít Mutex để bảo vệ các vùng trạng thái lớn. Dễ thiết kế, ít vòng phụ thuộc khóa, nhưng nhiều luồng phải chờ cùng một khóa làm giảm tính song song.
-*   **Khóa mịn (Fine-grained):** Dùng nhiều Mutex bảo vệ từng phần nhỏ. Tăng mức độ song song nhưng mã phức tạp hơn và rủi ro deadlock tăng cao.
+`Lock granularity` mô tả mức độ chia nhỏ phạm vi dữ liệu được các Mutex bảo vệ. Cần cân bằng giữa tính đơn giản và khả năng chạy song song:
+
+*   **Khóa thô (Coarse-grained):** Dùng ít Mutex để bảo vệ vùng trạng thái lớn. Dễ thiết kế và quản lý, nhưng nhiều luồng có thể phải chờ cùng một khóa dù chúng đang thao tác trên các phần dữ liệu khác nhau.
+*   **Khóa mịn (Fine-grained):** Dùng nhiều Mutex để bảo vệ các phần trạng thái nhỏ hơn. Có thể tăng mức độ song song, nhưng làm code phức tạp hơn, tăng yêu cầu về `lock ordering` và nguy cơ `deadlock`.
+
+Không nên chia critical section nhỏ hơn mức cần thiết nếu việc chia nhỏ làm phá vỡ một thao tác logic phải được bảo vệ như một `transaction` thống nhất.
 
 ### 16.3 Xung đột khóa (Contention)
 
-Nếu nhiều luồng thường xuyên dồn dập tranh giành một Khóa Mutex, Mutex đó trở thành "điểm nóng" (Contention), dẫn tới thời gian chờ cao và chi phí chuyển đổi ngữ cảnh tăng vọt.
+`Contention` xảy ra khi nhiều luồng thường xuyên cùng tranh một Mutex. Tại một thời điểm chỉ một luồng giữ được khóa, các luồng còn lại phải chờ, làm tăng độ trễ và có thể phát sinh thêm chi phí lập lịch/chuyển đổi ngữ cảnh.
 
-**Nguyên lý thiết kế:** Giữ critical section ngắn gọn **trong giới hạn vẫn bảo toàn được các ràng buộc nhất quán (`invariant`) và ý nghĩa giao dịch (`transaction semantics`)** của nghiệp vụ. Hạn chế tối đa việc giữ khóa khi đang thực hiện các thao tác không xác định thời gian chờ (blocking I/O, tải mạng, ngâm giấc ngủ).
+```text
+Thread A ---\
+Thread B ----> [ Mutex M ] ---> chỉ một luồng được vào
+Thread C ---/                    các luồng còn lại phải chờ
+```
+
+**Nguyên lý thiết kế:** Giữ critical section ngắn gọn **trong giới hạn vẫn bảo toàn được các ràng buộc nhất quán (`invariant`) và ý nghĩa giao dịch (`transaction semantics`)**. Hạn chế giữ khóa trong các thao tác có thời gian chờ khó dự đoán như blocking I/O, truy cập mạng hoặc `sleep()`, trừ khi logic bắt buộc phải làm như vậy.
 
 ---
 
