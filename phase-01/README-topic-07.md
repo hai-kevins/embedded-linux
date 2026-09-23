@@ -929,7 +929,7 @@ Sử dụng đúng công cụ cho bài toán sẽ tạo ra kiến trúc sạch.
 
 ## 12. Mô hình `producer–consumer`
 
-Mẫu thiết kế (`pattern`) phổ biến kết hợp cả Mutex và Condition Variable. Producer đưa dữ liệu vào hàng đợi, Consumer lấy ra.
+Mẫu thiết kế (`pattern`) phổ biến kết hợp cả Mutex và Condition Variable. Producer tạo hoặc nhận dữ liệu rồi đưa vào hàng đợi, còn Consumer lấy dữ liệu từ hàng đợi ra để xử lý.
 
 ### 12.1 Kiến trúc tổng quan
 
@@ -945,16 +945,41 @@ Mẫu thiết kế (`pattern`) phổ biến kết hợp cả Mutex và Condition
  Consumer
 ```
 
-Mô hình hàng đợi giúp tách nhịp hoạt động giữa Producer và Consumer, hấp thụ các luồng dữ liệu bùng nổ (burst) trong giới hạn dung lượng của nó. Nó điều hòa lưu lượng, tuy nhiên **không loại bỏ được sự chênh lệch thông lượng (throughput) kéo dài** (ví dụ: Producer liên tục sinh ra lượng lớn dữ liệu nhanh hơn mức Consumer có thể xử lý thì cuối cùng hàng đợi cũng sẽ đầy).
+Hàng đợi nằm giữa giúp **tách nhịp hoạt động** của hai phía: Producer có thể đưa dữ liệu vào Queue rồi tiếp tục công việc của mình, trong khi Consumer xử lý dữ liệu theo tốc độ riêng. Queue cũng có thể hấp thụ các đợt dữ liệu đến dồn dập (`burst`) trong giới hạn dung lượng của nó.
+
+Tuy nhiên, Queue chỉ hấp thụ được chênh lệch tốc độ **tạm thời**. Nếu Producer liên tục tạo dữ liệu nhanh hơn mức Consumer có thể xử lý trong thời gian dài, số phần tử tồn đọng sẽ tăng dần và cuối cùng Queue vẫn đầy. Vì vậy, Queue không loại bỏ được sự chênh lệch thông lượng (`throughput`) kéo dài.
 
 ### 12.2 Bảo vệ tính nhất quán bằng Mutex
 
-Mọi trường liên đới của cấu trúc hàng đợi (như `head`, `tail`, `size`, `buffer`) cần một giao thức nhất quán được bảo vệ chung bởi một Mutex.
+Queue là dữ liệu dùng chung: Producer có thể cập nhật `tail`, `size`, `buffer`, còn Consumer có thể cập nhật `head`, `size`, `buffer`. Các trường này liên quan logic với nhau nên mọi thao tác đọc/sửa xung đột cần tuân thủ cùng một giao thức Mutex.
+
+Nói ngắn gọn:
+
+```text
+Mutex
+   -> bảo vệ tính nhất quán của Shared Queue
+```
 
 ### 12.3 Điều phối tiến độ bằng Condition Variable
 
-*   **Rỗng (`not_empty`):** Consumer chờ khi hàng đợi rỗng. Producer thêm dữ liệu và phát tín hiệu `not_empty` để đánh thức Consumer.
-*   **Đầy (`not_full`):** Nếu hàng đợi hữu hạn, Producer chờ khi hàng đợi đầy. Consumer lấy phần tử ra và phát tín hiệu `not_full` để đánh thức Producer tiếp tục ghi vào.
+Mutex chỉ bảo vệ Queue; nó không giải quyết việc một phía **chưa thể tiếp tục** vì trạng thái Queue chưa phù hợp. Condition Variable được dùng để cho thread ngủ và được đánh thức khi trạng thái có thể đã thay đổi.
+
+* **`not_empty`:** Consumer chờ khi Queue rỗng. Sau khi Producer thêm một phần tử, Producer phát tín hiệu `not_empty` để báo rằng Consumer có thể kiểm tra lại điều kiện `size > 0`.
+* **`not_full`:** Với Queue hữu hạn, Producer chờ khi Queue đầy. Sau khi Consumer lấy một phần tử ra, Consumer phát tín hiệu `not_full` để báo rằng Producer có thể kiểm tra lại điều kiện `size < capacity`.
+
+Mô hình tư duy:
+
+```text
+Producer:
+    nếu Queue đầy   -> wait(not_full)
+    thêm dữ liệu    -> signal(not_empty)
+
+Consumer:
+    nếu Queue rỗng  -> wait(not_empty)
+    lấy dữ liệu     -> signal(not_full)
+```
+
+> **Ý chính:** Queue giúp tách nhịp giữa Producer và Consumer; Mutex bảo vệ trạng thái Queue; còn `not_empty` và `not_full` điều phối thời điểm mỗi phía có thể tiếp tục công việc.
 
 ---
 
