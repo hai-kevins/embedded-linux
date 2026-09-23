@@ -767,20 +767,69 @@ Vì vậy, giao thức chuẩn là: giữ Mutex khi kiểm tra/thay đổi predi
 
 ## 9. `signal`, `broadcast` và chờ có thời hạn
 
-Làm sao để đánh thức luồng đang chờ?
+Condition Variable cung cấp các cách khác nhau để đánh thức luồng đang chờ. Việc được đánh thức chỉ có nghĩa là **trạng thái có thể đã thay đổi**; luồng vẫn phải lấy lại Mutex và kiểm tra lại `predicate` trước khi tiếp tục xử lý.
 
 ### 9.1 `pthread_cond_signal()`
 
-Đánh thức **ít nhất một** luồng đang chờ đợi phù hợp. Dùng khi trạng thái mới chỉ cho phép một luồng duy nhất được tiến lên xử lý (ví dụ: một phần tử mới được đưa vào queue). Không nên phụ thuộc vào việc luồng nào cụ thể sẽ được hệ thống chọn đánh thức.
+`pthread_cond_signal()` đánh thức **ít nhất một** luồng đang chờ trên Condition Variable. Cách này phù hợp khi trạng thái mới thường chỉ cho phép một luồng tiến tiếp, ví dụ Producer vừa thêm một phần tử vào Queue và chỉ cần một Consumer thức dậy để xử lý.
+
+```text
+Consumer A ─┐
+Consumer B ─┼── đang wait
+Consumer C ─┘
+
+Producer thêm 1 phần tử
+        |
+        v
+    signal(cond)
+        |
+        v
+ít nhất một Consumer được đánh thức
+```
+
+Không nên phụ thuộc vào việc luồng cụ thể nào sẽ được hệ thống chọn đánh thức. Sau khi thức dậy, luồng vẫn phải lấy lại Mutex và kiểm tra lại `predicate`.
 
 ### 9.2 `pthread_cond_broadcast()`
 
-Đánh thức **tất cả** các luồng đang chờ.
-Dùng khi trạng thái mới cho phép nhiều luồng cùng tiếp tục (ví dụ: phát lệnh shutdown cho mọi worker thread). Mặc dù thức dậy cùng lúc, các luồng vẫn sẽ phải cạnh tranh nhau để lấy lại Mutex.
+`pthread_cond_broadcast()` đánh thức **tất cả** các luồng đang chờ trên Condition Variable. Cách này phù hợp khi một thay đổi trạng thái có liên quan đến nhiều hoặc toàn bộ luồng, ví dụ đặt cờ `shutdown` để yêu cầu mọi worker thread kiểm tra trạng thái kết thúc.
+
+```text
+Worker A ─┐
+Worker B ─┼── đang wait
+Worker C ─┘
+
+shutdown = 1
+     |
+     v
+broadcast(cond)
+     |
+     +--> A thức dậy
+     +--> B thức dậy
+     +--> C thức dậy
+```
+
+Mặc dù nhiều luồng được đánh thức gần như cùng lúc, chúng **không cùng đi vào critical section**. Mỗi luồng vẫn phải cạnh tranh để lấy lại cùng Mutex, sau đó kiểm tra lại `predicate`.
+
+Có thể nhớ ngắn gọn:
+
+```text
+signal()     -> đánh thức một waiter phù hợp
+broadcast()  -> đánh thức tất cả waiter
+```
 
 ### 9.3 Chờ có thời hạn (Timed wait)
 
-Hàm `pthread_cond_timedwait()` cho phép chờ tới một thời điểm giới hạn. Mặc dù hàm có thể trả về lỗi do timeout, ứng dụng vẫn nên kiểm tra lại trạng thái theo giao thức, vì thời điểm timeout và sự thay đổi predicate có thể diễn ra rất sát nhau.
+`pthread_cond_timedwait()` giống `pthread_cond_wait()` nhưng có thêm một **thời điểm giới hạn (`deadline`)**. Luồng có thể kết thúc việc chờ khi được đánh thức hoặc khi đã tới deadline.
+
+```text
+pthread_cond_timedwait()
+        |
+        +--> được signal / broadcast
+        |
+        +--> tới deadline -> timeout
+```
+
+Ngay cả khi hàm trả về do timeout, ứng dụng vẫn nên kiểm tra lại `predicate`, vì thời điểm timeout và thời điểm shared state thay đổi có thể xảy ra rất sát nhau.
 
 ---
 
