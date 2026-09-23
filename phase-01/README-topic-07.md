@@ -992,8 +992,17 @@ Consumer:
 Barrier chuyên dùng để **đồng bộ tiến độ giữa các pha (Phasing)**.
 
 ```text
-Luồng A --------> barrier --Luồng B ------> barrier -----+--> Tất cả thành viên đã tới --> Phase 2
-Luồng C ----------> barrier -/
+                 PHASE 1                     BARRIER                     PHASE 2
+
+Luồng A  ------------------------------->  +--------------+  ------------------------------->  tiếp tục
+Luồng B  ------------------------------->  |   chờ đủ N   |  ------------------------------->  tiếp tục
+Luồng C  ------------------------------->  |    luồng     |  ------------------------------->  tiếp tục
+                                           +------+-------+
+                                                  |
+                                                  v
+                                      Luồng cuối cùng tới
+                                      -> mở barrier
+                                      -> giải phóng tất cả luồng
 ```
 
 Mỗi luồng đi tới barrier được tính là một thành viên. Nếu nó chưa phải thành viên cuối cùng, nó phải chờ. Thành viên cuối cùng tới ranh giới sẽ thỏa mãn điều kiện barrier, giải phóng toàn bộ những luồng đang chờ để cùng bước sang giai đoạn tiếp theo. Barrier không thay thế Mutex trong việc bảo vệ dữ liệu dùng chung.
