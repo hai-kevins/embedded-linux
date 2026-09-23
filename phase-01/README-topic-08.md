@@ -60,26 +60,45 @@ Không phải cơ chế IPC nào cũng phù hợp cho cả hai mục đích này
 
 ### 1.3 Bản đồ các cơ chế IPC trong Linux
 
+IPC không chỉ dùng để **truyền dữ liệu**, mà còn dùng để **đồng bộ và báo hiệu sự kiện** giữa các tiến trình. Vì vậy, có thể nhìn các cơ chế trong chương này theo hai nhóm chức năng lớn:
+
 ```text
-                     [ IPC ]
-                        |
-      +-----------------+-----------------+
-      |                 |                 |
- [ Byte Stream ]    [ Message ]     [ Shared Memory ]
-      |                 |                 |
-   +--+--+              |                 |
-   |     |              |                 |
- Pipe  FIFO     POSIX Message Queue  POSIX Shared Memory
+                           [ IPC ]
+                              |
+              +---------------+---------------+
+              |                               |
+      [ Trao đổi dữ liệu ]            [ Phối hợp / Báo hiệu ]
+              |                               |
+      +-------+-------+                 +-----+------+
+      |       |       |                 |            |
+ Byte Stream Message Shared Memory   Semaphore     Signal
+      |       |       |
+   +--+--+    |       |
+   |     |    |       |
+ Pipe  FIFO  POSIX MQ POSIX SHM
 ```
 
-> **Đọc sơ đồ:** Bản đồ IPC nên được đọc theo **ngữ nghĩa dữ liệu (semantics)** chứ không theo tên API. Pipe/FIFO truyền chuỗi byte (byte stream); POSIX Message Queue giữ ranh giới từng thông điệp; Shared Memory cho nhiều process cùng ánh xạ chung một đối tượng bộ nhớ lưu trữ và phải tự phối hợp truy cập. Việc lựa chọn IPC bắt đầu từ câu hỏi: dữ liệu có cần `message boundary` không, có cần tên định danh (pathname) để tìm nhau không, và cơ chế đồng bộ nằm ở đâu.
+> **Đọc sơ đồ:**
+> - **Pipe/FIFO** truyền dữ liệu dưới dạng `byte stream`, không tự giữ ranh giới từng thông điệp.
+> - **POSIX Message Queue** truyền các `message` riêng biệt và giữ `message boundary`.
+> - **POSIX Shared Memory** cho nhiều process cùng ánh xạ một vùng nhớ chung để trao đổi dữ liệu; ứng dụng phải tự tổ chức cấu trúc dữ liệu và đồng bộ truy cập.
+> - **POSIX Semaphore** chủ yếu dùng để đồng bộ/phối hợp hoạt động giữa các thread hoặc process, ví dụ báo rằng tài nguyên đã sẵn sàng hoặc giới hạn số bên được phép truy cập đồng thời.
+> - **Signal** chủ yếu dùng để báo hiệu một sự kiện hoặc yêu cầu điều khiển cho process/thread khác; nó không phải kênh truyền payload dữ liệu thông thường. Phần Signal đã được học riêng ở **Chủ đề 5**.
+>
+> Vì vậy, khi chọn IPC không chỉ cần hỏi dữ liệu là `byte stream`, `message` hay vùng nhớ dùng chung, mà còn phải xác định **cơ chế nào truyền dữ liệu** và **cơ chế nào chịu trách nhiệm đồng bộ/báo hiệu**. Trong thực tế, nhiều thiết kế kết hợp chúng với nhau, ví dụ `POSIX Shared Memory + Semaphore`.
 
 ### 1.4 Phân biệt Đối tượng IPC và `handle`
 
-Cần phân biệt rõ giữa đối tượng IPC trong hệ thống và `handle` mà tiến trình sử dụng để tham chiếu tới đối tượng đó:
-*   **Pipe:** Đối tượng là vùng đệm trong Kernel; Handle là 2 `file descriptor` ở đầu đọc/ghi.
-*   **POSIX Message Queue:** Đối tượng là hàng đợi trong Kernel; Handle là biến kiểu `mqd_t`.
-*   **POSIX Shared Memory:** Đối tượng là bộ nhớ dùng chung; Handle là `fd` từ `shm_open()` và ánh xạ từ `mmap()`.
+Với nhiều cơ chế IPC, cần phân biệt giữa **đối tượng IPC tồn tại trong hệ thống** và `handle` mà một tiến trình dùng để tham chiếu tới đối tượng đó. Tuy nhiên, không phải mọi cơ chế IPC đều có mô hình "đối tượng + handle" giống nhau.
+
+*   **Pipe:** Kernel tạo một đối tượng Pipe có vùng đệm dữ liệu; tiến trình truy cập nó thông qua hai `file descriptor`: đầu đọc và đầu ghi.
+*   **FIFO:** Tên FIFO tồn tại dưới dạng một `special file` trong filesystem. Khi tiến trình gọi `open()`, nó nhận một `file descriptor` để đọc hoặc ghi qua FIFO đó.
+*   **POSIX Message Queue:** Đối tượng là hàng đợi thông điệp do Kernel quản lý; `mq_open()` trả về một handle kiểu `mqd_t`.
+*   **POSIX Shared Memory:** Đối tượng là vùng lưu trữ dùng chung được mở bằng `shm_open()`. Tiến trình nhận một `file descriptor`, sau đó dùng `mmap()` để tạo vùng ánh xạ trong không gian địa chỉ của mình.
+*   **POSIX Semaphore:** Với **named semaphore**, tên semaphore xác định đối tượng và `sem_open()` trả về con trỏ `sem_t *` để thao tác trên nó. Với **unnamed semaphore**, đối tượng `sem_t` được đặt trực tiếp trong vùng nhớ mà các bên có thể cùng truy cập, chẳng hạn Shared Memory khi dùng giữa các process.
+*   **Signal:** Không có một đối tượng dữ liệu IPC lâu dài để hai bên cùng mở như Pipe/MQ/SHM. Bên gửi thường xác định **đích nhận** (process/thread) và **signal number**; phía nhận cấu hình cách xử lý signal bằng các API như `sigaction()`.
+
+Điểm cần nhớ là `handle`, `file descriptor`, vùng `mmap()` hoặc `sem_t *` chỉ là **cách process hiện tại tham chiếu và thao tác** với cơ chế IPC tương ứng; chúng không nên bị nhầm với bản thân đối tượng hoặc trạng thái IPC mà Kernel/hệ thống đang quản lý.
 
 ---
 
