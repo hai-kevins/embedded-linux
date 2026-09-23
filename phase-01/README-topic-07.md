@@ -732,14 +732,36 @@ pthread_mutex_unlock(&mutex);
 
 ### 8.2 Spurious Wakeup (Thức giấc ảo)
 
-Chuẩn POSIX cho phép `pthread_cond_wait()` trả về ngay cả khi không có ai gọi hàm đánh thức.
-Hơn nữa, ngay cả khi được đánh thức hợp lệ, một luồng khác có thể đã lấy được Mutex trước và thay đổi trạng thái trước khi luồng hiện tại lấy lại được khóa.
-Vì thế, **được đánh thức không có nghĩa là predicate chắc chắn đúng**. Vì vậy, luồng cần kiểm tra lại điều kiện trong vòng lặp `while` sau mỗi lần thức.
+Chuẩn POSIX cho phép `pthread_cond_wait()` trả về ngay cả khi không có ai gọi hàm đánh thức. Ngoài ra, ngay cả khi được đánh thức hợp lệ, một luồng khác có thể lấy được Mutex trước và làm predicate thay đổi trở lại trước khi luồng hiện tại lấy lại khóa.
+
+Ví dụ Consumer đang chờ `queue_size > 0`: nó có thể thức dậy nhưng khi lấy lại Mutex thì `queue_size` vẫn bằng `0`. Vì vậy, **được đánh thức không có nghĩa là predicate chắc chắn đúng**.
+
+Do đó phải kiểm tra predicate bằng `while`:
+
+```c
+while (queue_size == 0) {
+    pthread_cond_wait(&cond, &mutex);
+}
+```
+
+Nếu thức dậy mà predicate vẫn chưa đúng, luồng đơn giản quay lại `wait`.
 
 ### 8.3 Mất đánh thức (Lost Wakeup)
 
-Lỗi có thể xảy ra nếu một luồng (A) kiểm tra điều kiện, sau đó một luồng khác (B) đổi trạng thái và phát tín hiệu đánh thức ngay trước khi A kịp bắt đầu quá trình chờ. Tín hiệu này không được lưu lại; A sẽ đi ngủ vô thời hạn dù điều kiện đã thỏa mãn.
-Việc tuân thủ nghiêm ngặt protocol: **giữ Mutex khi thay đổi trạng thái và gọi wait** sẽ loại bỏ khoảng hở này.
+`Lost wakeup` xảy ra khi tín hiệu đánh thức được phát ra **trước khi luồng thực sự bắt đầu chờ**, nên tín hiệu đó không được lưu lại để dùng về sau. Luồng có thể đi ngủ dù predicate đã đúng.
+
+Mô hình lỗi:
+
+```text
+Luồng A: kiểm tra predicate -> chưa đúng
+         nhả Mutex
+                              Luồng B: đổi trạng thái + signal
+Luồng A: lúc này mới bắt đầu wait
+```
+
+Nếu tự tách `unlock()` và thao tác chờ như trên, sẽ xuất hiện một khoảng hở nguy hiểm. `pthread_cond_wait()` tránh khoảng hở này bằng cách **nhả Mutex và bắt đầu chờ một cách được phối hợp nguyên tử**, sau đó lấy lại Mutex trước khi trả về.
+
+Vì vậy, giao thức chuẩn là: giữ Mutex khi kiểm tra/thay đổi predicate và dùng `pthread_cond_wait()` để thực hiện bước chuyển từ **đang giữ Mutex** sang **đang chờ** một cách an toàn.
 
 ---
 
