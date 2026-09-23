@@ -835,24 +835,82 @@ Ngay cả khi hàm trả về do timeout, ứng dụng vẫn nên kiểm tra l�
 
 ## 10. `Semaphore`: bộ đếm tài nguyên hoặc token
 
-Semaphore là một bộ đếm. Giá trị lớn hơn 0 có thể xem như số 'token' hoặc tài nguyên còn sẵn để lấy.
+Semaphore là một **bộ đếm số lượng tài nguyên hoặc quyền sử dụng (`token`) đang sẵn sàng**. Nếu giá trị Semaphore lớn hơn 0, luồng có thể lấy một token để tiếp tục; nếu giá trị bằng 0, luồng phải chờ cho tới khi có token mới được cấp lại.
+
+Có thể hình dung:
+
+```text
+Semaphore = 3
+
+[ token ] [ token ] [ token ]
+```
+
+Mỗi lần một luồng lấy quyền sử dụng, bộ đếm giảm đi 1. Khi quyền đó được trả lại hoặc có thêm tài nguyên, bộ đếm tăng lên 1.
 
 ### 10.1 Khái niệm Bộ đếm
 
-Bên trong Semaphore duy trì một con số nguyên. Nó thường đại diện cho số lượng slot rỗng trong buffer, hoặc số sự kiện chưa được xử lý.
+Bên trong Semaphore duy trì một giá trị nguyên không âm. Giá trị này thường đại diện cho số lượng tài nguyên đang khả dụng, số slot còn trống trong buffer, hoặc số sự kiện/item đang sẵn sàng để xử lý.
+
+Ví dụ, nếu hệ thống có 3 tài nguyên giống nhau:
+
+```text
+sem = 3
+```
+
+thì có thể hiểu là hiện còn 3 token để các luồng lấy.
 
 ### 10.2 Lấy thẻ: `sem_wait()`
 
-Nếu giá trị Semaphore lớn hơn 0, `sem_wait()` giảm bộ đếm và tiến trình đi tiếp. Nếu giá trị bằng 0, caller phải chờ cho tới khi một luồng khác thực hiện hàm post để cấp thêm token.
-Semaphore không có tính sở hữu; nó thường dùng cho việc đếm lượng tài nguyên khả dụng.
+`sem_wait()` có thể hiểu là **lấy một token**:
+
+- Nếu Semaphore lớn hơn 0: bộ đếm giảm đi 1 và luồng tiếp tục.
+- Nếu Semaphore bằng 0: không còn token, luồng phải chờ cho tới khi một luồng khác gọi `sem_post()`.
+
+```text
+sem = 2
+   |
+sem_wait()
+   v
+sem = 1
+```
+
+Semaphore không có tính sở hữu; nó thường phù hợp với các bài toán cần đếm số lượng tài nguyên khả dụng.
 
 ### 10.3 Cấp thẻ: `sem_post()`
 
-Tăng số đếm lên 1 và có thể làm một luồng đang chờ có cơ hội tiếp tục. Khác với Mutex, Semaphore không yêu cầu luồng gọi `post` phải là luồng đã gọi `wait` trước đó.
+`sem_post()` **cấp hoặc trả lại một token**, làm bộ đếm tăng lên 1 và có thể giúp một luồng đang chờ tiếp tục.
+
+```text
+sem = 0
+   |
+sem_post()
+   v
+sem = 1
+```
+
+Khác với Mutex, Semaphore không yêu cầu luồng gọi `sem_post()` phải là luồng đã gọi `sem_wait()` trước đó.
 
 ### 10.4 Binary Semaphore vs Mutex
 
-Dù giới hạn Semaphore ở giá trị 0 và 1, nó vẫn khác Mutex ở tính chất **quyền sở hữu (Ownership)**. Sự phân biệt này rất quan trọng đối với thiết kế ứng dụng và các giao thức như Kế thừa ưu tiên (Priority Inheritance) trong thời gian thực.
+Nếu Semaphore chỉ được sử dụng với giá trị 0 và 1, nó được gọi là **Binary Semaphore** và nhìn bề ngoài khá giống Mutex. Tuy nhiên, điểm khác biệt cốt lõi vẫn là **quyền sở hữu (`ownership`)**:
+
+```text
+Mutex:
+Luồng A lock()  -> Luồng A phải unlock()
+
+Semaphore:
+Luồng A sem_wait()
+Luồng B vẫn có thể sem_post()
+```
+
+Vì vậy có thể nhớ ngắn gọn:
+
+```text
+Mutex     -> "Ai đang sở hữu quyền độc quyền?"
+Semaphore -> "Còn bao nhiêu token/tài nguyên khả dụng?"
+```
+
+Sự phân biệt này đặc biệt quan trọng trong thiết kế đồng bộ và các cơ chế thời gian thực như Kế thừa ưu tiên (`Priority Inheritance`).
 
 ---
 
