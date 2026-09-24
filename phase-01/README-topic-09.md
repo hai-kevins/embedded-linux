@@ -1101,18 +1101,52 @@ Lần `recvfrom()` tiếp theo sẽ nhận **Datagram kế tiếp**, không ph�
 
 ## 19. Unix Domain Socket: cùng API nhưng giao tiếp cục bộ
 
-Lập trình Mạng nhưng không cần ra khỏi Máy.
+Unix Domain Socket (UDS) cho phép các tiến trình trên **cùng một hệ thống Linux** giao tiếp bằng Socket API mà không cần đi qua mạng IP.
 
 ### 19.1 IPC qua mô hình Socket
 
-Socket API không chỉ dành cho mạng IP. Với `AF_UNIX` (hay `AF_LOCAL`), cùng bộ API có thể được dùng cho giao tiếp liên tiến trình (IPC) cục bộ trên một hệ thống.
+Socket API không chỉ dành cho mạng IP. Với `AF_UNIX` (hay `AF_LOCAL`), cùng các API quen thuộc như `socket()`, `bind()`, `listen()`, `accept()`, `send()` và `recv()` có thể được dùng cho giao tiếp liên tiến trình (IPC) cục bộ.
 
-### 19.2 Tính tương đồng nhưng Bản chất khác biệt
+Có thể hình dung:
 
-Mô hình thiết lập TCP Server: `socket(AF_UNIX) -> bind -> listen -> accept`.
-Địa chỉ của nó không phải IP/Port; có thể là một pathname hoặc abstract namespace, ví dụ: `/tmp/db_engine.sock`.
+```text
+[ Process A ]
+      |
+      | Unix Domain Socket
+      v
+[ Linux Kernel ]
+      |
+      v
+[ Process B ]
+```
 
-> Cùng bộ API, nhưng AF_UNIX khác AF_INET ở không gian tên địa chỉ, tính giới hạn trong nội bộ thiết bị (local-only), khả năng xác thực quyền (credentials/permissions) và cơ chế truyền tải của Kernel. Unix Domain Socket giúp bạn thiết kế giao thức linh hoạt mà không mở ranh giới phơi bày mạng.
+Khác với TCP/IP, hai tiến trình này phải nằm trên cùng hệ thống; dữ liệu không được định tuyến ra mạng bên ngoài.
+
+### 19.2 Địa chỉ của Unix Domain Socket
+
+UDS dùng `AF_UNIX` thay vì `AF_INET`/`AF_INET6`, nên địa chỉ của socket không phải IP + Port. Một Unix Domain Socket có thể dùng:
+
+- **Pathname:** ví dụ `/tmp/db_engine.sock` hoặc `/run/service.sock`.
+- **Abstract namespace:** một không gian tên cục bộ đặc thù trên Linux; ở mức chủ đề này chỉ cần biết nó không phải địa chỉ IP/Port.
+
+Với UDS dạng `SOCK_STREAM`, server vẫn có mô hình quen thuộc:
+
+```text
+socket(AF_UNIX, SOCK_STREAM, 0)
+        |
+        v
+      bind()
+        |
+        v
+     listen()
+        |
+        v
+     accept()
+```
+
+Path như `/tmp/db_engine.sock` đóng vai trò **địa chỉ để các tiến trình tìm thấy socket**, không nên hiểu nó là một tệp dữ liệu thông thường chứa nội dung trao đổi. Dữ liệu thực tế vẫn được truyền qua socket do Kernel quản lý.
+
+> Cùng bộ Socket API, nhưng `AF_UNIX` khác `AF_INET` ở không gian tên địa chỉ và phạm vi giao tiếp: UDS chỉ dùng cục bộ trên cùng hệ thống. Đây là lựa chọn phổ biến khi các service/process trên một thiết bị Embedded Linux cần giao tiếp với nhau mà không cần mở một cổng mạng.
 
 ---
 
