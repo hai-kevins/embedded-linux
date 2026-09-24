@@ -567,9 +567,9 @@ Khi dùng `getaddrinfo()` ở phần trước, `ai_addr` và `ai_addrlen` của 
 
 **Server thường phải `bind()`** vì Client cần biết một địa chỉ/cổng ổn định để gửi dữ liệu hoặc tạo kết nối tới. Ví dụ một TCP Server có thể gắn với Port `8080`, sau đó mới gọi `listen()`.
 
-**Client thường không cần tự `bind()`**. Nếu Client gọi `connect()` mà chưa `bind()`, Kernel sẽ tự chọn một địa chỉ IP nguồn phù hợp và cấp một **Cổng tạm thời (`ephemeral port`)**.
+**Client thường không cần tự `bind()`**. Điều này không có nghĩa Client không có địa chỉ cục bộ. Nếu Client gọi `connect()` mà chưa `bind()`, Kernel sẽ tự chọn một địa chỉ IP nguồn phù hợp và một **Cổng tạm thời (`ephemeral port`)** đang khả dụng để hình thành local endpoint của Client.
 
-Ví dụ:
+Ví dụ Client gọi `connect()` tới Server `10.0.0.5:80`; Kernel có thể tự chọn local endpoint `192.168.1.20:53124`:
 
 ```text
 Client                         Server
@@ -579,7 +579,7 @@ Client                         Server
        ephemeral port do Kernel chọn
 ```
 
-Client vẫn có thể tự `bind()` khi ứng dụng thực sự cần kiểm soát local address hoặc local port, nhưng đây không phải trường hợp thông thường.
+Như vậy, Client vẫn có đầy đủ `IP:Port`; chỉ khác ở chỗ các giá trị local này do Kernel tự chọn thay vì ứng dụng tự `bind()`. Nếu ứng dụng thực sự cần kiểm soát local address hoặc local port, Client có thể tự gọi `bind()` trước `connect()`, nhưng đây không phải trường hợp thông thường.
 
 ### 8.3 Cổng `0` và địa chỉ `wildcard`
 
@@ -687,7 +687,7 @@ Hàm `listen(fd, backlog)` thiết lập giới hạn cho **Hàng đợi các k�
 [ Connected Socket ] ---> (Giao tiếp Dữ liệu)
 ```
 
-Ở chế độ mặc định, lệnh `connect()` thực hiện "Mở chủ động" (Active open) và sẽ chặn luồng thực thi (Block) cho tới khi kết nối TCP với máy chủ thành công, hoặc gặp lỗi (như timeout, bị từ chối kết nối).
+Ở chế độ mặc định, lệnh `connect()` thực hiện "Mở chủ động" (Active open) và sẽ chặn luồng thực thi (Block) cho tới khi kết nối TCP với máy chủ thành công, hoặc gặp lỗi (như timeout, bị từ chối kết nối). Nếu Client chưa tự `bind()`, Kernel cũng sẽ tự xác lập local endpoint phù hợp (local IP và `ephemeral port`) cho Socket trong quá trình này.
 
 ### 11.2 `connect()` chỉ là thành công ở tầng giao vận
 
@@ -989,7 +989,7 @@ UDP không tự phanh lại khi mạng nghẽn (`Congestion control`) như TCP. 
 
 UDP không thiết lập kết nối kiểu TCP, nhưng vẫn dùng nhiều API Socket quen thuộc. Điểm quan trọng là phải hiểu **ngữ nghĩa của các hàm này thay đổi theo loại Socket**.
 
-### 17.1 UDP Server thường sử dụng `bind()`
+### 17.1 UDP Server thường `bind()`, UDP Client thường không cần
 
 ```text
 socket(SOCK_DGRAM)
@@ -1004,6 +1004,20 @@ recvfrom() / sendto()
 UDP Server thường `bind()` để gán một **local endpoint** cố định, ví dụ `0.0.0.0:9000`, để Kernel biết các datagram gửi tới cổng đó cần chuyển vào Socket nào.
 
 Khác TCP, UDP không dùng `listen()` và `accept()`. Một UDP Socket đã `bind()` có thể nhận datagram từ nhiều peer khác nhau.
+
+**UDP Client thường không cần tự `bind()`**. Nếu Socket chưa có local endpoint, khi ứng dụng bắt đầu gửi bằng `sendto()` hoặc cấu hình peer bằng `connect()`, Kernel có thể tự chọn một local IP phù hợp và cấp một **ephemeral port** đang khả dụng.
+
+Ví dụ:
+
+```text
+Client                         Server
+192.168.1.20:53124  ------->  10.0.0.5:9000
+                ^
+                |
+       ephemeral port do Kernel chọn
+```
+
+Điều này chỉ giúp UDP Socket có địa chỉ nguồn để gửi/nhận datagram; nó **không tạo TCP connection và không có TCP handshake**.
 
 ### 17.2 `sendto()` và `recvfrom()`
 
@@ -1025,7 +1039,7 @@ Client A:50001 <--- datagram ------+-- sendto() phản hồi
 
 ### 17.3 `connect()` với UDP
 
-UDP vẫn cho phép gọi `connect()`, nhưng **không có TCP three-way handshake và không tạo một TCP-style connection**.
+UDP vẫn cho phép gọi `connect()`, nhưng **không có TCP three-way handshake và không tạo một TCP-style connection**. Nếu UDP Socket chưa được `bind()`, Kernel cũng có thể tự xác lập local endpoint khi `connect()` được gọi.
 
 Với UDP, `connect()` chủ yếu cấu hình cho Kernel rằng:
 
