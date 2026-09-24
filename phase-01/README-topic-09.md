@@ -987,36 +987,86 @@ UDP không tự phanh lại khi mạng nghẽn (`Congestion control`) như TCP. 
 
 ## 17. UDP `bind()`, `connect()`, `sendto()` và `recvfrom()`
 
-Dù không bắt tay mạng, API của UDP vẫn hỗ trợ một số thiết lập luồng đi.
+UDP không thiết lập kết nối kiểu TCP, nhưng vẫn dùng nhiều API Socket quen thuộc. Điểm quan trọng là phải hiểu **ngữ nghĩa của các hàm này thay đổi theo loại Socket**.
 
 ### 17.1 UDP Server thường sử dụng `bind()`
 
 ```text
 socket(SOCK_DGRAM)
       |
-bind(Local Port)
+      v
+bind(Local IP, Local Port)
       |
       v
 recvfrom() / sendto()
 ```
 
-UDP server sẽ `bind` vào một cổng cục bộ để nhận các datagram gửi tới. Nó không dùng `listen()` và không tạo connected FD riêng qua `accept()`. Một socket UDP đã gắn cổng có thể giao tiếp với nhiều đối tác khác nhau.
+UDP Server thường `bind()` để gán một **local endpoint** cố định, ví dụ `0.0.0.0:9000`, để Kernel biết các datagram gửi tới cổng đó cần chuyển vào Socket nào.
+
+Khác TCP, UDP không dùng `listen()` và `accept()`. Một UDP Socket đã `bind()` có thể nhận datagram từ nhiều peer khác nhau.
 
 ### 17.2 `sendto()` và `recvfrom()`
 
-*   `sendto()`: Gửi gói tin đi, luôn đính kèm địa chỉ Tọa độ Đích (IP:Port) trên mỗi lệnh gọi. Cho phép một UDP socket gửi datagram tới các đích khác nhau.
-*   `recvfrom()`: Nhận datagram và trả về cả payload lẫn địa chỉ nguồn của gói tin. Đây là cơ sở bắt buộc để Server UDP biết địa chỉ truy vết nhằm gửi phản hồi.
+Khi UDP Socket chưa được gắn với một peer mặc định:
+
+*   `sendto()`: Gửi **một datagram** và chỉ rõ địa chỉ đích `(IP:Port)` ngay trong lần gọi đó. Vì vậy cùng một UDP Socket có thể gửi tới nhiều peer khác nhau.
+*   `recvfrom()`: Nhận **một datagram** và đồng thời trả về địa chỉ nguồn `(IP:Port)` của peer đã gửi. UDP Server thường dùng thông tin này để biết cần phản hồi lại cho ai.
+
+Ví dụ:
+
+```text
+Client A:50001 ---- datagram ----> Server:9000
+                                   |
+                                   +-- recvfrom() nhận payload
+                                   +-- biết nguồn là Client A:50001
+                                   |
+Client A:50001 <--- datagram ------+-- sendto() phản hồi
+```
 
 ### 17.3 `connect()` với UDP
 
-Bạn hoàn toàn có quyền gọi `connect()` lên một UDP Socket. Nhưng:
-Lệnh `connect()` ở đây KHÔNG HỀ phát sóng lên Internet để bắt tay kết nối như TCP. Nó thực hiện các thao tác quản lý dưới Kernel:
-1. Thiết lập Cấu hình Đích Mặc định (Default Destination).
-2. Cho phép Kernel gắn/lọc liên kết nhận, bỏ qua mọi gói tin không thuộc về Đối tác này.
-3. Cho phép dùng trực tiếp `send()` và `recv()` với peer đã cấu hình.
-4. Giúp báo lỗi ICMP bất đồng bộ trên hệ thống Linux rõ ràng hơn đối với Socket cụ thể đó.
+UDP vẫn cho phép gọi `connect()`, nhưng **không có TCP three-way handshake và không tạo một TCP-style connection**.
 
-*(Tất nhiên, cấu hình kiểu này không mang lại bất cứ tính an toàn nào của luồng TCP, nó vẫn là UDP).*
+Với UDP, `connect()` chủ yếu cấu hình cho Kernel rằng:
+
+```text
+UDP Socket
+    |
+    v
+Default peer = một IP:Port cụ thể
+```
+
+Sau đó:
+
+1. Socket có một **peer mặc định**, nên ứng dụng có thể dùng `send()` thay cho việc truyền địa chỉ đích ở mỗi lần `sendto()`.
+2. Ứng dụng có thể dùng `recv()` và Kernel chỉ nhận dữ liệu phù hợp với peer đã cấu hình cho Socket đó.
+3. Trên Linux, một số lỗi mạng như lỗi ICMP có thể được liên kết rõ hơn với UDP Socket đã `connect()`.
+
+Ví dụ:
+
+```text
+Trước connect():
+
+UDP Socket ---- sendto(..., Peer A)
+           ---- sendto(..., Peer B)
+
+Sau connect(Peer A):
+
+UDP Socket ---- send() ----> Peer A
+           <--- recv() ----- Peer A
+```
+
+Cần nhớ:
+
+```text
+TCP connect()
+= thiết lập TCP connection
+
+UDP connect()
+= cấu hình default peer cho UDP Socket
+```
+
+Vì vậy `connect()` thành công trên UDP **không chứng minh peer đang hoạt động hoặc đang lắng nghe**; UDP vẫn không có các bảo đảm về delivery, thứ tự hay retransmission như TCP.
 
 ---
 
