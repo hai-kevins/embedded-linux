@@ -341,34 +341,132 @@ Vì vậy, khi thiết kế protocol giữa các hệ thống khác kiến trúc
 
 ## 6. `getaddrinfo()`: từ tên máy tới `socket address`
 
-Hàm `getaddrinfo()` giúp phân giải tên miền và tên dịch vụ thành danh sách các địa chỉ socket hợp lệ, tự động tương thích với cả IPv4 và IPv6.
+Hàm `getaddrinfo()` giúp chuyển **tên máy/tên miền + dịch vụ (hoặc Port)** thành một danh sách `socket address` phù hợp để chương trình dùng với `socket()`, `connect()` hoặc `bind()`. Điểm quan trọng là hàm này có thể trả về cả IPv4 lẫn IPv6, nhờ đó code không phải tự xử lý riêng từng kiểu địa chỉ ngay từ đầu.
 
-### 6.1 Cơ chế hoạt động của `getaddrinfo()`
+### 6.1 Input và output của `getaddrinfo()`
 
-```text
-  [ Tên miền + Dịch vụ (vd: 443/https) + Gợi ý (Hints) ]
-             |
-             v
-       [ getaddrinfo() ]
-             |
-             v
-  [ Danh sách các cấu trúc Tọa độ ứng viên phù hợp ]
-     |
-     +--> Ứng viên 1: (IPv6, TCP, Port 443, Dạng nhị phân)
-     +--> Ứng viên 2: (IPv4, TCP, Port 443, Dạng nhị phân)
+Prototype rút gọn:
+
+```c
+int getaddrinfo(const char *node,
+                const char *service,
+                const struct addrinfo *hints,
+                struct addrinfo **res);
 ```
 
-### 6.2 Phân giải đa cấu trúc (AF_UNSPEC)
+Có thể hiểu các tham số như sau:
 
-Khi sử dụng cờ `AF_UNSPEC` trong thuộc tính Gợi ý (Hints), hàm sẽ trả về tất cả các ứng viên phù hợp (bao gồm cả IPv4 và IPv6). Thiết kế Client chuẩn mực sẽ lặp qua danh sách này, liên tục thử gọi `socket()` và `connect()` cho tới khi có một kết nối thành công, giúp code ít bị phụ thuộc cứng vào riêng hệ IPv4.
+* `node`: tên máy hoặc địa chỉ cần phân giải, ví dụ `"example.com"`.
+* `service`: tên dịch vụ hoặc Port ở dạng chuỗi, ví dụ `"443"` hoặc `"https"`.
+* `hints`: mô tả loại kết quả mong muốn, như IPv4/IPv6 và `SOCK_STREAM`/`SOCK_DGRAM`.
+* `res`: nhận danh sách các kết quả phù hợp.
 
-### 6.3 Phân giải địa chỉ dành cho Server
+Ví dụ về luồng phân giải:
 
-Khi tạo Server, việc thiết lập cờ `AI_PASSIVE` trong Hints sẽ giúp `getaddrinfo()` khởi tạo cấu trúc địa chỉ đại diện cục bộ (như IP `0.0.0.0` hoặc `::`), để ứng dụng có thể truyền trực tiếp vào hàm `bind()` nhằm lắng nghe tất cả các giao diện mạng.
+```text
+[ "example.com" + "443" + hints ]
+                |
+                v
+          getaddrinfo()
+                |
+                v
+       danh sách candidate
+          |             |
+          v             v
+      IPv6/TCP       IPv4/TCP
+      Port 443       Port 443
+```
 
-### 6.4 Phân giải thành công không đồng nghĩa kết nối thành công
+Mỗi candidate chứa đủ thông tin để chương trình tạo socket tương ứng, trong đó `ai_family`, `ai_socktype`, `ai_protocol` mô tả loại socket và `ai_addr` chứa `socket address` có thể truyền cho `connect()` hoặc `bind()`.
 
-Sự kiện `getaddrinfo()` trả về danh sách địa chỉ chỉ chứng tỏ việc phân giải tên miền/dịch vụ hoàn tất. Nó không chứng minh đường mạng đang thông, máy chủ từ xa đang bật hay cổng đang mở. Các bước tiếp cận kết nối thực tế phụ thuộc vào lời gọi `connect()` sau đó.
+### 6.2 `hints`: yêu cầu loại địa chỉ mong muốn
+
+`hints` giúp giới hạn loại kết quả mà ứng dụng cần. Ví dụ một TCP Client thường có thể khai báo:
+
+```c
+struct addrinfo hints = {0};
+
+hints.ai_family = AF_UNSPEC;
+hints.ai_socktype = SOCK_STREAM;
+```
+
+Ở đây:
+
+* `AF_UNSPEC`: không ép riêng IPv4 hay IPv6.
+* `SOCK_STREAM`: yêu cầu socket kiểu stream, với Internet socket thông thường sẽ tương ứng với TCP.
+
+### 6.3 Vì sao `getaddrinfo()` trả về nhiều candidate?
+
+Một tên miền có thể ánh xạ tới nhiều địa chỉ. Khi dùng `AF_UNSPEC`, danh sách kết quả có thể chứa cả IPv6 và IPv4.
+
+Client không nên mặc định candidate đầu tiên chắc chắn dùng được. Thiết kế phổ biến là thử lần lượt:
+
+```text
+getaddrinfo()
+      |
+      v
+candidate 1 -> socket() -> connect() -> fail
+      |
+      v
+candidate 2 -> socket() -> connect() -> success
+```
+
+Vì vậy, Client thường lặp qua danh sách `addrinfo`, tạo socket theo từng candidate và gọi `connect()` cho tới khi có một kết nối thành công. Cách này giúp chương trình ít phụ thuộc cứng vào riêng IPv4 hoặc IPv6.
+
+### 6.4 `AI_PASSIVE`: chuẩn bị địa chỉ cho Server
+
+Server thường cần một địa chỉ cục bộ để truyền vào `bind()`. Khi dùng:
+
+```c
+hints.ai_flags = AI_PASSIVE;
+```
+
+và để `node = NULL`, `getaddrinfo()` có thể tạo địa chỉ wildcard phù hợp, chẳng hạn:
+
+```text
+0.0.0.0:8080    (IPv4)
+[::]:8080       (IPv6)
+```
+
+Luồng tư duy của Server là:
+
+```text
+NULL + "8080" + AI_PASSIVE
+            |
+            v
+      getaddrinfo()
+            |
+            v
+   local socket address
+            |
+            v
+          bind()
+```
+
+Trong khi Client thường dùng kết quả của `getaddrinfo()` cho `connect()`, Server thường dùng kết quả này cho `bind()`.
+
+### 6.5 Phân giải thành công không đồng nghĩa kết nối thành công
+
+`getaddrinfo()` thành công chỉ cho biết tên máy/dịch vụ đã được chuyển thành một hoặc nhiều `socket address` hợp lệ. Nó không chứng minh:
+
+* đường mạng tới máy đích đang thông;
+* server đang chạy;
+* Port đích đang mở;
+* TCP handshake sẽ thành công.
+
+Những điều đó chỉ được xác định ở các bước tiếp theo, đặc biệt là khi Client gọi `connect()`.
+
+```text
+getaddrinfo() thành công
+        |
+        v
+Có địa chỉ để thử kết nối
+        |
+        v
+     connect()
+        |
+   thành công / lỗi
+```
 
 ---
 
