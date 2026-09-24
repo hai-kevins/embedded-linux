@@ -212,33 +212,130 @@ Do kích thước cấu trúc của từng `address family` là khác nhau, các
 
 ## 5. `network byte order`: vì sao phải đổi `byte order`?
 
-Các hệ thống máy tính có kiến trúc vi xử lý khác nhau có thể lưu trữ các số nguyên nhiều byte theo các thứ tự khác nhau. Việc truyền dữ liệu thô (raw bytes) giữa các kiến trúc này mà không có quy ước chung sẽ dẫn đến sai lệch dữ liệu.
+Các hệ thống máy tính có kiến trúc vi xử lý khác nhau có thể lưu trữ các số nguyên nhiều byte theo các thứ tự khác nhau. Nếu hai máy truyền trực tiếp representation trong RAM mà không có quy ước chung, cùng một chuỗi byte có thể bị hiểu thành hai giá trị khác nhau.
 
 ### 5.1 Little-endian và Big-endian
 
-Giá trị 16-bit `0x1234` có thể được lưu trữ trên RAM:
-*   Kiểu **Little-endian** (thường thấy trên chip x86): Dạng `34 12`.
-*   Kiểu **Big-endian** (một số dòng chip mạng/nhúng): Dạng `12 34`.
+Giá trị 16-bit `0x1234` gồm hai byte `0x12` và `0x34`. Tùy kiến trúc CPU, chúng có thể được lưu trong RAM theo hai cách:
 
-### 5.2 `Network Byte Order`
+```text
+Little-endian:  34 12
+Big-endian:     12 34
+```
 
-Các giao thức Internet quy định một số trường cấu trúc nhiều byte (như Port, IP address dạng số) bắt buộc phải sử dụng **Network Byte Order**, tương đương với thứ tự **Big-endian**.
+* **Little-endian:** byte có trọng số thấp được đặt ở địa chỉ thấp hơn. Đây là cách phổ biến trên x86 và nhiều hệ ARM hiện đại.
+* **Big-endian:** byte có trọng số cao được đặt ở địa chỉ thấp hơn.
+
+Điểm quan trọng là giá trị logic vẫn là `0x1234`; khác biệt nằm ở cách các byte của số nguyên được biểu diễn trong bộ nhớ.
+
+### 5.2 `Host Byte Order` và `Network Byte Order`
+
+`Host Byte Order` là thứ tự byte mà CPU hiện tại sử dụng. Vì các host có thể dùng endianness khác nhau, các giao thức Internet quy định một representation chung cho một số trường số nguyên nhiều byte trên wire: **Network Byte Order**, tương đương **Big-endian**.
+
+Ví dụ Port `8080` có giá trị hexadecimal là `0x1F90`. Trên một host little-endian, representation trong RAM có thể là `90 1F`, nhưng khi đặt vào field mạng yêu cầu Network Byte Order, representation cần tương ứng với `1F 90`.
+
+```text
+Host Order              Network Order
+(little-endian)          (big-endian)
+
+90 1F       --->         1F 90
+          htons()
+```
+
+Mục đích của các hàm chuyển đổi là để code không phải tự kiểm tra CPU hiện tại đang dùng little-endian hay big-endian.
 
 ### 5.3 Các hàm chuyển đổi cơ bản
 
-Ứng dụng cung cấp các hàm dịch thuật để đồng bộ hóa `byte order`:
-*   `htons()` (Host To Network Short): Chuyển số nguyên 16-bit (như Port) từ kiến trúc máy sang chuẩn Mạng.
-*   `htonl()` (Host To Network Long): Chuyển số nguyên 32-bit từ kiến trúc máy sang chuẩn Mạng.
-*   `ntohs()`: Dịch ngược từ Mạng về Máy (16-bit).
-*   `ntohl()`: Dịch ngược từ Mạng về Máy (32-bit).
+Ứng dụng sử dụng các hàm chuẩn sau khi thao tác với các field số nguyên có yêu cầu byte order rõ ràng:
 
-*(Chỉ nên chuyển đổi khi cần thao tác với các trường đặc tả trên giao thức mạng, và đảm bảo không gọi hàm chuyển đổi hai lần lên cùng một giá trị).*
+* `htons()` (**Host To Network Short**): Host → Network cho giá trị 16-bit, điển hình là Port.
+* `htonl()` (**Host To Network Long**): Host → Network cho giá trị 32-bit.
+* `ntohs()` (**Network To Host Short**): Network → Host cho giá trị 16-bit.
+* `ntohl()` (**Network To Host Long**): Network → Host cho giá trị 32-bit.
 
-### 5.4 Chuyển đổi IP dạng Văn bản (Human-readable)
+Ví dụ khi chuẩn bị địa chỉ IPv4 cho Socket:
 
-Con người đọc IP dạng chữ: `"192.168.1.10"`. Máy tính xử lý dạng số nhị phân (Binary).
-*   `inet_pton()` (Presentation to Network): Chuyển IP dạng văn bản thành định dạng mã nhị phân cấu trúc mạng.
-*   `inet_ntop()` (Network to Presentation): Phiên dịch ngược lại từ dạng mã nhị phân mạng ra chuỗi IP.
+```c
+struct sockaddr_in addr;
+
+addr.sin_family = AF_INET;
+addr.sin_port = htons(8080);
+```
+
+`8080` là giá trị mà chương trình xử lý ở phía host; `sin_port` cần representation theo Network Byte Order nên phải qua `htons()`.
+
+Chiều ngược lại, nếu đọc một Port đang ở Network Byte Order và muốn dùng như số nguyên bình thường trong chương trình:
+
+```c
+printf("%u\n", ntohs(addr.sin_port));
+```
+
+> **Quy tắc thực dụng:** Chỉ chuyển đổi khi API hoặc giao thức quy định field đó ở Network Byte Order. Không gọi `htons()`/`htonl()` hai lần lên cùng một giá trị.
+
+### 5.4 `inet_pton()` và `inet_ntop()` khác nhóm `hton*()` như thế nào?
+
+Địa chỉ IP thường được con người nhập ở dạng văn bản, ví dụ `"192.168.1.10"`, trong khi Socket API cần địa chỉ ở dạng binary phù hợp với address family.
+
+* `inet_pton()` (**Presentation to Network**): chuyển địa chỉ IP từ chuỗi văn bản sang binary network address.
+* `inet_ntop()` (**Network to Presentation**): chuyển binary network address ngược lại thành chuỗi dễ đọc.
+
+Ví dụ:
+
+```c
+struct sockaddr_in addr;
+
+addr.sin_family = AF_INET;
+addr.sin_port = htons(8080);
+inet_pton(AF_INET, "192.168.1.10", &addr.sin_addr);
+```
+
+Hai thao tác có mục đích khác nhau:
+
+```text
+8080
+  |
+htons()
+  |
+  +----> sin_port
+
+"192.168.1.10"
+       |
+   inet_pton()
+       |
+       +----> sin_addr
+```
+
+`htons()` chuyển **byte order của một số nguyên**, còn `inet_pton()` chuyển **địa chỉ IP dạng văn bản sang dạng binary mà Socket API sử dụng**.
+
+### 5.5 Không phải dữ liệu nào gửi qua Socket cũng cần `hton*()`
+
+Các hàm `hton*()` không được áp dụng mù quáng lên toàn bộ payload. Ví dụ chuỗi ký tự:
+
+```c
+send(fd, "HELLO", 5, 0);
+```
+
+không cần đi qua `htons()` hay `htonl()`. Endianness chỉ trở thành vấn đề khi giao thức của bạn chứa các field số nguyên nhiều byte và cần một wire format thống nhất.
+
+Ví dụ một protocol tự định nghĩa header `length` 32-bit:
+
+```c
+uint32_t length = 100;
+uint32_t net_length = htonl(length);
+
+send(fd, &net_length, sizeof(net_length), 0);
+```
+
+Phía nhận chuyển ngược lại:
+
+```c
+uint32_t net_length;
+recv(fd, &net_length, sizeof(net_length), 0);
+
+uint32_t length = ntohl(net_length);
+```
+
+Vì vậy, khi thiết kế protocol giữa các hệ thống khác kiến trúc CPU, cần định nghĩa rõ **độ rộng field**, **endianness**, và **message framing** thay vì phụ thuộc vào layout bộ nhớ nội bộ của một máy cụ thể.
 
 ---
 
