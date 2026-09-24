@@ -831,30 +831,104 @@ Nếu tiến trình gửi dữ liệu nhanh hơn tốc độ tiêu thụ/xử l�
 
 ## 15. Đóng TCP đúng cách: `shutdown()`, FIN, RST và `TIME_WAIT`
 
-Mạng TCP là giao thức hai chiều toàn phần (Full-duplex).
+TCP là giao thức **hai chiều toàn phần (`full-duplex`)**. Có thể hình dung một kết nối TCP gồm hai chiều truyền độc lập:
+
+```text
+Client  -------------------->  Server   (Client gửi)
+Client  <--------------------  Server   (Server gửi)
+```
+
+Vì vậy, đóng TCP không nhất thiết có nghĩa cả hai chiều phải kết thúc cùng lúc.
 
 ### 15.1 Hàm `shutdown()` khác `close()`
 
-*   `shutdown()`: Giao tiếp với Kernel để điều khiển hướng của luồng mạng. (Ngừng gửi `SHUT_WR`, Ngừng nhận `SHUT_RD` hoặc Ngừng cả hai).
-*   `close()`: Giải phóng `file descriptor` ở cấp độ Tiến trình. Nếu FD này có nhiều bản sao (qua lệnh `fork` / `dup`), một lệnh `close` không nhất thiết kích hoạt ngay việc phá hủy kết nối TCP phía dưới.
+*   `shutdown()`: Yêu cầu Kernel thay đổi trạng thái truyền/nhận của Socket. Có thể ngừng hướng gửi (`SHUT_WR`), hướng nhận (`SHUT_RD`) hoặc cả hai (`SHUT_RDWR`).
+*   `close()`: Giải phóng một `file descriptor` của tiến trình. Nếu Socket còn được tham chiếu bởi FD khác, chẳng hạn do `dup()` hoặc `fork()`, một lần `close()` chưa chắc làm kết nối TCP phía dưới kết thúc ngay.
+
+Có thể nhớ ngắn gọn: `shutdown()` điều khiển **hướng giao tiếp**, còn `close()` giải phóng **tham chiếu FD** của tiến trình.
 
 ### 15.2 `Half-close` với `SHUT_WR`
 
-Hàm `shutdown(fd, SHUT_WR)` làm thay đổi trạng thái giao thức. Khẳng định với nội bộ TCP stack rằng ứng dụng sẽ không gửi thêm byte nào nữa. Kernel sẽ gửi cờ `FIN` thực hiện quy trình `orderly shutdown` hướng gửi.
-Tuy nhiên, chiều nhận dữ liệu từ đối tác vẫn tồn tại (Half-close). Bạn vẫn có thể tiếp tục `recv()` phản hồi. Mô hình này rất hữu hiệu khi EOF được dùng làm mốc kết thúc Request nhưng Response vẫn đi ngược về sau đó.
+Vì TCP có hai chiều độc lập, một phía có thể đóng **chỉ chiều gửi của mình** nhưng vẫn tiếp tục nhận dữ liệu. Trạng thái đó gọi là `half-close`.
+
+Khi Client gọi:
+
+```c
+shutdown(fd, SHUT_WR);
+```
+
+ý nghĩa là: **Client sẽ không gửi thêm byte nào nữa, nhưng vẫn có thể tiếp tục gọi `recv()` để nhận dữ liệu từ Server**.
+
+```text
+Client                         Server
+
+      X -------------------->       (Client không gửi thêm)
+        <--------------------       (Server vẫn có thể gửi)
+```
+
+Kernel sẽ thực hiện `orderly shutdown` trên chiều gửi và phát `FIN` sang peer. `FIN` nên được hiểu là: **"tôi đã gửi hết dữ liệu trên chiều này"**, không phải "toàn bộ kết nối đã biến mất".
+
+Ví dụ:
+
+```text
+Client                         Server
+
+send(Request)  -------------->
+shutdown(SHUT_WR)
+               ------ FIN --->
+
+               <-------------  send(Response)
+recv(Response)
+```
+
+Sau khi Server đã đọc hết dữ liệu còn lại và đã nhận `FIN`, `recv()` ở Server sẽ trả về `0`. Đây là EOF của **chiều Client → Server**. Server vẫn có thể gửi Response theo chiều ngược lại.
 
 ### 15.3 `CLOSE_WAIT`
 
-Khi trạng thái mạng xuất hiện cờ `CLOSE_WAIT`, điều đó có nghĩa: Hệ thống đã nhận được cờ `FIN` từ Đối tác, nhưng tiến trình ứng dụng cục bộ chưa tiến hành xử lý vòng đời kết nối và chưa chịu gọi hàm `close()` phía mình. Nếu trạng thái này dồn ứ nhiều, đó là biểu hiện ứng dụng của bạn quản lý tài nguyên/FD tồi.
+Khi một phía nhận `FIN` từ peer, TCP phía local có thể chuyển sang trạng thái `CLOSE_WAIT`.
+
+```text
+Peer gửi FIN
+     |
+     v
+Kernel local đã biết peer không gửi thêm
+     |
+     v
+CLOSE_WAIT
+     |
+     v
+Chờ application local hoàn tất và đóng phía của mình
+```
+
+Vì vậy, `CLOSE_WAIT` có nghĩa là **peer đã kết thúc chiều gửi của nó, nhưng application local vẫn chưa hoàn tất việc đóng phần kết nối của mình**. Trạng thái này có thể xuất hiện bình thường trong thời gian ngắn; nếu nhiều `CLOSE_WAIT` tồn tại lâu và tăng dần, cần kiểm tra việc quản lý vòng đời Socket/FD của ứng dụng.
 
 ### 15.4 `TIME_WAIT`
 
-Phía thực hiện `active close` thường đi qua trạng thái `TIME_WAIT`. Đây là trạng thái bình thường của TCP nhằm đảm bảo tính toàn vẹn của kết nối khi phải đối mặt với các gói tin lạc hậu đi muộn trên mạng và việc xử lý gói ACK cuối cùng.
-Có nhiều `TIME_WAIT` không tự động đồng nghĩa với việc rò rỉ Socket (Leak fd).
+Phía thực hiện `active close` thường đi qua trạng thái `TIME_WAIT` sau quá trình trao đổi `FIN`/`ACK`.
 
-### 15.5 Tín hiệu ngắt: `RST`
+`TIME_WAIT` là trạng thái bình thường của TCP. Kernel giữ thông tin kết nối thêm một khoảng thời gian để xử lý an toàn các segment cũ có thể đến muộn và các tình huống liên quan tới ACK cuối của quá trình đóng.
 
-Cờ `RST` là thao tác ngắt kết nối cưỡng bức/bất thường, thay vì quy trình Đóng trật tự (Orderly shutdown) của `FIN`. Trong code, ứng dụng cần phải phân biệt trạng thái EOF đàng hoàng (nhận trả về `0`) và lỗi Reset ép buộc (như lỗi `ECONNRESET`) vì ngữ nghĩa của dữ liệu tại thời điểm đó là khác biệt.
+Có thể phân biệt ngắn gọn:
+
+```text
+CLOSE_WAIT = đã nhận FIN, application local chưa đóng xong phía của mình.
+TIME_WAIT  = TCP đang ở giai đoạn chờ cuối sau quá trình active close.
+```
+
+Do đó, có nhiều `TIME_WAIT` không tự động đồng nghĩa với rò rỉ Socket hoặc rò rỉ FD.
+
+### 15.5 Reset bất thường: `RST`
+
+`FIN` biểu thị việc kết thúc một chiều truyền theo quy trình có trật tự (`orderly shutdown`). Ngược lại, `RST` dùng để reset kết nối một cách bất thường/cưỡng bức.
+
+Ứng dụng cần phân biệt:
+
+```text
+FIN -> đọc hết dữ liệu rồi recv() == 0  -> EOF bình thường.
+RST -> kết nối bị reset                -> có thể gặp ECONNRESET.
+```
+
+Hai trường hợp có ngữ nghĩa khác nhau: `FIN` cho biết peer đã kết thúc chiều gửi một cách có trật tự, còn `RST` báo rằng kết nối bị phá vỡ/reset thay vì kết thúc theo quy trình bình thường.
 
 ---
 
