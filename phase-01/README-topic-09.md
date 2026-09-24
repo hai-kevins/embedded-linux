@@ -487,23 +487,45 @@ Không gian cổng TCP và UDP là độc lập. Cổng `TCP 5000` và `UDP 5000
 
 ### 7.3 TCP 4-tuple
 
-Một kết nối TCP (TCP connection) đầy đủ được hệ điều hành phân biệt duy nhất thông qua **Định danh 4 điểm (4-tuple)**:
+Một kết nối TCP không được xác định chỉ bằng IP và Port của Server. Kernel phân biệt từng kết nối thông qua **4-tuple** gồm:
+
 ```text
-1. Địa chỉ IP Cục bộ.
-2. Cổng Cục bộ.
-3. Địa chỉ IP Đối tác (Remote).
-4. Cổng Đối tác.
+1. Địa chỉ IP Cục bộ (Local IP).
+2. Cổng Cục bộ (Local Port).
+3. Địa chỉ IP Đối tác (Remote IP).
+4. Cổng Đối tác (Remote Port).
 ```
+
+Ví dụ, từ phía Server nhìn một kết nối:
+
+```text
+Server 10.0.0.5:80 <=====> Client 192.168.1.20:53000
+```
+
+tương ứng với:
+
+```text
+Local IP    = 10.0.0.5
+Local Port  = 80
+Remote IP   = 192.168.1.20
+Remote Port = 53000
+```
+
+Chỉ cần một thành phần trong 4-tuple khác đi thì Kernel có thể xem đó là một kết nối TCP khác.
 
 ### 7.4 Làm sao một Server cổng 80 phục vụ nhiều người?
 
-Nhiều Client có thể cùng lúc kết nối tới một Server tại cùng địa chỉ IP và Cổng 80:
+Nhiều Client có thể cùng lúc kết nối tới cùng một Server tại cùng IP và Port 80:
+
 ```text
 (Connection 1): Server IP X : Port 80 <=====> Client IP A : Port 44215
 (Connection 2): Server IP X : Port 80 <=====> Client IP B : Port 19022
 (Connection 3): Server IP X : Port 80 <=====> Client IP A : Port 56000
 ```
-Mặc dù Server chỉ dùng cổng 80, nhưng do 4-tuple của mỗi kết nối đều khác biệt (nhờ sự khác nhau ở thông tin Client IP/Port), Kernel vẫn quản lý và phân biệt chúng như các luồng dữ liệu độc lập.
+
+Phía Server đều dùng cùng một địa chỉ và Port 80, nhưng phía Client có IP và/hoặc Port khác nhau. Client thường được Kernel cấp một **cổng tạm thời (`ephemeral port`)**, vì vậy 4-tuple của mỗi kết nối vẫn khác nhau.
+
+Do đó Kernel có thể quản lý từng kết nối như một luồng TCP độc lập. Khi Server gọi `accept()`, mỗi kết nối được chấp nhận sẽ có một **connected socket** riêng, trong khi listening socket trên Port 80 vẫn tiếp tục chờ các kết nối mới.
 
 ---
 
