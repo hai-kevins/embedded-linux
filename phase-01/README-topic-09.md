@@ -691,7 +691,21 @@ Hàm `listen(fd, backlog)` thiết lập giới hạn cho **Hàng đợi các k�
 
 ### 11.2 `connect()` chỉ là thành công ở tầng giao vận
 
-Khi `connect()` không trả về lỗi, nó chỉ báo hiệu quá trình thiết lập kênh truyền tải TCP đã thành công. Nó không bảo đảm rằng tiến trình ứng dụng phía Máy chủ đã sẵn sàng phản hồi, phiên bản phần mềm khớp nhau, hay mật khẩu đăng nhập của bạn là đúng.
+Khi `connect()` trên một TCP socket trả về thành công, điều đó có nghĩa là **kết nối TCP tới endpoint phía Server đã được thiết lập ở tầng giao vận (Transport layer)**. Trong trường hợp thông thường, quá trình bắt tay TCP đã hoàn tất và socket phía Client đã chuyển sang trạng thái `ESTABLISHED`.
+
+Điều này **không đồng nghĩa với việc ứng dụng phía Server đã xử lý yêu cầu thành công**. Sau khi kết nối TCP được thiết lập, Client vẫn phải trao đổi dữ liệu theo giao thức tầng ứng dụng; các vấn đề như phiên bản giao thức không tương thích, thông tin đăng nhập sai hoặc Server xử lý yêu cầu thất bại vẫn có thể xảy ra.
+
+Có thể nhớ ngắn gọn:
+
+```text
+connect() thành công
+        |
+        v
+Kết nối TCP ở tầng giao vận đã được thiết lập
+        |
+        v
+Ứng dụng mới tiếp tục send()/recv() và xử lý giao thức riêng
+```
 
 ---
 
