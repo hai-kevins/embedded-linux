@@ -531,34 +531,93 @@ Do đó Kernel có thể quản lý từng kết nối như một luồng TCP đ
 
 ## 8. `bind()`: chọn địa chỉ và cổng cục bộ
 
-Lệnh `bind()` gán một cấu trúc địa chỉ Socket (IP + Cổng) cụ thể vào một Socket.
+`bind()` gán một **địa chỉ cục bộ (`local endpoint`)** cho Socket. Với Internet Socket, địa chỉ này thường gồm **địa chỉ IP cục bộ + Cổng (Port)**.
 
-### 8.1 Gán tọa độ cục bộ
+Có thể hiểu ngắn gọn: `bind()` trả lời câu hỏi **"Socket này sẽ sử dụng địa chỉ nào ở phía local?"**. Nó không tạo kết nối tới máy khác; việc thiết lập peer thuộc về `connect()` hoặc, ở phía TCP Server, chuỗi `listen()` / `accept()`.
+
+### 8.1 Gán địa chỉ cục bộ
+
+Prototype rút gọn:
+
+```c
+int bind(int fd, const struct sockaddr *addr, socklen_t addrlen);
+```
+
+Luồng cơ bản:
 
 ```text
-  [ Khởi tạo socket() -> Socket vô danh (unbound) ]
-                 |
-  [ Gọi bind(Local Address) ]
-                 |
-                 v
-  [ Socket đã có Local Endpoint ]
+[ socket() -> Socket chưa có local endpoint cố định ]
+                         |
+                         v
+              bind(Local Address)
+                         |
+                         v
+           [ Socket có Local Endpoint ]
 ```
+
+Ví dụ một Server có thể `bind()` vào:
+
+```text
+192.168.1.50:8080
+```
+
+Khi dùng `getaddrinfo()` ở phần trước, `ai_addr` và `ai_addrlen` của một candidate phù hợp có thể được truyền trực tiếp cho `bind()`.
 
 ### 8.2 Khi nào dùng `bind()`?
 
-**Server thường xuyên phải `bind()`**. Server cần một Endpoint ổn định (như Cổng 80) để các Client biết chính xác địa chỉ mà gửi yêu cầu tới.
+**Server thường phải `bind()`** vì Client cần biết một địa chỉ/cổng ổn định để gửi dữ liệu hoặc tạo kết nối tới. Ví dụ một TCP Server có thể gắn với Port `8080`, sau đó mới gọi `listen()`.
 
-**Client hiếm khi cần tự `bind()`**. Nếu Client không gọi `bind()`, Kernel sẽ tự động lựa chọn một IP nguồn hợp lệ và cấp một Cổng tạm thời (`ephemeral port`) ngay khi Client phát sinh truy cập truyền/kết nối.
+**Client thường không cần tự `bind()`**. Nếu Client gọi `connect()` mà chưa `bind()`, Kernel sẽ tự chọn một địa chỉ IP nguồn phù hợp và cấp một **Cổng tạm thời (`ephemeral port`)**.
 
-### 8.3 Cổng `0` và địa chỉ wildcard
+Ví dụ:
 
-*   **Cổng (Port) `0`:** Yêu cầu Kernel tự lựa chọn một cổng trống khả dụng từ dải cổng tạm thời (ephemeral ports) của hệ thống.
-*   **Địa chỉ `0.0.0.0` (INADDR_ANY):** Đây là địa chỉ `wildcard`, báo cho Kernel rằng Socket này muốn lắng nghe yêu cầu đến từ mọi giao diện mạng hiện có trên thiết bị, thay vì chỉ gắn với một địa chỉ IP cụ thể.
+```text
+Client                         Server
+192.168.1.20:53124  <------>  10.0.0.5:80
+                 ^
+                 |
+       ephemeral port do Kernel chọn
+```
+
+Client vẫn có thể tự `bind()` khi ứng dụng thực sự cần kiểm soát local address hoặc local port, nhưng đây không phải trường hợp thông thường.
+
+### 8.3 Cổng `0` và địa chỉ `wildcard`
+
+*   **Cổng `0`:** Khi truyền Port `0` cho `bind()`, ứng dụng yêu cầu Kernel tự chọn một Port khả dụng, thường từ dải `ephemeral port` của hệ thống. Sau khi `bind()` thành công, Socket thực tế sẽ mang một Port cụ thể do Kernel cấp.
+*   **`0.0.0.0` (`INADDR_ANY`):** Là địa chỉ IPv4 `wildcard`. Khi Server `bind()` vào `0.0.0.0:8080`, Socket không bị giới hạn vào một IPv4 cục bộ cụ thể; nó có thể nhận lưu lượng phù hợp gửi tới Port `8080` qua các địa chỉ IPv4 cục bộ của máy.
+
+Ví dụ một thiết bị có:
+
+```text
+eth0  = 192.168.1.50
+wlan0 = 10.0.0.20
+```
+
+thì:
+
+```text
+bind(0.0.0.0:8080)
+```
+
+có ý nghĩa khác với:
+
+```text
+bind(192.168.1.50:8080)
+```
+
+Trường hợp thứ hai chỉ gắn Socket với địa chỉ IPv4 cụ thể `192.168.1.50`.
 
 ### 8.4 Giải mã lỗi `bind()`
 
-*   **`EADDRINUSE`:** Cho biết sự kết hợp Địa chỉ/Cổng bạn đang cố gán không thể khả dụng ở trạng thái hiện tại. (Có thể do một tiến trình khác đang giữ cổng, hoặc Socket cũ đang ở trạng thái TCP ngầm như `TIME_WAIT`).
-*   **`EADDRNOTAVAIL`:** Địa chỉ IP yêu cầu không thuộc bất kỳ không gian mạng cục bộ nào mà máy tính đang quản lý.
+*   **`EADDRINUSE`:** Địa chỉ/cổng yêu cầu hiện không thể được gán cho Socket. Nguyên nhân thường gặp là một Socket khác đã chiếm tổ hợp địa chỉ/cổng đó; với TCP, trạng thái của các kết nối trước và các tùy chọn tái sử dụng địa chỉ cũng có thể ảnh hưởng.
+*   **`EADDRNOTAVAIL`:** Địa chỉ IP cụ thể mà ứng dụng yêu cầu `bind()` không khả dụng như một địa chỉ cục bộ trong ngữ cảnh mạng hiện tại của tiến trình.
+
+Có thể nhớ ngắn gọn:
+
+```text
+EADDRINUSE     -> địa chỉ/cổng đang không thể dùng vì bị xung đột
+EADDRNOTAVAIL  -> địa chỉ local yêu cầu không khả dụng trên hệ thống
+```
 
 ---
 
