@@ -834,11 +834,11 @@ Nếu tiến trình gửi dữ liệu nhanh hơn tốc độ tiêu thụ/xử l�
 TCP là giao thức **hai chiều toàn phần (`full-duplex`)**. Có thể hình dung một kết nối TCP gồm hai chiều truyền độc lập:
 
 ```text
-Client  -------------------->  Server   (Client gửi)
-Client  <--------------------  Server   (Server gửi)
+Client  -------------------->  Server   (chiều Client -> Server)
+Client  <--------------------  Server   (chiều Server -> Client)
 ```
 
-Vì vậy, đóng TCP không nhất thiết có nghĩa cả hai chiều phải kết thúc cùng lúc.
+Vì hai chiều này độc lập, một phía có thể ngừng gửi nhưng vẫn tiếp tục nhận dữ liệu từ phía còn lại.
 
 ### 15.1 Hàm `shutdown()` khác `close()`
 
@@ -849,24 +849,24 @@ Có thể nhớ ngắn gọn: `shutdown()` điều khiển **hướng giao tiế
 
 ### 15.2 `Half-close` với `SHUT_WR`
 
-Vì TCP có hai chiều độc lập, một phía có thể đóng **chỉ chiều gửi của mình** nhưng vẫn tiếp tục nhận dữ liệu. Trạng thái đó gọi là `half-close`.
-
-Khi Client gọi:
+Giả sử Client đã gửi xong Request và gọi:
 
 ```c
 shutdown(fd, SHUT_WR);
 ```
 
-ý nghĩa là: **Client sẽ không gửi thêm byte nào nữa, nhưng vẫn có thể tiếp tục gọi `recv()` để nhận dữ liệu từ Server**.
+Điều đó có nghĩa: **Client không gửi thêm byte nào theo chiều `Client -> Server`, nhưng chiều `Server -> Client` vẫn còn mở để Client tiếp tục `recv()` dữ liệu**.
 
 ```text
 Client                         Server
 
-      X -------------------->       (Client không gửi thêm)
-        <--------------------       (Server vẫn có thể gửi)
+Client -> Server :    X -------------------->   (đã ngừng gửi)
+Server -> Client :      <--------------------   (vẫn có thể gửi)
 ```
 
-Kernel sẽ thực hiện `orderly shutdown` trên chiều gửi và phát `FIN` sang peer. `FIN` nên được hiểu là: **"tôi đã gửi hết dữ liệu trên chiều này"**, không phải "toàn bộ kết nối đã biến mất".
+Trạng thái chỉ đóng một chiều như vậy gọi là `half-close`.
+
+Khi Client `shutdown(fd, SHUT_WR)`, Kernel thực hiện `orderly shutdown` trên chiều gửi và phát `FIN` sang Server. Có thể hiểu `FIN` là: **"tôi đã gửi hết dữ liệu trên chiều này"**, không phải "toàn bộ kết nối đã đóng".
 
 Ví dụ:
 
@@ -881,26 +881,32 @@ shutdown(SHUT_WR)
 recv(Response)
 ```
 
-Sau khi Server đã đọc hết dữ liệu còn lại và đã nhận `FIN`, `recv()` ở Server sẽ trả về `0`. Đây là EOF của **chiều Client → Server**. Server vẫn có thể gửi Response theo chiều ngược lại.
+Sau khi Server đọc hết dữ liệu còn lại và đã nhận `FIN`, `recv()` ở Server sẽ trả về `0`. Đây là EOF của **chiều `Client -> Server`**. Tuy nhiên, **chiều `Server -> Client` vẫn có thể tiếp tục hoạt động**.
 
 ### 15.3 `CLOSE_WAIT`
 
-Khi một phía nhận `FIN` từ peer, TCP phía local có thể chuyển sang trạng thái `CLOSE_WAIT`.
+Tiếp tục ví dụ trên: Client đã gửi `FIN`, nên TCP phía Server biết rằng **chiều `Client -> Server` đã kết thúc**. Nhưng application phía Server vẫn chưa đóng chiều còn lại là **`Server -> Client`**.
 
 ```text
-Peer gửi FIN
-     |
-     v
-Kernel local đã biết peer không gửi thêm
-     |
-     v
-CLOSE_WAIT
-     |
-     v
-Chờ application local hoàn tất và đóng phía của mình
+Client                         Server
+
+Client -> Server :  ---- FIN ---->   đã kết thúc
+Server -> Client :  <-------------   vẫn còn mở
+                                      |
+                                      v
+                                 CLOSE_WAIT
 ```
 
-Vì vậy, `CLOSE_WAIT` có nghĩa là **peer đã kết thúc chiều gửi của nó, nhưng application local vẫn chưa hoàn tất việc đóng phần kết nối của mình**. Trạng thái này có thể xuất hiện bình thường trong thời gian ngắn; nếu nhiều `CLOSE_WAIT` tồn tại lâu và tăng dần, cần kiểm tra việc quản lý vòng đời Socket/FD của ứng dụng.
+Vì vậy, khi Server ở trạng thái `CLOSE_WAIT`, có thể hiểu:
+
+```text
+Client -> Server : đã đóng.
+Server -> Client : application Server vẫn chưa đóng.
+```
+
+Trong thời gian này, Server vẫn có thể gửi dữ liệu cho Client nếu giao thức ứng dụng yêu cầu. Khi Server đã gửi xong và application đóng phần kết nối của mình, chiều `Server -> Client` mới được kết thúc theo quy trình TCP.
+
+`CLOSE_WAIT` có thể xuất hiện bình thường trong thời gian ngắn. Tuy nhiên, nếu nhiều `CLOSE_WAIT` tồn tại lâu và tăng dần, cần kiểm tra việc quản lý vòng đời Socket/FD của application, vì có thể chương trình đã nhận biết peer đóng nhưng chưa đóng Socket phía mình.
 
 ### 15.4 `TIME_WAIT`
 
@@ -911,7 +917,9 @@ Phía thực hiện `active close` thường đi qua trạng thái `TIME_WAIT` s
 Có thể phân biệt ngắn gọn:
 
 ```text
-CLOSE_WAIT = đã nhận FIN, application local chưa đóng xong phía của mình.
+CLOSE_WAIT = peer đã đóng chiều gửi của nó,
+             application local vẫn chưa đóng chiều gửi còn lại của mình.
+
 TIME_WAIT  = TCP đang ở giai đoạn chờ cuối sau quá trình active close.
 ```
 
