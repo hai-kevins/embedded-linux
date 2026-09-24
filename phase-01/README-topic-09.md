@@ -212,7 +212,7 @@ Do kích thước cấu trúc của từng `address family` là khác nhau, các
 
 ## 5. `network byte order`: vì sao phải đổi `byte order`?
 
-Các hệ thống máy tính có kiến trúc vi xử lý khác nhau có thể lưu trữ các số nguyên nhiều byte theo các thứ tự khác nhau. Nếu hai máy truyền trực tiếp representation trong RAM mà không có quy ước chung, cùng một chuỗi byte có thể bị hiểu thành hai giá trị khác nhau.
+Các hệ thống máy tính có kiến trúc vi xử lý khác nhau có thể lưu trữ các số nguyên nhiều byte theo các thứ tự khác nhau. Nếu hai máy truyền trực tiếp cách biểu diễn dữ liệu trong RAM mà không có quy ước chung, cùng một chuỗi byte có thể bị hiểu thành hai giá trị khác nhau.
 
 ### 5.1 Little-endian và Big-endian
 
@@ -230,9 +230,9 @@ Big-endian:     12 34
 
 ### 5.2 `Host Byte Order` và `Network Byte Order`
 
-`Host Byte Order` là thứ tự byte mà CPU hiện tại sử dụng. Vì các host có thể dùng endianness khác nhau, các giao thức Internet quy định một representation chung cho một số trường số nguyên nhiều byte trên wire: **Network Byte Order**, tương đương **Big-endian**.
+`Host Byte Order` là thứ tự byte mà CPU hiện tại sử dụng. Vì các host có thể dùng endianness khác nhau, các giao thức Internet quy định một cách biểu diễn chung cho một số trường số nguyên nhiều byte trên đường truyền: **Network Byte Order**, tương đương **Big-endian**.
 
-Ví dụ Port `8080` có giá trị hexadecimal là `0x1F90`. Trên một host little-endian, representation trong RAM có thể là `90 1F`, nhưng khi đặt vào field mạng yêu cầu Network Byte Order, representation cần tương ứng với `1F 90`.
+Ví dụ Port `8080` có giá trị hexadecimal là `0x1F90`. Trên một host little-endian, cách biểu diễn trong RAM có thể là `90 1F`, nhưng khi đặt vào field mạng yêu cầu Network Byte Order, cách biểu diễn trên mạng cần tương ứng với `1F 90`.
 
 ```text
 Host Order              Network Order
@@ -262,7 +262,7 @@ addr.sin_family = AF_INET;
 addr.sin_port = htons(8080);
 ```
 
-`8080` là giá trị mà chương trình xử lý ở phía host; `sin_port` cần representation theo Network Byte Order nên phải qua `htons()`.
+`8080` là giá trị mà chương trình xử lý ở phía host; `sin_port` cần được biểu diễn theo Network Byte Order nên phải qua `htons()`.
 
 Chiều ngược lại, nếu đọc một Port đang ở Network Byte Order và muốn dùng như số nguyên bình thường trong chương trình:
 
