@@ -912,7 +912,23 @@ Trong thời gian này, Server vẫn có thể gửi dữ liệu cho Client nế
 
 Phía thực hiện `active close` thường đi qua trạng thái `TIME_WAIT` sau quá trình trao đổi `FIN`/`ACK`.
 
-`TIME_WAIT` là trạng thái bình thường của TCP. Kernel giữ thông tin kết nối thêm một khoảng thời gian để xử lý an toàn các segment cũ có thể đến muộn và các tình huống liên quan tới ACK cuối của quá trình đóng.
+Điểm quan trọng là phía này **không xóa ngay trạng thái TCP sau khi gửi ACK cuối**. Kernel giữ thông tin của connection cũ thêm một khoảng thời gian để quá trình đóng kết thúc an toàn.
+
+Một lý do là **ACK cuối có thể bị mất trên mạng**. Khi đó peer chưa biết `FIN` của mình đã được xác nhận nên có thể gửi lại `FIN`. Nếu phía active close vẫn còn ở `TIME_WAIT`, Kernel vẫn nhận ra đây là `FIN` được truyền lại của connection vừa đóng và có thể gửi ACK lại.
+
+```text
+Client (active close)                    Server
+
+        <----------- FIN ----------------
+ACK -------------------X                 // ACK bị mất
+
+        <----------- FIN ---------------- // Server gửi lại FIN
+ACK -----------------------------------> // Client vẫn ACK lại được
+
+Client vẫn giữ trạng thái connection trong TIME_WAIT
+```
+
+`TIME_WAIT` cũng giúp các segment cũ của connection trước có thời gian hết hiệu lực, tránh gây nhầm lẫn nếu sau đó xuất hiện một connection mới có cùng thông tin endpoint.
 
 Có thể phân biệt ngắn gọn:
 
@@ -920,7 +936,8 @@ Có thể phân biệt ngắn gọn:
 CLOSE_WAIT = peer đã đóng chiều gửi của nó,
              application local vẫn chưa đóng chiều gửi còn lại của mình.
 
-TIME_WAIT  = TCP đang ở giai đoạn chờ cuối sau quá trình active close.
+TIME_WAIT  = quá trình đóng gần hoàn tất,
+             TCP chủ động giữ trạng thái connection cũ thêm một thời gian.
 ```
 
 Do đó, có nhiều `TIME_WAIT` không tự động đồng nghĩa với rò rỉ Socket hoặc rò rỉ FD.
