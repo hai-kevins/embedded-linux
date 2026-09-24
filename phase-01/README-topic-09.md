@@ -1081,9 +1081,21 @@ Lựa chọn cặp hàm giao tiếp tùy thuộc vào Trạng thái của Socket
 
 ### 18.2 Lưu ý kích thước Datagram của `recvfrom()`
 
-Nếu kích thước Datagram gửi tới lớn hơn vùng đệm (buffer) mà bạn khai báo trong lệnh `recv()`/`recvfrom()` của UDP:
-Với TCP, phần dữ liệu còn lại nằm yên đó để bạn đọc ở vòng lặp sau.
-Với UDP, phần Byte bị vượt ngưỡng (tràn buffer) **có thể bị loại bỏ vĩnh viễn** khỏi luồng do mỗi Datagram luôn đóng ranh giới riêng biệt. Lỗi cắt cụt (Truncation) sẽ xảy ra.
+Nếu một UDP Datagram lớn hơn vùng đệm (buffer) mà ứng dụng cung cấp cho `recv()`/`recvfrom()`, ứng dụng chỉ nhận được phần dữ liệu vừa với buffer; phần còn lại của **chính Datagram đó** không được giữ lại để đọc tiếp ở lần gọi sau. Datagram lúc này bị **cắt cụt (truncation)**.
+
+Ví dụ, một Datagram dài `300 byte` nhưng ứng dụng chỉ cấp buffer `100 byte`:
+
+```text
+Datagram A: 300 byte
+        |
+        v
+recvfrom(buffer 100 byte)
+        |
+        +--> nhận tối đa 100 byte
+        +--> phần còn lại của Datagram A bị loại bỏ
+```
+
+Lần `recvfrom()` tiếp theo sẽ nhận **Datagram kế tiếp**, không phải phần còn lại của Datagram A. Đây là điểm khác với TCP: TCP là `byte stream`, nên nếu một lần `recv()` chỉ lấy được một phần dữ liệu đang chờ thì các byte còn lại vẫn nằm trong receive buffer để ứng dụng đọc tiếp ở các lần sau.
 
 ---
 
