@@ -1339,15 +1339,19 @@ Khi executable được Linux loader nạp, program header table mô tả các *
 Mô hình:
 
 ```text
-Link-time view                      Load-time view
+Link-time view                         Load-time view
 
-Sections                            Segments
----------                           --------
-.text ---------+                    +--> LOAD (R-X)
-.rodata -------+------------------->|
-                                    |
-.data ---------+                    +--> LOAD (RW-)
-.bss ----------+------------------->|
+Sections                               Segments
+--------                               --------
+
+.text   -----------+
+                   +----------------->  LOAD segment (R-X)
+.rodata -----------+                   - chứa code / dữ liệu chỉ đọc
+
+
+.data   -----------+
+                   +----------------->  LOAD segment (RW-)
+.bss    -----------+                   - chứa dữ liệu có thể ghi
 ```
 
 Một segment có thể bao phủ nhiều section. Vì vậy:
