@@ -1003,61 +1003,161 @@ Tuy nhiên không nên hiểu rằng **mọi symbol đều luôn có thể bị 
 ---
 ## 9. Relocation: vì sao object file chưa biết địa chỉ cuối cùng?
 
-Giả sử `main.o` gọi `sensor_read()` nằm ở `sensor.o`.
+Giả sử `main.c` gọi `sensor_read()` nhưng definition của `sensor_read()` nằm trong `sensor.c`.
 
-Khi assembler tạo `main.o`, nó chưa biết linker sẽ đặt `sensor_read()` tại địa chỉ cuối cùng nào trong executable.
-
-Do đó object file cần ghi lại một yêu cầu đại loại như:
+Sau khi build riêng từng translation unit:
 
 ```text
-"Tại vị trí này có một tham chiếu tới symbol sensor_read.
- Khi biết địa chỉ/bố cục cuối cùng, hãy sửa giá trị phù hợp vào đây."
+main.c                  sensor.c
+   |                       |
+   v                       v
+main.o                  sensor.o
 ```
 
-Đó là vai trò của **relocation information**.
+Trong `main.o`, assembler biết rằng machine code của `main()` cần gọi tới symbol `sensor_read`, nhưng tại thời điểm tạo `main.o` nó **chưa biết linker sẽ đặt `sensor_read()` ở vị trí cuối cùng nào trong executable**.
 
-### 9.1 Mô hình relocation
+Lý do là bố cục cuối cùng chỉ được quyết định khi linker nhìn thấy toàn bộ các object file, library và thành phần cần tham gia link.
+
+Vì vậy `main.o` có thể chứa:
 
 ```text
 main.o
-+------------------------------+
-| Machine code                 |
-| call ???                     |----+
-+------------------------------+    |
-| Symbol: sensor_read = UND    |    |
-+------------------------------+    |
-| Relocation entry ------------+----+
-+------------------------------+
-
-sensor.o
-+------------------------------+
-| Symbol: sensor_read = defined|
-+------------------------------+
-
-              |
-              v
-            Linker
-              |
-              v
-Biết vị trí cuối cùng -> áp dụng relocation
+ |
+ +-- machine code có một tham chiếu chưa hoàn chỉnh
+ |
+ +-- symbol: sensor_read = undefined
+ |
+ +-- relocation entry:
+     "tham chiếu tại vị trí này phụ thuộc vào sensor_read"
 ```
 
-> **Đọc sơ đồ:** `main.o` biết rằng có một tham chiếu cần trỏ tới `sensor_read`, nhưng chưa biết giá trị địa chỉ cuối cùng. Linker tìm definition của symbol trong `sensor.o`, quyết định bố cục output rồi cập nhật tham chiếu theo loại relocation phù hợp.
+**Relocation information** chính là metadata giúp linker biết **chỗ nào cần được hoàn thiện** sau khi vị trí của symbol đã được xác định.
 
-### 9.2 Relocation không đơn giản luôn là "ghi địa chỉ tuyệt đối"
+### 9.1 Symbol resolution và relocation là hai việc khác nhau
 
-Tùy kiến trúc và loại code, relocation có thể liên quan tới:
-
-*   Địa chỉ tuyệt đối.
-*   Offset tương đối so với vị trí hiện tại.
-*   Entry trong GOT/PLT.
-*   Các kiểu relocation đặc thù kiến trúc.
-
-Các chi tiết đó thuộc mức sâu hơn. Ở đây chỉ cần giữ mental model:
+Giả sử:
 
 ```text
-Relocation = thông tin cho phép linker/loader hoàn thiện các tham chiếu chưa thể cố định trước đó.
+main.o
+  |
+  +-- cần: sensor_read
+
+sensor.o
+  |
+  +-- định nghĩa: sensor_read
 ```
+
+Linker trước hết thực hiện **symbol resolution**:
+
+```text
+main.o cần sensor_read
+        |
+        v
+linker tìm definition
+        |
+        v
+sensor.o định nghĩa sensor_read
+```
+
+Sau đó linker quyết định bố cục output, biết vị trí cuối cùng của `sensor_read`, rồi mới **áp dụng relocation** tại những chỗ đang tham chiếu tới symbol đó.
+
+Có thể nhớ:
+
+```text
+Symbol resolution
+=
+tìm "symbol này được định nghĩa ở đâu?"
+
+Relocation
+=
+sau khi biết vị trí của symbol,
+tính và cập nhật giá trị cần thiết tại chỗ tham chiếu
+```
+
+### 9.2 Mô hình relocation
+
+Có thể hình dung:
+
+```text
+main.o
++----------------------------------+
+| Machine code                     |
+| call [chưa hoàn chỉnh]           |----+
++----------------------------------+    |
+| Symbol: sensor_read = UND        |    |
++----------------------------------+    |
+| Relocation entry ----------------+----+
++----------------------------------+
+
+sensor.o
++----------------------------------+
+| Symbol: sensor_read = defined    |
++----------------------------------+
+
+                 |
+                 v
+               Linker
+                 |
+                 +-- tìm definition của sensor_read
+                 +-- quyết định layout
+                 +-- biết vị trí cuối cùng
+                 +-- tính giá trị cần ghi
+                 +-- áp dụng relocation
+                 |
+                 v
+             Executable
+```
+
+Relocation entry có thể được hiểu đơn giản là một ghi chú kỹ thuật cho linker trả lời ba câu hỏi:
+
+```text
+1. Cần sửa ở đâu?
+2. Tham chiếu này phụ thuộc symbol nào?
+3. Phải tính giá trị theo kiểu relocation nào?
+```
+
+Relocation không chỉ xuất hiện khi gọi function. Nó cũng có thể cần thiết khi code tham chiếu tới global variable hoặc các địa chỉ khác chưa thể xác định đầy đủ ở thời điểm assembler tạo object file.
+
+### 9.3 Relocation không phải lúc nào cũng là "ghi địa chỉ tuyệt đối"
+
+Một cách hình dung đơn giản là linker biết:
+
+```text
+sensor_read -> địa chỉ X
+```
+
+rồi ghi `X` vào chỗ cần tham chiếu. Tuy nhiên thực tế không phải mọi kiến trúc và instruction đều hoạt động theo cách đó.
+
+Relocation có thể yêu cầu:
+
+*   Ghi một địa chỉ tuyệt đối.
+*   Tính offset tương đối so với vị trí hiện tại.
+*   Xử lý tham chiếu thông qua các cơ chế như GOT/PLT.
+*   Áp dụng kiểu relocation đặc thù của kiến trúc.
+
+Ví dụ về mặt ý tưởng:
+
+```text
+instruction hiện tại: 0x1000
+sensor_read:          0x2000
+
+offset cần dùng = 0x2000 - 0x1000
+```
+
+Trong trường hợp đó, linker có thể cần ghi một **offset tương đối** thay vì địa chỉ tuyệt đối `0x2000`.
+
+Các chi tiết về GOT/PLT và từng loại relocation cụ thể sẽ được học ở phần dynamic linking và ELF sâu hơn. Ở Topic 1 chỉ cần giữ mental model:
+
+```text
+Symbol
+→ cho biết "đang nói tới thực thể nào?"
+
+Relocation
+→ cho biết "chỗ nào cần được hoàn thiện và hoàn thiện theo cách nào
+   khi vị trí của thực thể đó đã được biết?"
+```
+
+> **Điểm cần nhớ:** Object file có thể biết nó đang tham chiếu tới symbol nào nhưng chưa biết giá trị địa chỉ/offset cuối cùng. Vì vậy nó lưu relocation information để linker hoàn thiện các tham chiếu sau khi đã biết bố cục cuối cùng của chương trình.
 
 ---
 ## 10. Giai đoạn 4 — Link
