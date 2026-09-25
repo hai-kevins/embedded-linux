@@ -921,7 +921,9 @@ Một object file riêng lẻ hoàn toàn có thể hợp lệ dù còn undefine
 
 Lỗi chỉ xuất hiện khi tới thời điểm link output cuối cùng mà linker vẫn không tìm thấy definition phù hợp.
 
-### 8.3 `static` ở file scope làm thay đổi linkage
+### 8.3 `internal linkage` và `external linkage`
+
+`Linkage` mô tả việc **một tên trong C có thể được dùng để cùng tham chiếu tới một thực thể ở phạm vi nào**.
 
 Ví dụ:
 
@@ -932,15 +934,71 @@ static int helper(void)
 }
 ```
 
-Một function `static` ở file scope có **internal linkage**. Nó không được cung cấp như một external symbol theo cách một function thông thường có external linkage được dùng giữa các translation unit.
+Một function `static` ở file scope có **internal linkage**: tên `helper` chỉ được dùng để tham chiếu tới function đó trong cùng translation unit. Vì vậy hai translation unit khác nhau có thể cùng có một `static helper()` mà không tạo xung đột tên external.
 
-Điểm này rất quan trọng khi hiểu vì sao hai file có thể cùng có một `static helper()` mà không tạo xung đột tên external.
+Ngược lại, một function thông thường ở file scope như:
 
-### 8.4 Symbol không phải biến runtime theo nghĩa đơn giản
+```c
+int sensor_read(void)
+{
+    return 42;
+}
+```
 
-Symbol table là metadata trong object/binary. Một symbol có thể mô tả function hoặc object, nhưng không nên đồng nhất "symbol" với "một biến đang tồn tại trong RAM".
+thường có **external linkage**. Một translation unit khác có thể khai báo `sensor_read()` và linker có thể nối tham chiếu đó tới definition nằm trong object file khác.
 
-Sau stripping hoặc optimization, một số symbol có thể không còn trong binary cuối theo dạng ban đầu dù chương trình vẫn hoạt động bình thường.
+Mô hình:
+
+```text
+Internal linkage
+    |
+    +-- tên chỉ liên kết trong cùng translation unit
+
+External linkage
+    |
+    +-- tên có thể được dùng để nối giữa các translation unit
+```
+
+Ở mức chủ đề này chỉ cần hiểu linkage là quy tắc của ngôn ngữ C về phạm vi liên kết của tên; chưa cần đi sâu vào symbol binding của ELF.
+
+### 8.4 Symbol không phải dữ liệu hay machine code của thực thể
+
+Symbol table là **metadata** trong object/binary. Symbol như `counter` hoặc `sensor_read` là thông tin giúp linker và các công cụ xác định một thực thể theo tên; nó không phải chính vùng dữ liệu hoặc machine code của thực thể đó.
+
+Ví dụ:
+
+```c
+int counter = 10;
+```
+
+Có thể hình dung object file chứa hai lớp thông tin khác nhau:
+
+```text
+.data
++----------------------+
+| dữ liệu của counter  |
+| giá trị: 10          |
++----------------------+
+
+Symbol table
++----------------------+
+| counter -> .data ... |
++----------------------+
+```
+
+Do đó:
+
+```text
+symbol "counter"
+        !=
+dữ liệu thực tế của counter
+```
+
+Tương tự, symbol `sensor_read` không phải machine code của function `sensor_read()`; nó là tên cùng metadata dùng để xác định function đó.
+
+Khi linker đã giải quyết một tham chiếu, machine code cuối cùng có thể sử dụng địa chỉ hoặc offset phù hợp mà không cần tên symbol đó để CPU thực thi. Vì vậy nhiều symbol chỉ phục vụ linking/debugging có thể bị loại bỏ khỏi binary cuối, chẳng hạn khi stripping.
+
+Tuy nhiên không nên hiểu rằng **mọi symbol đều luôn có thể bị xóa sau linking**. Một số symbol vẫn cần được giữ lại để phục vụ dynamic linking hoặc các cơ chế runtime liên quan. Chi tiết này sẽ được học ở phần dynamic linking.
 
 ---
 ## 9. Relocation: vì sao object file chưa biết địa chỉ cuối cùng?
