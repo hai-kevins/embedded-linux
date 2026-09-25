@@ -197,17 +197,66 @@ Tuy nhiên đây là chi tiết triển khai của toolchain cụ thể. Điều
 
 Không.
 
-Về mặt mô hình, preprocessing là một stage riêng. Nhưng GCC có thể tích hợp preprocessing vào compiler front end thay vì luôn khởi chạy một executable `cpp` độc lập.
+Về mặt mô hình, preprocessing vẫn là một **stage riêng về chức năng**. Tuy nhiên, một stage logic không bắt buộc phải tương ứng với một executable hoặc process riêng khi toolchain thực thi.
+
+Trong GCC, cần hiểu thêm khái niệm **compiler front end**. Front end là phần của compiler chịu trách nhiệm **đọc và hiểu ngôn ngữ đầu vào**. Với C, ở mức khái quát nó tham gia các công việc như:
+
+*   Nhận các token của chương trình C.
+*   Phân tích cú pháp.
+*   Kiểm tra ngữ nghĩa và kiểu dữ liệu.
+*   Chuyển chương trình sang biểu diễn nội bộ để các bước tối ưu hóa và sinh code phía sau tiếp tục xử lý.
+
+Có thể hình dung:
+
+```text
+C source
+   |
+   v
++---------------------------+
+| GCC C front end           |
+|                           |
+| preprocessing             |
+|      |                    |
+|      v                    |
+| tokenization / parsing    |
+|      |                    |
+|      v                    |
+| semantic/type checking    |
++---------------------------+
+   |
+   v
+Biểu diễn nội bộ
+```
+
+> **Điểm cần nhớ:** `front end` không đồng nghĩa với toàn bộ compiler. Nó là phần gắn với ngôn ngữ nguồn và chịu trách nhiệm hiểu chương trình ở mức ngôn ngữ trước khi các tầng phía sau tối ưu hóa và sinh code cho target.
+
+Với GCC, preprocessing mặc định có thể được **tích hợp vào quá trình tokenization và parsing của language front end**. Vì vậy không nên hình dung rằng mỗi lần chạy `gcc main.c` thì GCC bắt buộc phải khởi chạy một executable `cpp` riêng, tạo `main.i`, rồi mới gọi compiler.
+
+Mô hình thực thi có thể gần với:
+
+```text
+gcc driver
+    |
+    v
+C front end (`cc1`)
+    |
+    +-- preprocessing
+    +-- parsing
+    +-- semantic analysis
+    +-- tạo biểu diễn nội bộ
+```
+
+GNU C Preprocessor được triển khai dưới dạng thư viện `cpplib`, có thể được dùng cả trong preprocessor độc lập lẫn tích hợp với các front end C/C++/Objective-C. GCC cũng có option `-no-integrated-cpp` để yêu cầu preprocessing diễn ra như một pass riêng trước compilation.
 
 Do đó cần phân biệt:
 
 ```text
 Stage logic:       Preprocess -> Compile -> Assemble -> Link
 
-Process thực tế:   phụ thuộc cách toolchain được xây dựng và option được dùng
+Process thực tế:   không bắt buộc có đúng một process riêng cho mỗi stage
 ```
 
-Điều này cũng giải thích vì sao `gcc` nên được nhìn như một **driver điều phối** thay vì một chuỗi cố định gồm đúng bốn process.
+Điều này cũng giải thích vì sao `gcc` nên được nhìn như một **driver điều phối**, còn `front end`, preprocessor, assembler và linker là các vai trò/thành phần khác nhau bên trong toàn bộ toolchain.
 
 ---
 ## 3. Giai đoạn 1 — Preprocess và `translation unit`
@@ -1670,33 +1719,39 @@ Filesystem execute bit    != binary format hợp lệ
 3. GNU Project — **The C Preprocessor**  
    <https://gcc.gnu.org/onlinedocs/cpp/>
 
+4. GNU Project — **Preprocessor Options — `-no-integrated-cpp`**  
+   <https://gcc.gnu.org/onlinedocs/gcc/Preprocessor-Options.html>
+
+5. GNU Project — **GCC Internals — Language Front Ends**  
+   <https://gcc.gnu.org/onlinedocs/gccint/Languages.html>
+
 ### 17.2 GNU Binutils
 
-4. GNU Project / Sourceware — **GNU Binary Utilities**  
+6. GNU Project / Sourceware — **GNU Binary Utilities**  
    <https://sourceware.org/binutils/docs/binutils.html>
 
-5. GNU Project / Sourceware — **Using as — The GNU Assembler**  
+7. GNU Project / Sourceware — **Using as — The GNU Assembler**  
    <https://sourceware.org/binutils/docs/as.html>
 
-6. GNU Project / Sourceware — **LD — The GNU Linker**  
+8. GNU Project / Sourceware — **LD — The GNU Linker**  
    <https://sourceware.org/binutils/docs/ld.html>
 
-7. GNU Project / Sourceware — **readelf**  
+9. GNU Project / Sourceware — **readelf**  
    <https://sourceware.org/binutils/docs/binutils/readelf.html>
 
-8. GNU Project / Sourceware — **nm**  
+10. GNU Project / Sourceware — **nm**  
    <https://sourceware.org/binutils/docs/binutils/nm.html>
 
-9. GNU Project / Sourceware — **objdump**  
+11. GNU Project / Sourceware — **objdump**  
    <https://sourceware.org/binutils/docs/binutils/objdump.html>
 
 ### 17.3 ELF / ABI
 
-10. System V ABI — **ELF Object File Format**  
+12. System V ABI — **ELF Object File Format**  
     <https://gabi.xinuos.com/>
 
 ### 17.4 Tài liệu nền tảng Linux
 
-11. Michael Kerrisk — **The Linux Programming Interface** — No Starch Press.
+13. Michael Kerrisk — **The Linux Programming Interface** — No Starch Press.
 
-12. Robert Love — **Linux System Programming** — O'Reilly Media.
+14. Robert Love — **Linux System Programming** — O'Reilly Media.
