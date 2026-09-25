@@ -611,7 +611,7 @@ Khi tạo `main.o`, assembler thường chưa biết:
 Vì thế object file cần relocation information để linker có thể hoàn thiện địa chỉ/tham chiếu sau này.
 
 ---
-## 6. Object file và `separate compilation`
+## 6. Object file và biên dịch riêng từng translation unit
 
 Object file là artifact trung gian quan trọng nhất giữa compilation/assembly và linking.
 
@@ -651,9 +651,9 @@ Do đó:
 Có machine code  ≠  Đã là chương trình hoàn chỉnh
 ```
 
-### 6.2 Object file cho phép separate compilation
+### 6.2 Object file cho phép biên dịch riêng từng translation unit
 
-Một project nhiều source file không cần biên dịch lại toàn bộ mọi file mỗi khi chỉ một source thay đổi.
+`Separate compilation` là cơ chế **biên dịch riêng từng translation unit** thành object file trước, rồi mới đưa các object file tới linker để tạo chương trình cuối cùng.
 
 Mô hình:
 
@@ -665,7 +665,9 @@ B.c -> B.o ---+--> Linker --> app
 C.c -> C.o ---+
 ```
 
-Đây là cơ sở của incremental build và dependency graph trong Makefile.
+Nhờ đó, một project nhiều source file không cần biên dịch lại toàn bộ mọi file mỗi khi chỉ một phần thay đổi.
+
+Đây là nền tảng của **build gia tăng (`incremental build`)**: build system có thể chỉ build lại những artifact bị ảnh hưởng thay vì xử lý lại toàn bộ project.
 
 ### 6.3 Object file và source file không có quan hệ 1:1 tuyệt đối trong mọi hệ thống build
 
