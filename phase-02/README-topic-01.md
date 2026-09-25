@@ -1005,7 +1005,7 @@ Tuy nhiên không nên hiểu rằng **mọi symbol đều luôn có thể bị 
 
 Giả sử `main.c` gọi `sensor_read()` nhưng definition của `sensor_read()` nằm trong `sensor.c`.
 
-Sau khi build riêng từng translation unit:
+Sau khi từng translation unit được build riêng:
 
 ```text
 main.c                  sensor.c
@@ -1014,9 +1014,9 @@ main.c                  sensor.c
 main.o                  sensor.o
 ```
 
-Trong `main.o`, assembler biết rằng machine code của `main()` cần gọi tới symbol `sensor_read`, nhưng tại thời điểm tạo `main.o` nó **chưa biết linker sẽ đặt `sensor_read()` ở vị trí cuối cùng nào trong executable**.
+Trong `main.o`, assembler biết rằng machine code của `main()` cần tham chiếu tới symbol `sensor_read`, nhưng tại thời điểm tạo `main.o` nó **chưa biết linker sẽ đặt `sensor_read()` ở vị trí cuối cùng nào trong executable**.
 
-Lý do là bố cục cuối cùng chỉ được quyết định khi linker nhìn thấy toàn bộ các object file, library và thành phần cần tham gia link.
+Lý do là bố cục cuối cùng của chương trình chỉ được quyết định khi linker nhìn thấy toàn bộ object file, library và các thành phần khác tham gia link.
 
 Vì vậy `main.o` có thể chứa:
 
@@ -1028,10 +1028,10 @@ main.o
  +-- symbol: sensor_read = undefined
  |
  +-- relocation entry:
-     "tham chiếu tại vị trí này phụ thuộc vào sensor_read"
+     "chỗ này đang phụ thuộc vào sensor_read"
 ```
 
-**Relocation information** chính là metadata giúp linker biết **chỗ nào cần được hoàn thiện** sau khi vị trí của symbol đã được xác định.
+**Relocation information** là metadata giúp linker biết **chỗ nào trong object file cần được cập nhật** sau khi vị trí của symbol đã được xác định.
 
 ### 9.1 Symbol resolution và relocation là hai việc khác nhau
 
@@ -1074,74 +1074,34 @@ sau khi biết vị trí của symbol,
 tính và cập nhật giá trị cần thiết tại chỗ tham chiếu
 ```
 
-### 9.2 Mô hình relocation
+### 9.2 Relocation entry chỉ ra chỗ nào cần được sửa
 
-Có thể hình dung:
+Cụm "chỗ cần sửa" không phải một vị trí mơ hồ. Nó là một **offset cụ thể bên trong section của object file**.
 
-```text
-main.o
-+----------------------------------+
-| Machine code                     |
-| call [chưa hoàn chỉnh]           |----+
-+----------------------------------+    |
-| Symbol: sensor_read = UND        |    |
-+----------------------------------+    |
-| Relocation entry ----------------+----+
-+----------------------------------+
-
-sensor.o
-+----------------------------------+
-| Symbol: sensor_read = defined    |
-+----------------------------------+
-
-                 |
-                 v
-               Linker
-                 |
-                 +-- tìm definition của sensor_read
-                 +-- quyết định layout
-                 +-- biết vị trí cuối cùng
-                 +-- tính giá trị cần ghi
-                 +-- áp dụng relocation
-                 |
-                 v
-             Executable
-```
-
-Relocation entry có thể được hiểu đơn giản là một ghi chú kỹ thuật cho linker trả lời ba câu hỏi:
-
-```text
-1. Cần sửa ở đâu?
-2. Tham chiếu này phụ thuộc symbol nào?
-3. Phải tính giá trị theo kiểu relocation nào?
-```
-
-Trong đó, **"cần sửa ở đâu"** là một vị trí cụ thể bên trong section của object file, thường được biểu diễn bằng một offset.
-
-Ví dụ, có thể hình dung `main.o` chứa:
+Ví dụ có thể hình dung `main.o` như sau:
 
 ```text
 main.o
 
 .text
-+-----------------------------------+
-| offset 0x00: instruction A        |
-| offset 0x04: instruction B        |
-| offset 0x08: load [chưa hoàn chỉnh]|  <- chỗ cần sửa
-| offset 0x0C: instruction C        |
-+-----------------------------------+
++-------------------------------------+
+| offset 0x00: instruction A          |
+| offset 0x04: instruction B          |
+| offset 0x08: call [chưa hoàn chỉnh] |  <- chỗ cần cập nhật
+| offset 0x0C: instruction C          |
++-------------------------------------+
 
 Symbol table
-+-----------------------------------+
-| sensor_data = UND                 |
-+-----------------------------------+
++-------------------------------------+
+| sensor_read = UND                   |
++-------------------------------------+
 
 Relocation table
-+-----------------------------------+
-| offset cần sửa: 0x08              |
-| symbol: sensor_data               |
-| loại relocation: ...              |
-+-----------------------------------+
++-------------------------------------+
+| offset cần sửa: 0x08                |
+| symbol: sensor_read                 |
+| loại relocation: ...                |
++-------------------------------------+
 ```
 
 Ở đây:
@@ -1152,11 +1112,11 @@ Relocation table
 vị trí trong machine code của main.o mà linker cần quay lại cập nhật
 ```
 
-còn `sensor_data` là symbol mà instruction tại vị trí đó đang muốn tham chiếu tới.
+còn `sensor_read` là symbol mà instruction tại vị trí đó đang muốn tham chiếu tới.
 
-Sau khi linker tìm được definition của `sensor_data` và biết vị trí cuối cùng của nó, linker dùng relocation entry để tính giá trị thích hợp rồi cập nhật chỗ `.text + 0x08`.
+Sau khi linker tìm được definition của `sensor_read` và biết vị trí cuối cùng của function đó, linker dùng relocation entry để tính giá trị thích hợp rồi cập nhật chỗ `.text + 0x08`.
 
-Vì vậy cần phân biệt:
+Do đó cần phân biệt rõ:
 
 ```text
 Vị trí relocation
@@ -1205,11 +1165,11 @@ Symbol
 → cho biết "đang nói tới thực thể nào?"
 
 Relocation
-→ cho biết "chỗ nào cần được hoàn thiện và hoàn thiện theo cách nào
+→ cho biết "chỗ nào cần được cập nhật và phải tính giá trị tham chiếu theo cách nào
    khi vị trí của thực thể đó đã được biết?"
 ```
 
-> **Điểm cần nhớ:** Object file có thể biết nó đang tham chiếu tới symbol nào nhưng chưa biết giá trị địa chỉ/offset cuối cùng. Vì vậy nó lưu relocation information để linker hoàn thiện các tham chiếu sau khi đã biết bố cục cuối cùng của chương trình.
+> **Điểm cần nhớ:** Object file có thể biết nó đang tham chiếu tới symbol nào nhưng chưa biết địa chỉ/offset cuối cùng của symbol đó trong executable. Linker sẽ giải quyết symbol và quyết định bố cục cuối cùng; relocation information cho linker biết chỗ nào trong object file cần cập nhật và phải tính giá trị tham chiếu theo kiểu nào.
 
 ---
 ## 10. Giai đoạn 4 — Link
