@@ -1116,6 +1116,58 @@ Relocation entry có thể được hiểu đơn giản là một ghi chú kỹ 
 3. Phải tính giá trị theo kiểu relocation nào?
 ```
 
+Trong đó, **"cần sửa ở đâu"** là một vị trí cụ thể bên trong section của object file, thường được biểu diễn bằng một offset.
+
+Ví dụ, có thể hình dung `main.o` chứa:
+
+```text
+main.o
+
+.text
++-----------------------------------+
+| offset 0x00: instruction A        |
+| offset 0x04: instruction B        |
+| offset 0x08: load [chưa hoàn chỉnh]|  <- chỗ cần sửa
+| offset 0x0C: instruction C        |
++-----------------------------------+
+
+Symbol table
++-----------------------------------+
+| sensor_data = UND                 |
++-----------------------------------+
+
+Relocation table
++-----------------------------------+
+| offset cần sửa: 0x08              |
+| symbol: sensor_data               |
+| loại relocation: ...              |
++-----------------------------------+
+```
+
+Ở đây:
+
+```text
+.text + 0x08
+=
+vị trí trong machine code của main.o mà linker cần quay lại cập nhật
+```
+
+còn `sensor_data` là symbol mà instruction tại vị trí đó đang muốn tham chiếu tới.
+
+Sau khi linker tìm được definition của `sensor_data` và biết vị trí cuối cùng của nó, linker dùng relocation entry để tính giá trị thích hợp rồi cập nhật chỗ `.text + 0x08`.
+
+Vì vậy cần phân biệt:
+
+```text
+Vị trí relocation
+=
+chỗ trong object file cần được sửa
+
+Vị trí của symbol
+=
+nơi function/data tương ứng cuối cùng được đặt
+```
+
 Relocation không chỉ xuất hiện khi gọi function. Nó cũng có thể cần thiết khi code tham chiếu tới global variable hoặc các địa chỉ khác chưa thể xác định đầy đủ ở thời điểm assembler tạo object file.
 
 ### 9.3 Relocation không phải lúc nào cũng là "ghi địa chỉ tuyệt đối"
