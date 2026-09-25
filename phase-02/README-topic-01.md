@@ -382,7 +382,9 @@ Một lỗi phát sinh ở đây nghĩa là pipeline chưa đi đến compilatio
 
 ### 3.6 `translation unit`: compiler thực sự nhìn thấy gì?
 
-Một source file `.c` sau khi preprocessing tạo thành một **translation unit**.
+Một **translation unit** là **toàn bộ mã C sau preprocessing mà compiler xử lý như một đơn vị biên dịch**. Nó được hình thành từ một source file `.c` cùng với nội dung các header được `#include`, sau khi macro và conditional compilation đã được xử lý.
+
+Vì vậy, `translation unit` không có nghĩa là "toàn bộ project". Mỗi file `.c` thường tạo ra một translation unit riêng.
 
 Có thể hình dung:
 
@@ -392,12 +394,16 @@ main.c
   + macro đã được xử lý
   + conditional compilation đã được quyết định
                 |
+                | preprocessing
                 v
         Translation Unit
                 |
+                | compiler proper
                 v
-        Compiler proper
+             Assembly
 ```
+
+> **Điểm cần nhớ:** Translation unit là **đầu vào C đã được preprocessing hoàn chỉnh** mà compiler proper sẽ phân tích. File `.i` chỉ là artifact có thể dùng để lưu mã đã preprocessing; translation unit là khái niệm về **đơn vị chương trình được biên dịch**, không bắt buộc phải tồn tại dưới dạng một file `.i` trên đĩa.
 
 **Mỗi `.c` thường tạo một translation unit riêng**
 
@@ -466,7 +472,26 @@ object file
 ---
 ## 4. Giai đoạn 2 — Compile
 
-Sau preprocessing, compiler proper bắt đầu xử lý ngôn ngữ C.
+Sau preprocessing, **compiler proper** bắt đầu xử lý translation unit.
+
+`Compiler proper` là phần thực sự thực hiện công việc biên dịch ngôn ngữ C: nó phân tích cú pháp và ngữ nghĩa, kiểm tra kiểu, tạo biểu diễn nội bộ, thực hiện tối ưu hóa khi cần và sinh code cho target. Khái niệm này được dùng để phân biệt phần biên dịch thực sự với `gcc` driver, preprocessor, assembler và linker.
+
+Có thể nhớ ngắn gọn:
+
+```text
+Translation Unit
+       |
+       v
+Compiler proper
+       |
+       +-- parsing
+       +-- semantic/type checking
+       +-- internal representation
+       +-- optimization
+       +-- code generation
+       v
+    Assembly
+```
 
 Ở mức khái quát, compiler phải thực hiện nhiều công việc:
 
