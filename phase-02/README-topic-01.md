@@ -1956,3 +1956,5 @@ Filesystem execute bit    != binary format hợp lệ
 13. Michael Kerrisk — **The Linux Programming Interface** — No Starch Press.
 
 14. Robert Love — **Linux System Programming** — O'Reilly Media.
+
+> **Điều hướng:** [Chủ đề 2 — Native & Cross Toolchain →](README-topic-02.md)

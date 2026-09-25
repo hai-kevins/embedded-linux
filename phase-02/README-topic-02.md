@@ -2280,3 +2280,5 @@ Build thành công            != Chạy đúng trên target
 14. Michael Kerrisk — **The Linux Programming Interface** — No Starch Press.
 
 15. Robert Love — **Linux System Programming** — O'Reilly Media.
+
+> **Điều hướng:** [← Chủ đề 1 — GCC Build Flow](README-topic-01.md) · [Chủ đề 3 — Static & Dynamic Library →](README-topic-03.md)

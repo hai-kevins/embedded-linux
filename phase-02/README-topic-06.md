@@ -2564,3 +2564,5 @@ README-topic-06
 ```
 
 GDB là điểm giao giữa **source code**, **compiler output**, **OS process model** và **CPU machine state**. Khi bốn lớp này được nối đúng mental model, việc debug trở thành một quá trình reasoning có cấu trúc thay vì thử lệnh một cách ngẫu nhiên.
+
+> **Điều hướng:** [← Chủ đề 5 — CMake Fundamentals](README-topic-05.md)

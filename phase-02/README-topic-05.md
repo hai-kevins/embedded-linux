@@ -2051,3 +2051,5 @@ CMake
 ```
 
 CMake không loại bỏ các lớp phía dưới. Nó chỉ tổ chức và mô tả chúng ở một tầng abstraction cao hơn.
+
+> **Điều hướng:** [← Chủ đề 4 — Makefile](README-topic-04.md) · [Chủ đề 6 — GDB Fundamentals →](README-topic-06.md)
