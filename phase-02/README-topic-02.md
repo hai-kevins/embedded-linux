@@ -1835,29 +1835,60 @@ AArch64 object file
 AArch64 Linux ELF
 ```
 
+Điểm quan trọng là pipeline vẫn là:
+
+```text
+Preprocess
+    -> Compile
+    -> Assemble
+    -> Link
+```
+
+nhưng từ đầu đến cuối, các thành phần liên quan tới machine code, ABI, header/library và runtime phải hướng về **target AArch64**, không phải development host x86-64.
+
 ### 11.1 Preprocess đã phụ thuộc target environment
 
-Một hiểu lầm là cross-compilation chỉ bắt đầu từ compiler backend khi sinh Assembly.
+Một hiểu lầm phổ biến là cross-compilation chỉ bắt đầu khi compiler backend sinh Assembly.
 
 Thực tế preprocessing cũng có thể phụ thuộc target vì:
 
 - predefined macro của compiler khác nhau;
 - header target khác nhau;
-- conditional compilation có thể chọn nhánh khác.
+- conditional compilation có thể chọn nhánh khác;
+- type/macro/layout được header mô tả có thể phụ thuộc target ABI.
 
 Ví dụ khái quát:
 
 ```c
-#if defined(SOME_TARGET_MACRO)
-    /* target-specific declarations */
+#if defined(__aarch64__)
+    /* declarations dành cho AArch64 */
+#else
+    /* nhánh khác */
 #endif
 ```
 
-Do đó target ảnh hưởng pipeline từ rất sớm.
+Cùng một source có thể tạo ra translation unit khác nhau khi preprocess cho các target khác nhau.
 
-### 11.2 Compilation sinh machine model của target
+Mô hình:
 
-Compiler proper phải sử dụng backend/configuration phù hợp để sinh Assembly theo ISA và ABI target.
+```text
+Source code
+    |
+    +--> target predefined macros
+    |
+    +--> target headers
+    |
+    v
+Translation unit dành cho target
+```
+
+Do đó target ảnh hưởng pipeline ngay từ preprocessing, không phải chỉ ở bước sinh machine code.
+
+### 11.2 Compilation sinh code theo machine model của target
+
+Sau preprocessing, compiler xử lý semantics của chương trình C rồi thực hiện target-specific code generation.
+
+Mental model:
 
 ```text
 C semantics
@@ -1872,17 +1903,72 @@ Target-specific code generation
 AArch64 Assembly
 ```
 
-Cách tổ chức nội bộ compiler thực tế phức tạp hơn nhiều, nhưng mental model này đủ để hiểu vai trò target.
+Backend phải biết target ISA và ABI để quyết định:
+
+```text
+instruction nào được phép sinh
+register nào được sử dụng theo calling convention
+data được xử lý/layout theo quy ước nào
+operation nào sinh instruction trực tiếp
+operation nào cần nhiều instruction hoặc runtime helper
+```
+
+Ví dụ, với một C operation:
+
+```text
+C operation
+    |
+    v
+AArch64 backend
+    |
+    +--> sinh instruction trực tiếp
+    |
+    +--> sinh chuỗi instruction
+    |
+    +--> hoặc sinh lời gọi helper routine
+              |
+              v
+            libgcc
+```
+
+Chi tiết nội bộ compiler thực tế phức tạp hơn nhiều, nhưng mental model này đủ để hiểu vì sao cùng một source có thể tạo machine code khác nhau cho x86-64 và AArch64.
 
 ### 11.3 Assembly tạo object mang target machine information
 
-Object file không chỉ chứa byte instruction. ELF header và các relocation/symbol conventions cũng gắn với target.
+Assembler biến AArch64 Assembly thành một relocatable object file dành cho AArch64.
 
-Vì vậy linker có thể nhận ra object thuộc architecture không phù hợp.
+Object file không chỉ chứa byte instruction. Nó còn mang các metadata và quy ước liên quan target, chẳng hạn:
+
+```text
+ELF machine information
+sections
+symbols
+relocations
+target-specific relocation types
+```
+
+Có thể hình dung:
+
+```text
+AArch64 object file
+|
++-- ELF metadata
+|    +-- machine = AArch64
+|
++-- .text
+|    +-- AArch64 machine code
+|
++-- symbol / relocation information
+     +-- theo quy ước AArch64
+```
+
+Vì vậy linker có thể nhận ra object thuộc architecture hoặc ABI không phù hợp.
 
 ### 11.4 Link phải dùng toàn bộ target-side dependency
 
-Ở bước link, tất cả các component machine-code-level phải phù hợp.
+Ở bước link, tất cả các component machine-code-level phải tương thích với target.
+
+Ví dụ:
 
 ```text
 main.o      -> AArch64
@@ -1892,13 +1978,52 @@ libc        -> AArch64
 libgcc      -> AArch64-compatible
 ```
 
-Không thể lấy một `.o` x86-64 rồi kỳ vọng AArch64 linker biến machine code đó thành AArch64.
+Có thể chia các thành phần này thành ba nhóm:
 
-Linker **không phải compiler dịch lại object giữa các ISA**.
+```text
+Application / project objects
+    -> main.o, foo.o, ...
+
+Target runtime environment
+    -> crt*.o, libc, target libraries
+
+Compiler runtime support
+    -> libgcc và các helper/runtime support do GCC cung cấp
+```
+
+`crt*.o` và các target libraries thường thuộc target environment/sysroot side. `libgcc` là compiler runtime support do GCC/toolchain cung cấp; nó không nhất thiết nằm vật lý bên trong sysroot nhưng vẫn phải được build cho đúng target.
+
+Mô hình:
+
+```text
+                      AArch64 linker
+                            |
+          +-----------------+-----------------+
+          |                 |                 |
+          v                 v                 v
+      main.o             crt*.o          target libs
+          |                 |                 |
+          +-----------------+-----------------+
+                            |
+                          libgcc
+                            |
+                            v
+                    AArch64 Linux ELF
+```
+
+Không thể lấy một `.o` hoặc `.a` x86-64 rồi kỳ vọng AArch64 linker tự chuyển machine code đó thành AArch64.
+
+```text
+Linker
+    !=
+Compiler dịch lại object giữa các ISA
+```
+
+Linker chủ yếu resolve symbol, áp dụng relocation và sắp xếp các section/segment để tạo output cuối.
 
 ### 11.5 Output sau cross-build chỉ mới là binary dành cho target
 
-Build thành công chưa có nghĩa chương trình đã được chạy/kiểm thử.
+Build thành công mới chỉ chứng minh rằng toolchain đã tạo được một target ELF.
 
 ```text
 Cross-build success
@@ -1910,13 +2035,71 @@ Target ELF được tạo
 Cần chạy trong môi trường target phù hợp
 ```
 
-Môi trường đó có thể là:
+Điều đó chưa chứng minh:
+
+```text
+application logic đúng
+runtime libraries đầy đủ
+dynamic loader tương thích
+CPU feature phù hợp
+device/environment assumption đúng
+```
+
+Vì vậy:
+
+```text
+Build success
+    !=
+Runtime success
+```
+
+Sau cross-build, binary còn phải được deploy và chạy trong môi trường target phù hợp, chẳng hạn:
 
 - board thật;
 - hệ thống target tương ứng;
 - emulator/virtualized environment thích hợp.
 
 Chi tiết emulator không thuộc phạm vi chủ đề này.
+
+### 11.6 Mô hình tổng quát
+
+Có thể tóm tắt toàn bộ cross-build như sau:
+
+```text
+Source
+  |
+  | target headers / target macros
+  v
+Preprocess
+  |
+  v
+Translation unit
+  |
+  | target ISA / ABI
+  v
+Compile
+  |
+  v
+Target Assembly
+  |
+  v
+Assemble
+  |
+  v
+Target object
+  |
+  | target crt / libraries / libgcc
+  v
+Link
+  |
+  v
+Target ELF
+  |
+  v
+Target runtime
+```
+
+> **Điểm cần nhớ:** Cross-build không chỉ là dùng một compiler có tên khác. Toàn bộ pipeline phải duy trì tính nhất quán của target từ preprocessing cho tới link, và build thành công chỉ mới tạo ra binary dành cho target chứ chưa chứng minh chương trình chạy đúng trên target.
 
 ---
 
