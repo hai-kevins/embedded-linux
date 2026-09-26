@@ -322,23 +322,67 @@ Build-time success != Runtime dependency đã được thỏa mãn
 
 Static library trên Unix/Linux thường có phần mở rộng `.a` và về bản chất là một **archive chứa các object file**.
 
-Ví dụ logic:
+Mô hình tổng thể từ source của library đến khi code cần thiết được đưa vào executable:
 
 ```text
-foo_math.o
-foo_io.o
-foo_util.o
-     |
-     | GNU ar
-     v
-+--------------------+
-|     libfoo.a       |
-|--------------------|
-| foo_math.o         |
-| foo_io.o           |
-| foo_util.o         |
-+--------------------+
+Source của library
+    |
+    | compiler
+    v
+Object files
+    |
+    | GNU ar tạo archive
+    v
++-------------------------+
+|       libfoo.a          |
+|-------------------------|
+| Symbol index            |
+| foo_math.o              |
+| foo_io.o                |
+| foo_util.o              |
++-------------------------+
+            |
+            | application cần foo_add()
+            v
+         Linker
+            |
+            | chọn member cung cấp symbol cần thiết
+            v
+      foo_math.o được lấy
+            |
+            | code/section cần thiết tham gia link
+            v
++-------------------------------------------+
+| Executable ELF                            |
+|-------------------------------------------|
+| .text                                     |
+|   main()                                  |
+|   foo_add()                               |
+|   code khác đi kèm nếu còn được giữ lại   |
+|-------------------------------------------|
+| .rodata / .data / .bss / ...             |
++-------------------------------------------+
+            |
+            | khi application chạy
+            v
++-------------------------------------------+  địa chỉ cao
+| Virtual address space của process         |
+|-------------------------------------------|
+| Stack                                     |
+|-------------------------------------------|
+| mmap region / shared libraries khác       |
+|-------------------------------------------|
+| Heap                                      |
+|-------------------------------------------|
+| .bss / .data của executable               |
+|-------------------------------------------|
+| .rodata / .text của executable            |
+|   main()                                  |
+|   foo_add()                               |
++-------------------------------------------+  địa chỉ thấp
 ```
+
+Điểm quan trọng của sơ đồ là: `libfoo.a` chỉ tham gia ở **link-time**. Khi linker đã lấy `foo_math.o` và đưa phần code/data cần thiết vào executable, runtime không map `libfoo.a` như một library riêng. Code như `foo_add()` lúc này đã trở thành một phần của executable và được map cùng các segment của executable vào virtual address space của process.
 
 Công cụ GNU `ar` được dùng để tạo, thay đổi và đọc archive.
 
