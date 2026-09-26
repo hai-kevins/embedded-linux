@@ -547,7 +547,7 @@ ABI
 Operating environment
 ```
 
-### 5.1 ISA — tập lệnh mà software có thể sử dụng
+### 5.1 ISA — kiến trúc tập lệnh mà software có thể sử dụng
 
 `ISA` — `Instruction Set Architecture` — mô tả giao diện instruction-level giữa software và processor.
 
@@ -651,7 +651,35 @@ ABI
 
 Hai binary có thể cùng hướng tới một họ CPU nhưng vẫn dùng các ABI khác nhau.
 
-Ví dụ nổi tiếng ở ARM 32-bit là sự khác biệt liên quan tới floating-point calling convention trong các môi trường ABI khác nhau. Tên toolchain như:
+Ví dụ rõ nhất là **Windows x86-64 và Linux x86-64**. Cả hai đều có thể chạy trên CPU thực thi ISA x86-64, nên các instruction cơ sở mà CPU hiểu vẫn thuộc cùng một kiến trúc tập lệnh. Tuy nhiên môi trường binary của hai hệ điều hành không giống nhau:
+
+```text
+                     cùng ISA x86-64
+                           |
+              +------------+------------+
+              |                         |
+              v                         v
+        Windows x86-64             Linux x86-64
+        PE/COFF                    ELF
+        Microsoft x64 ABI          System V AMD64 ABI
+
+Integer/pointer arguments:
+RCX, RDX, R8, R9             RDI, RSI, RDX, RCX, R8, R9
+```
+
+Các register trên mô tả thứ tự truyền các **đối số integer/pointer đầu tiên** theo calling convention thông thường; floating-point argument và các trường hợp đặc biệt có quy tắc riêng.
+
+Do đó:
+
+```text
+Cùng ISA x86-64
+      !=
+Cùng ABI / cùng binary environment
+```
+
+Một executable được build cho Windows x86-64 không trở thành Linux executable chỉ vì CPU hai phía đều hiểu x86-64. Ngoài calling convention, platform còn khác về executable/object format, loader, system interface và runtime environment.
+
+Ví dụ khác ở ARM 32-bit là sự khác biệt liên quan tới floating-point calling convention trong các môi trường ABI khác nhau. Tên toolchain như:
 
 ```text
 arm-linux-gnueabi-
@@ -660,7 +688,7 @@ arm-linux-gnueabihf-
 
 phản ánh rằng chỉ biết "ARM" là chưa đủ để kết luận mọi object file đều link/chạy tương thích.
 
-Mô hình:
+Mô hình tổng quát:
 
 ```text
 Same broad CPU architecture
@@ -2272,12 +2300,20 @@ Build thành công            != Chạy đúng trên target
 12. Arm — **Procedure Call Standard for the Arm 64-bit Architecture (AAPCS64)**  
     <https://github.com/ARM-software/abi-aa/releases>
 
-### 19.6 Tài liệu nền tảng
+### 19.6 x86-64 ABI
 
-13. John R. Levine — **Linkers and Loaders** — Morgan Kaufmann.
+13. Microsoft — **x64 Calling Convention**  
+    <https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention>
 
-14. Michael Kerrisk — **The Linux Programming Interface** — No Starch Press.
+14. x86 psABIs — **System V Application Binary Interface: AMD64 Architecture Processor Supplement**  
+    <https://gitlab.com/x86-psABIs/x86-64-ABI>
 
-15. Robert Love — **Linux System Programming** — O'Reilly Media.
+### 19.7 Tài liệu nền tảng
+
+15. John R. Levine — **Linkers and Loaders** — Morgan Kaufmann.
+
+16. Michael Kerrisk — **The Linux Programming Interface** — No Starch Press.
+
+17. Robert Love — **Linux System Programming** — O'Reilly Media.
 
 > **Điều hướng:** [← Chủ đề 1 — GCC Build Flow](README-topic-01.md) · [Chủ đề 3 — Static & Dynamic Library →](README-topic-03.md)
