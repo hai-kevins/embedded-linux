@@ -403,7 +403,7 @@ main.c
              Assembly
 ```
 
-> **Điểm cần nhớ:** Translation unit là **đầu vào C đã được preprocessing hoàn chỉnh** mà compiler proper sẽ phân tích. File `.i` chỉ là artifact có thể dùng để lưu mã đã preprocessing; translation unit là khái niệm về **đơn vị chương trình được biên dịch**, không bắt buộc phải tồn tại dưới dạng một file `.i` trên đĩa.
+> **Điểm cần nhớ:** Translation unit là **đầu vào C đã được preprocessing hoàn chỉnh** mà compiler proper sẽ phân tích. File `.i` chỉ là file có thể dùng để lưu mã đã preprocessing; translation unit là khái niệm về **đơn vị chương trình được biên dịch**, không bắt buộc phải tồn tại dưới dạng một file `.i` trên đĩa.
 
 **Mỗi `.c` thường tạo một translation unit riêng**
 
@@ -525,7 +525,7 @@ Compiler biết các khái niệm như:
 *   Quy tắc chuyển kiểu.
 *   Cú pháp `if`, `for`, `while`, `switch`.
 
-Assembler không làm công việc đó. Khi pipeline tới assembler, chương trình đã được hạ xuống mức instruction/directive Assembly.
+Assembler không làm công việc đó. Khi pipeline tới assembler, chương trình đã được hạ xuống mức instruction Assembly.
 
 ### 4.2 Output Assembly phụ thuộc target architecture
 
@@ -613,7 +613,7 @@ Vì thế object file cần relocation information để linker có thể hoàn 
 ---
 ## 6. Object file và biên dịch riêng từng translation unit
 
-Object file là artifact trung gian quan trọng nhất giữa compilation/assembly và linking.
+Object file là file trung gian quan trọng nhất giữa compilation/assembly và linking.
 
 Mô hình:
 

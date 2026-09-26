@@ -158,8 +158,7 @@ Ví dụ, một compiler có thể biết cách sinh instruction AArch64 nhưng 
 
 ### 2.1 Native compilation
 
-`Native compilation` là trường hợp công cụ build chạy trên một hệ thống và tạo binary dành cho cùng loại hệ thống mục tiêu mà compiler được cấu hình để phục vụ.
-
+`Native compilation` là quá trình dịch mã nguồn của một chương trình máy tính thành mã máy (mã nhị phân) để chạy trực tiếp trên cấu trúc phần cứng và hệ điều hành của chính máy tính đó mà không cần qua trình thông dịch hay máy ảo.
 Ví dụ khái quát:
 
 ```text
