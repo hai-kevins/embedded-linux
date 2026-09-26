@@ -431,7 +431,7 @@ io.o / debug.o có thể không được kéo vào
 
 Tuy nhiên selection thường diễn ra ở **mức object member**, không phải tự động ở mức từng function.
 
-Nếu `math.o` chứa cả `foo_add()` và một số code khác, việc member `math.o` được kéo vào có thể mang theo nhiều section/function của member đó; các optimization/linker garbage collection khác có thể loại thêm phần không dùng, nhưng đó là cơ chế khác.
+Nếu `math.o` chứa `foo_add()` cùng với các function khác, khi linker lấy `math.o` từ static library thì những function đó cũng có thể được đưa vào executable. Một số phần không được sử dụng có thể được linker loại bỏ ở bước tối ưu khác, nhưng đó không phải là cơ chế chọn member của static library.
 
 > **Điểm cần nhớ:** Static archive cho linker khả năng lấy các object member cần thiết. Không nên hiểu `.a` là “copy nguyên file library vào executable”.
 
@@ -499,7 +499,7 @@ Có `.a` trong lệnh link
 Executable hoàn toàn static
 ```
 
-Option `-static` của GCC trên các hệ thống hỗ trợ dynamic linking yêu cầu linker tránh dùng shared libraries cho các dependency thông thường.
+Option `-static` của GCC trên các hệ thống hỗ trợ dynamic linking yêu cầu linker tránh dùng shared libraries cho các dependency thông thường, nhưng việc tạo fully static executable còn phụ thuộc vào việc static variants có tồn tại và toolchain/runtime có hỗ trợ hay không.
 
 ### 4.2 Static executable không có nghĩa “không phụ thuộc gì bên ngoài”
 
@@ -552,24 +552,69 @@ libfoo.so.1.2.3
 
 Khác static archive, shared object là một ELF image có cấu trúc phục vụ cho việc được map vào virtual address space và tham gia dynamic linking.
 
-Mô hình:
+Mô hình tổng thể từ source của library đến lúc shared object được map vào process:
 
 ```text
-Application executable
-        |
-        | cần symbols từ libfoo
-        v
-+-----------------------+
-|      libfoo.so        |
-|-----------------------|
-| ELF header            |
-| code / data           |
-| dynamic symbols       |
-| relocation metadata   |
-| dynamic metadata      |
-| ...                   |
-+-----------------------+
+Source của library
+    |
+    | compiler
+    v
+Object files
+    |
+    | linker tạo shared object
+    v
++-------------------------+
+|       libfoo.so         |
+|-------------------------|
+| ELF headers             |
+| machine code            |
+| data                    |
+| dynamic symbols         |
+| relocation metadata     |
+| dynamic metadata        |
++-------------------------+
+            |
+            | lưu trên target filesystem
+            v
+      /usr/lib/libfoo.so
+            |
+            | khi application chạy
+            v
+   Dynamic linker/loader
+            |
+            | map các segment cần thiết
+            v
++-------------------------------------------+  địa chỉ cao
+| Virtual address space của process         |
+|-------------------------------------------|
+| Stack                                     |
+| thường phát triển về địa chỉ thấp hơn     |
+|-------------------------------------------|
+| mmap region                               |
+|                                           |
+|   +-----------------------------------+   |
+|   | libc.so                           |   |
+|   +-----------------------------------+   |
+|   | libfoo.so                         |   |
+|   |   foo_add()                       |   |
+|   |   foo_read()                      |   |
+|   +-----------------------------------+   |
+|   | các memory mapping khác           |   |
+|   +-----------------------------------+   |
+|                                           |
+|-------------------------------------------|
+| Heap                                      |
+| thường phát triển về địa chỉ cao hơn      |
+|-------------------------------------------|
+| .bss / .data                              |
+|-------------------------------------------|
+| .rodata / .text của executable chính      |
++-------------------------------------------+  địa chỉ thấp
 ```
+
+Sơ đồ trên là **mô hình bố trí thường gặp**, không phải quy tắc bắt buộc rằng shared library luôn phải nằm ở một địa chỉ cố định giữa heap và stack. Trên Linux, shared objects thường được map vào vùng địa chỉ dùng cho `mmap`; vị trí cụ thể phụ thuộc kiến trúc, Kernel, dynamic linker/loader và cơ chế như ASLR.
+
+Điểm cần giữ trong mental model là: `libfoo.so` vẫn tồn tại như một file riêng trên filesystem; khi chương trình chạy, dynamic linker/loader phối hợp với Kernel để map các segment cần thiết của nó vào virtual address space của process.
 
 Shared object có thể được nhiều process sử dụng.
 
