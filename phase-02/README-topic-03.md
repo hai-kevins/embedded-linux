@@ -431,7 +431,7 @@ io.o / debug.o có thể không được kéo vào
 
 Tuy nhiên selection thường diễn ra ở **mức object member**, không phải tự động ở mức từng function.
 
-Nếu `math.o` chứa cả `foo_add()` và một số code khác, việc member `math.o` được kéo vào có thể mang theo nhiều section/function của member đó; các optimization/linker garbage collection khác có thể loại thêm phần không dùng, nhưng đó là cơ chế khác.
+Nếu `math.o` chứa `foo_add()` cùng với các function khác, khi linker lấy `math.o` từ static library thì những function đó cũng có thể được đưa vào executable. Một số phần không được sử dụng có thể được linker loại bỏ ở bước tối ưu khác, nhưng đó không phải là cơ chế chọn member của static library.
 
 > **Điểm cần nhớ:** Static archive cho linker khả năng lấy các object member cần thiết. Không nên hiểu `.a` là “copy nguyên file library vào executable”.
 
