@@ -278,15 +278,15 @@ Khi đang **build chính compiler**, ba hệ thống có thể được hiểu n
 
 ```text
 BUILD
-Máy thực hiện quá trình build compiler
+Máy thực hiện lệnh biên dịch ra phần mềm (vd: arm-linux-gcc.exe)
         |
         v
 HOST
-Máy mà compiler sau khi build sẽ chạy trên đó
+Máy mà nơi phần mềm arm-linux-gcc.exe hoạt động
         |
         v
 TARGET
-Máy/kiến trúc mà compiler đó sẽ sinh code cho
+Máy mà compiler đó sẽ sinh code cho
 ```
 
 Ví dụ:
