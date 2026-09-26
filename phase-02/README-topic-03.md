@@ -370,12 +370,12 @@ foo_util.c --------> foo_util.o
 | Virtual address space của process         |
 |-------------------------------------------|
 | Stack                                     |
-| thường phát triển về địa chỉ thấp hơn      |
+| thường phát triển về địa chỉ thấp hơn     |
 |-------------------------------------------|
 | mmap region / shared libraries khác       |
 |-------------------------------------------|
 | Heap                                      |
-| thường phát triển về địa chỉ cao hơn       |
+| thường phát triển về địa chỉ cao hơn      |
 |-------------------------------------------|
 | .bss / .data của executable               |
 |-------------------------------------------|
