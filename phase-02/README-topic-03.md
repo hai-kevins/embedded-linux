@@ -385,6 +385,212 @@ foo_util.c --------> foo_util.o
 +-------------------------------------------+  địa chỉ thấp
 ```
 
+Để nhìn đối xứng với shared library và dễ so sánh, có thể tách vòng đời của static library thành ba phase:
+
+```text
+PHASE 1 — Tạo static library
+============================
+
+foo_math.c
+foo_io.c
+foo_util.c
+      |
+      | compiler
+      v
+foo_math.o
+foo_io.o
+foo_util.o
+      |
+      | GNU ar
+      v
+libfoo.a
+
+
+PHASE 2 — Application link với static library
+=============================================
+
+main.c
+  |
+  | compiler
+  v
+main.o
+  |
+  | linker + libfoo.a
+  v
+Linker chọn object member cần thiết
+ví dụ: foo_math.o cung cấp foo_add()
+  |
+  v
+Application ELF
+  |
+  +--> code của foo_add() đã nằm trong executable
+
+
+PHASE 3 — Runtime
+=================
+
+Application ELF
+      |
+      | exec
+      v
+Virtual address space của process
+      |
+      +--> main()
+      +--> foo_add()
+
+libfoo.a không được map riêng và không còn cần thiết
+chỉ để chạy phần code đã được static-link vào executable.
+```
+
+Như vậy, `libfoo.a` được tạo trước như một archive chứa các relocatable object file. Sau đó application được link với archive này; linker chọn những object member cần thiết để giải quyết các symbol còn thiếu và đưa code/data tương ứng vào `Application ELF`. Khi application chạy, phần code đã lấy từ `libfoo.a` được load như một phần của chính executable, chứ `libfoo.a` không được dynamic linker/loader tìm và map như một shared object.
+
+### Giải thích ba phase của static library
+
+**PHASE 1 — Tạo static library:** Đây là giai đoạn build chính library. Compiler biên dịch từng source file thành relocatable object file `.o`; sau đó GNU `ar` đóng gói các object member đó thành archive `libfoo.a`. Khác với `.so`, bước tạo `.a` là thao tác archive, không phải một lần link tạo ELF shared object.
+
+```text
+foo_math.c / foo_io.c / foo_util.c
+              |
+              | compiler
+              v
+foo_math.o / foo_io.o / foo_util.o
+              |
+              | GNU ar
+              v
+          libfoo.a
+```
+
+Mô hình chi tiết hơn của PHASE 1:
+
+```text
+Source của library
+
+foo_math.c
+foo_io.c
+foo_util.c
+      |
+      | compiler
+      v
+foo_math.o
+foo_io.o
+foo_util.o
+      |
+      | GNU ar đóng gói
+      v
++--------------------------+
+|        libfoo.a          |
+|--------------------------|
+| Symbol index             |
+| foo_math.o               |
+| foo_io.o                 |
+| foo_util.o               |
++--------------------------+
+```
+
+Kết thúc phase này, `libfoo.a` đã là static library dạng archive. Bên trong vẫn là các relocatable object member; chưa có application nào sử dụng chúng.
+
+**PHASE 2 — Application link với static library:** Application được compile riêng thành `main.o`. Nếu `main.o` còn một symbol chưa được định nghĩa, ví dụ `foo_add`, linker quét `libfoo.a`, tìm object member cung cấp symbol đó, lấy member phù hợp vào quá trình link rồi tạo `Application ELF`.
+
+```text
+main.c
+  |
+  | compiler
+  v
+main.o + libfoo.a
+        |
+        | linker
+        v
+Application ELF
+        |
+        +--> code của foo_add() đã nằm trong executable
+```
+
+Có thể nhìn PHASE 2 ở mức symbol như sau:
+
+```text
+main.o
+  U foo_add
+     |
+     |        libfoo.a
+     |          |
+     |          +--> foo_math.o
+     |                 D foo_add
+     |                    |
+     +--------------------+
+               |
+               | linker chọn member phù hợp
+               v
++--------------------------------+
+| Application ELF                |
+|--------------------------------|
+| .text                          |
+|   main()                       |
+|   foo_add()                    |
+|   ...                          |
+|--------------------------------|
+| .rodata / .data / .bss / ...  |
++--------------------------------+
+```
+
+Ở đây khác biệt quan trọng với shared linking là implementation được lấy từ object member của archive và trở thành một phần của executable. `Application ELF` không cần ghi một runtime dependency tới `libfoo.a` chỉ để sử dụng phần code đã được đưa vào binary.
+
+**PHASE 3 — Runtime:** Khi application được thực thi, runtime không cần tìm hay map `libfoo.a`. Code như `foo_add()` đã nằm trong executable từ PHASE 2 và được map cùng các segment của executable vào virtual address space của process. Application vẫn có thể sử dụng các shared library khác; điều cần nhớ là riêng phần đã static-link từ `libfoo.a` không còn phụ thuộc vào archive đó lúc runtime.
+
+```text
+Application ELF
+      |
+      | exec
+      v
++-------------------------------------------+  địa chỉ cao
+| Virtual address space của process         |
+|-------------------------------------------|
+| Stack                                     |
+| thường phát triển về địa chỉ thấp hơn     |
+|-------------------------------------------|
+| mmap region / shared libraries khác       |
+|-------------------------------------------|
+| Heap                                      |
+| thường phát triển về địa chỉ cao hơn      |
+|-------------------------------------------|
+| .bss / .data của executable               |
+|-------------------------------------------|
+| .rodata / .text của executable            |
+|   main()                                  |
+|   foo_add()                               |
++-------------------------------------------+  địa chỉ thấp
+```
+
+Gộp cả ba phase thành một chuỗi duy nhất:
+
+```text
+Source của library
+        |
+        | compiler
+        v
+Object files của library
+        |
+        | GNU ar
+        v
+     libfoo.a                         PHASE 1
+        |
+        |
+main.o + libfoo.a
+        |
+        | linker chọn object member cần thiết
+        v
+Application ELF
+chứa code lấy từ archive              PHASE 2
+        |
+        | exec
+        v
+Virtual address space
+        |
+        +--> main()
+        +--> foo_add()                 PHASE 3
+
+Runtime không cần map `libfoo.a` riêng.
+```
+
 Điểm quan trọng của sơ đồ là: `libfoo.a` chỉ tham gia ở **link-time**. Khi linker đã lấy `foo_math.o` và đưa phần code/data cần thiết vào executable, runtime không map `libfoo.a` như một library riêng. Code như `foo_add()` lúc này đã trở thành một phần của executable và được map cùng các segment của executable vào virtual address space của process.
 
 Công cụ GNU `ar` được dùng để tạo, thay đổi và đọc archive. Nghĩa là các source file của library trước hết được compiler tạo thành các `.o`, sau đó `ar` đóng gói các `.o` đó thành `libfoo.a`.
