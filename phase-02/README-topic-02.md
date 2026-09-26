@@ -1500,40 +1500,70 @@ Có thể tóm tắt toàn bộ phần 9 như sau:
 
 ## 10. Toolchain tìm header và library của target như thế nào?
 
-Một trong những lý do sysroot quan trọng là cùng một tên file có thể tồn tại ở cả development host và target nhưng mang nội dung hoàn toàn khác.
+Sau phần 9, ta đã biết sysroot cung cấp một **root logic của target** trên development machine. Phần này trả lời câu hỏi tiếp theo:
+
+> Compiler và linker dựa vào đâu để tìm đúng header/library của target, thay vì vô tình lấy file tương ứng của development host?
 
 ### 10.1 Hai thế giới filesystem phải được tách ra
 
-Ví dụ development machine có:
+Giả sử:
+
+```text
+Development host:
+x86-64 Linux
+
+Target:
+AArch64 Linux
+```
+
+Development host có:
 
 ```text
 /usr/include/stdio.h
 /usr/lib/...
 ```
 
-Đây là environment của host development machine.
-
-Target AArch64 cũng có logic tương tự:
+Target AArch64 về mặt logic cũng có:
 
 ```text
 /usr/include/stdio.h
 /usr/lib/...
 ```
 
-nhưng các file đó phải dành cho target.
+Tên đường dẫn có thể giống nhau, nhưng nội dung thuộc hai environment khác nhau.
 
-Nếu cross compiler vô tình dùng host environment:
+Có thể hình dung trên development machine:
+
+```text
+/
+├── usr/
+│   ├── include/          <-- host x86-64
+│   └── lib/              <-- host x86-64
+│
+└── opt/
+    └── aarch64-sysroot/
+        ├── usr/
+        │   ├── include/  <-- target AArch64
+        │   └── lib/      <-- target AArch64
+        └── lib/
+```
+
+Cross compiler phải lấy các dependency machine-/ABI-sensitive từ phía **target environment**.
+
+Nếu build AArch64 nhưng vô tình đưa host header/library vào pipeline:
 
 ```text
 Cross source
     |
-    +--> x86-64 header/library  <-- sai thế giới
+    +--> x86-64 header/library  <-- sai environment
     |
     v
 AArch64 output
 ```
 
-thì build có thể thất bại hoặc tệ hơn: một phần compile thành công nhưng tạo ra assumption không phù hợp runtime.
+thì build có thể thất bại hoặc tạo ra các assumption không phù hợp với runtime target.
+
+> **Điểm cần nhớ:** Pathname giống nhau không có nghĩa file thuộc cùng architecture/ABI/runtime environment.
 
 ### 10.2 Header ảnh hưởng ngay từ preprocessing/compilation
 
@@ -1547,9 +1577,24 @@ Header không chỉ chứa function declaration đơn giản. Nó có thể ch�
 - ABI-sensitive definitions;
 - inline functions.
 
-Do đó chọn sai header có thể làm compiler nhìn thấy một chương trình khác.
+Ví dụ:
 
-Mô hình:
+```c
+#include <some_header.h>
+```
+
+Header mà compiler nhìn thấy có thể ảnh hưởng tới:
+
+```text
+type definitions
+structure layout
+sizeof / alignment assumptions
+macro expansion
+function declarations
+conditional compilation
+```
+
+Do đó target ảnh hưởng pipeline từ rất sớm:
 
 ```text
 Source code
@@ -1563,9 +1608,19 @@ Translation unit
 Target compiler
 ```
 
+Nếu lấy nhầm header của host, compiler có thể phân tích source dựa trên declaration, type hoặc layout không đúng với target environment.
+
 ### 10.3 Library ảnh hưởng ở link time
 
-Sau khi source thành object file, linker cần resolve symbol từ các library phù hợp.
+Sau khi compile, object file đã mang machine code và metadata của target.
+
+Ví dụ:
+
+```text
+main.o = AArch64 object
+```
+
+Nếu `main.o` còn tham chiếu tới symbol từ library, linker phải lấy implementation từ **target library** tương ứng:
 
 ```text
 AArch64 object
@@ -1576,7 +1631,7 @@ AArch64 object
 AArch64 executable
 ```
 
-Một x86-64 `.a` hoặc `.so` không trở thành AArch64 library chỉ vì function name trùng nhau.
+Một x86-64 `.a` hoặc `.so` không trở thành AArch64 library chỉ vì nó export cùng một symbol.
 
 ```text
 Tên symbol giống nhau
@@ -1584,39 +1639,170 @@ Tên symbol giống nhau
 Object code tương thích architecture/ABI
 ```
 
+Ví dụ:
+
+```text
+Host libfoo:
+    foo -> x86-64 machine code
+
+Target libfoo:
+    foo -> AArch64 machine code
+```
+
+Vì vậy compile và link đều phải giữ ranh giới host/target nhất quán.
+
 ### 10.4 Search path có nhiều lớp
 
-GCC driver có các built-in search path, target-specific paths, sysroot logic và các option bổ sung như `-I`, `-L`.
+GCC driver không chỉ tìm header/library trong một thư mục duy nhất. Search path có thể đến từ nhiều lớp, chẳng hạn:
 
-Do đó câu hỏi đúng khi chẩn đoán thường không phải:
+```text
+built-in GCC paths
+target-specific paths
+sysroot paths
+-I
+-L
+-B
+multilib paths
+compiler internal paths
+```
 
-> "File này có tồn tại trên máy không?"
+Vì vậy khi gặp lỗi:
+
+```text
+fatal error: foo.h: No such file or directory
+```
+
+câu hỏi đúng không phải chỉ là:
+
+> "File `foo.h` có tồn tại đâu đó trên máy không?"
 
 mà là:
 
-> "Compiler/linker đang tìm file này trong **search path nào cho target hiện tại**?"
+> "Compiler hiện tại đang tìm `foo.h` trong những search path nào dành cho target này?"
 
-Hai câu hỏi này khác nhau đáng kể.
+Ví dụ:
+
+```text
+Host có:
+    /usr/include/foo.h
+
+Target sysroot không có:
+    /opt/aarch64-sysroot/usr/include/foo.h
+```
+
+Khi đó việc thêm tùy tiện:
+
+```text
+-I/usr/include
+```
+
+có thể làm error message biến mất nhưng lại kéo host header vào target build.
+
+Mental model tốt hơn là:
+
+```text
+Không tìm thấy target dependency
+          |
+          v
+Kiểm tra target search path
+          |
+          v
+Kiểm tra sysroot
+          |
+          v
+Bổ sung đúng dependency dành cho target
+```
+
+Thứ tự search path chính xác phụ thuộc GCC configuration và loại option; ở mức chủ đề này chỉ cần hiểu rằng **search path là một hệ thống nhiều lớp**, không phải một pathname cố định.
 
 ### 10.5 Toolchain installation prefix và sysroot không phải một
 
-Toolchain binaries có thể được cài dưới một nơi như:
+Toolchain binaries có thể được cài tại một nơi như:
 
 ```text
-/opt/toolchains/...
+/opt/toolchains/aarch64/
 ```
 
-trong khi sysroot có thể nằm ở một nơi khác hoặc được nhúng trong cấu trúc toolchain.
+với các executable:
+
+```text
+aarch64-linux-gnu-gcc
+aarch64-linux-gnu-as
+aarch64-linux-gnu-ld
+```
+
+Trong khi sysroot có thể nằm ở:
+
+```text
+/opt/aarch64-sysroot/
+```
+
+Hai khái niệm có vai trò khác nhau:
 
 ```text
 Toolchain installation prefix
-      -> nơi đặt gcc/as/ld và internal compiler files
+    -> nơi đặt gcc/as/ld và compiler internal files
 
 Sysroot
-      -> logical root của target headers/libraries
+    -> nơi đặt target headers/libraries/crt/runtime files
 ```
 
-Một distribution/toolchain package có thể bố trí chúng gần nhau, nhưng đó không làm hai khái niệm trở thành một.
+Có thể hình dung:
+
+```text
+DEVELOPMENT MACHINE
+|
++-- /opt/toolchains/aarch64/
+|       |
+|       +-- bin/
+|            +-- aarch64-linux-gnu-gcc
+|            +-- aarch64-linux-gnu-ld
+|
++-- /opt/aarch64-sysroot/
+        |
+        +-- usr/include/
+        +-- usr/lib/
+        +-- lib/
+```
+
+Một SDK có thể bố trí toolchain và sysroot gần nhau trong cùng cây thư mục, nhưng điều đó không làm chúng trở thành cùng một khái niệm.
+
+### 10.6 Mô hình tổng quát
+
+Có thể ghép toàn bộ phần 10 thành:
+
+```text
+Development host
+x86-64 Linux
+      |
+      | chạy
+      v
+Cross compiler
+      |
+      +--> preprocessing/compile
+      |       |
+      |       +--> target headers
+      |
+      +--> link
+              |
+              +--> target libraries
+              +--> target crt/runtime
+      |
+      v
+AArch64 target ELF
+```
+
+Trong suốt pipeline, câu hỏi cần giữ là:
+
+```text
+Artifact / header / library này
+        |
+        +--> thuộc host?
+        |
+        +--> hay thuộc target?
+```
+
+> **Điểm cần nhớ:** Đừng chỉ hỏi "file này có trên máy không?". Hãy hỏi **"toolchain đang tìm file này ở đâu cho target hiện tại?"**
 
 ---
 
