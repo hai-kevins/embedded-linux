@@ -2430,6 +2430,15 @@ Trong target naming, các trường và canonical form có lịch sử/quy ướ
 
 Một cross compiler đã có target architecture tổng quát, nhưng trong cùng target đó vẫn có nhiều lựa chọn code generation.
 
+Ví dụ cùng là AArch64, compiler vẫn cần biết:
+
+```text
+Được phép dùng mức ISA/extension nào?
+Nhắm tới CPU model nào?
+Nên tối ưu code shape cho CPU nào?
+Runtime/library variant nào phải đi kèm?
+```
+
 ### 15.1 `-march` — tập capability instruction được phép sử dụng
 
 Ở mức khái niệm:
@@ -2439,34 +2448,84 @@ Một cross compiler đã có target architecture tổng quát, nhưng trong cù
    -> target ISA level / extension set
 ```
 
-Nếu chọn một `-march` yêu cầu feature mà CPU target không có, compiler có thể sinh instruction không chạy được trên thiết bị.
+`-march` xác định tập instruction/extension mà compiler được phép yêu cầu CPU target hỗ trợ.
 
-Mô hình:
+Ví dụ về mental model:
 
 ```text
-Compiler allowed ISA set
-          |
-          v
-Generated instructions
-          |
-          v
-CPU must support them
+AArch64 base ISA
+      |
+      +--> extension X
+      |
+      +--> extension Y
 ```
+
+Nếu compiler được cấu hình để sử dụng:
+
+```text
+base ISA + extension X
+```
+
+thì binary có thể chứa instruction thuộc extension X.
+
+Luồng:
+
+```text
+-march
+   |
+   v
+ISA/features compiler được phép dùng
+   |
+   v
+Generated instructions
+   |
+   v
+CPU target phải hỗ trợ chúng
+```
+
+Vì vậy:
+
+```text
+Đúng architecture AArch64
+        !=
+CPU chắc chắn chạy được mọi binary AArch64
+```
+
+Nếu `-march` cho phép một extension mà CPU target không có, compiler có thể sinh instruction mà CPU đó không thực thi được.
 
 ### 15.2 `-mcpu` — chọn CPU model cho code generation/tuning
 
 Trong GCC target như AArch64, `-mcpu` có thể ảnh hưởng cả:
 
-- loại instruction/features được dùng;
+- instruction/features mà compiler được phép sử dụng;
 - tuning theo processor cụ thể.
+
+Mental model:
+
+```text
+-mcpu
+   -> "Tôi nhắm tới CPU model này"
+```
 
 Có thể hình dung:
 
 ```text
--mcpu = "tôi nhắm tới CPU này"
+                -mcpu=CPU_A
+                     |
+            +--------+--------+
+            |                 |
+            v                 v
+       ISA/features        tuning
+            |                 |
+            +--------+--------+
+                     |
+                     v
+              Generated code
 ```
 
-nhưng chi tiết chính xác phụ thuộc target GCC và phải tra target-specific options.
+Hai CPU cùng là AArch64 vẫn có thể khác nhau về extension hỗ trợ, pipeline, cache, execution resources và performance characteristics. Vì vậy compiler có thể dùng thông tin CPU cụ thể để vừa chọn capability phù hợp, vừa tối ưu cách sinh code.
+
+Chi tiết chính xác của `-mcpu` phụ thuộc target GCC và phải tra target-specific documentation.
 
 ### 15.3 `-mtune` — tối ưu cho CPU nhưng không nhất thiết mở thêm ISA
 
@@ -2477,14 +2536,41 @@ Mental model hữu ích:
   -> code được phép yêu cầu instruction set nào
 
 -mtune
-  -> trong tập instruction hợp lệ đó, sắp xếp/chọn code shape để chạy tốt trên CPU nào
+  -> trong tập instruction hợp lệ đó,
+     sắp xếp/chọn code shape để chạy tốt trên CPU nào
 ```
 
-Ví dụ một binary có thể được tune cho một core nhưng vẫn giữ ISA baseline đủ rộng để chạy trên nhiều CPU tương thích.
+Ví dụ:
+
+```text
+-march = AArch64 baseline
+-mtune = CPU_A
+```
+
+có thể hiểu là:
+
+```text
+Giữ compatibility với AArch64 baseline
+             |
+             v
+Trong giới hạn đó, tối ưu code cho CPU_A
+```
+
+Compiler có thể chọn thứ tự instruction, scheduling hoặc code shape khác nhau dù vẫn chỉ dùng tập instruction mà `-march` cho phép.
+
+Do đó:
+
+```text
+-march
+    -> ISA compatibility / allowed instruction set
+
+-mtune
+    -> performance preference trong tập ISA hợp lệ
+```
 
 ### 15.4 Không áp dụng máy móc option giữa các architecture
 
-Tên và semantics chi tiết của `-m...` option phụ thuộc target.
+Tên và semantics chi tiết của các option `-m...` phụ thuộc target.
 
 Không nên học theo kiểu:
 
@@ -2492,55 +2578,144 @@ Không nên học theo kiểu:
 "-mcpu luôn có nghĩa chính xác X trên mọi GCC target"
 ```
 
+GCC có nhiều backend:
+
+```text
+x86
+AArch64
+ARM
+RISC-V
+...
+```
+
+và mỗi backend có CPU model, extension model và option semantics riêng.
+
 Cách đúng là:
 
 ```text
-Hiểu khái niệm
+Hiểu khái niệm tổng quát
       +
 Tra target-specific GCC documentation
 ```
 
 ### 15.5 Multilib là gì?
 
-Một compiler có thể hỗ trợ nhiều biến thể library/runtime cho các lựa chọn ABI hoặc machine option khác nhau. Cơ chế này thường được gọi là `multilib`.
+Một compiler installation có thể hỗ trợ nhiều biến thể runtime/library tương ứng với các lựa chọn ABI hoặc machine option khác nhau. Cơ chế này thường được gọi là `multilib`.
 
-Mô hình khái quát:
+Mô hình:
 
 ```text
 Một compiler installation
         |
-        +--> library variant A
+        +--> library/runtime variant A
         |
-        +--> library variant B
+        +--> library/runtime variant B
         |
-        +--> library variant C
+        +--> library/runtime variant C
 ```
 
-Compiler driver chọn variant phù hợp dựa trên target option.
+Compiler driver chọn variant phù hợp dựa trên target option đang được sử dụng.
 
-Ví dụ khái niệm có thể liên quan tới:
+Ví dụ về mặt khái niệm, multilib có thể liên quan tới:
 
 - 32-bit vs 64-bit trong một số toolchain;
 - floating-point ABI variant;
 - architecture variant;
 - các cấu hình runtime khác mà toolchain được build để hỗ trợ.
 
+Có thể hình dung:
+
+```text
+Compiler
+   |
+   +--> mode / ABI A
+   |      |
+   |      +--> runtime/library A
+   |
+   +--> mode / ABI B
+          |
+          +--> runtime/library B
+```
+
+Library/runtime cũng đã được build cho một ABI/machine variant cụ thể, nên không thể tùy ý trộn các variant với nhau.
+
 Không phải mọi toolchain đều cung cấp mọi multilib.
 
 ### 15.6 Compiler option và sysroot/runtime phải đồng bộ
 
-Nếu compiler được yêu cầu sinh theo một ABI/variant nhưng sysroot không có library tương ứng, compile có thể đi qua nhưng link thất bại.
+Nếu compiler được yêu cầu sinh code theo một ABI/variant nhưng sysroot hoặc toolchain không có runtime/library tương ứng, compile có thể đi qua nhưng link thất bại.
+
+Mental model:
 
 ```text
 Code-generation option
           |
           v
-Selected ABI/variant
+Selected ABI / machine variant
+          |
+          v
+Target object
           |
           +----> cần matching runtime/library
 ```
 
-Đây là ví dụ điển hình cho việc toolchain phải được nhìn như một hệ thống, không phải chỉ compiler executable.
+Ví dụ:
+
+```text
+main.o
+  -> variant B
+
+runtime/library hiện có
+  -> variant A
+```
+
+thì:
+
+```text
+variant B object
+      +
+variant A runtime/library
+      |
+      v
+mismatch
+```
+
+Điểm quan trọng là option của compiler không chỉ ảnh hưởng instruction được sinh ra. Nếu option làm thay đổi ABI hoặc machine variant, toàn bộ runtime/library đi kèm cũng phải có biến thể tương thích.
+
+### 15.7 Mô hình tổng quát
+
+Có thể tóm tắt:
+
+```text
+                 Cross compiler
+                       |
+          +------------+------------+
+          |            |            |
+          v            v            v
+       -march        -mcpu        -mtune
+          |            |            |
+          |            |            +--> tuning
+          |            |
+          |            +--> CPU model / features
+          |
+          +--> allowed ISA/extensions
+                       |
+                       v
+                Generated object
+                       |
+                       v
+              Selected ABI/variant
+                       |
+                       v
+             Matching multilib/runtime
+                       |
+                       v
+                 Target binary
+```
+
+Sơ đồ trên là mental model khái quát; semantics chính xác của từng option vẫn phụ thuộc target GCC cụ thể.
+
+> **Điểm cần nhớ:** `-march` chủ yếu xác định tập ISA/extension được phép dùng; `-mcpu` nhắm tới CPU model cụ thể và có thể ảnh hưởng cả feature lẫn tuning; `-mtune` chủ yếu tối ưu code cho CPU trong giới hạn ISA đang hợp lệ; còn multilib cung cấp các runtime/library variant tương ứng với các ABI/machine configuration mà toolchain hỗ trợ.
 
 ---
 
