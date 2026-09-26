@@ -158,7 +158,7 @@ Ví dụ, một compiler có thể biết cách sinh instruction AArch64 nhưng 
 
 ### 2.1 Native compilation
 
-`Native compilation` là quá trình dịch mã nguồn của một chương trình máy tính thành mã máy (mã nhị phân) để chạy trực tiếp trên cấu trúc phần cứng và hệ điều hành của chính máy tính đó mà không cần qua trình thông dịch hay máy ảo.
+`Native compilation` là quá trình biên dịch mã nguồn của một chương trình máy tính thành mã máy (mã nhị phân) để chạy trực tiếp trên cấu trúc phần cứng và hệ điều hành của chính máy tính đó mà không cần qua trình thông dịch hay máy ảo.
 Ví dụ khái quát:
 
 ```text
@@ -183,7 +183,7 @@ Dấu `~=` ở đây nhằm nhấn mạnh rằng "giống nhau" không chỉ là
 
 ### 2.2 Cross-compilation
 
-`Cross-compilation` xảy ra khi compiler/toolchain chạy trên một loại hệ thống nhưng tạo code cho một target khác.
+`Cross-compilation` là quá trình biên dịch mã nguồn trên một hệ thống (gọi là Host) để tạo ra file thực thi (mã máy) chạy trên một hệ thống mục tiêu khác (gọi là Target) có sự khác biệt về cấu trúc phần cứng, hệ điều hành, hoặc cả hai.
 
 Ví dụ rất phổ biến trong Embedded Linux:
 
