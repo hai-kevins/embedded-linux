@@ -667,6 +667,64 @@ foo_util.c --------> foo_util.o
 +-------------------------------------------+  địa chỉ thấp
 ```
 
+
+
+Để nối đầy đủ từ lúc tạo `libfoo.so` đến lúc application sử dụng nó, cần thêm một bước **application được link với shared library** trước khi runtime bắt đầu:
+
+```text
+PHASE 1 — Tạo shared library
+============================
+
+foo_math.c
+foo_io.c
+foo_util.c
+      |
+      | compiler
+      v
+foo_math.o
+foo_io.o
+foo_util.o
+      |
+      | linker -shared
+      v
+libfoo.so
+
+
+PHASE 2 — Application link với shared library
+=============================================
+
+main.c
+  |
+  | compiler
+  v
+main.o
+  |
+  | linker + libfoo.so
+  v
+Application ELF
+  |
+  +--> dynamic metadata
+       DT_NEEDED: libfoo.so.X
+
+
+PHASE 3 — Runtime
+=================
+
+Application ELF
+      |
+      | exec
+      v
+Dynamic linker/loader
+      |
+      | đọc DT_NEEDED
+      | tìm libfoo.so.X
+      | map các segment cần thiết
+      v
+Virtual address space của process
+```
+
+Như vậy, `libfoo.so` được tạo trước như một ELF shared object riêng. Sau đó linker dùng nó khi tạo application để ghi dependency động phù hợp vào `Application ELF`. Khi application chạy, dynamic linker/loader đọc dependency đó, tìm shared object tương ứng trên target filesystem và map các segment cần thiết vào virtual address space của process.
+
 Sơ đồ trên là **mô hình bố trí thường gặp**, không phải quy tắc bắt buộc rằng shared library luôn phải nằm ở một địa chỉ cố định giữa heap và stack. Trên Linux, shared objects thường được map vào vùng địa chỉ dùng cho `mmap`; vị trí cụ thể phụ thuộc kiến trúc, Kernel, dynamic linker/loader và cơ chế như ASLR.
 
 Điểm cần giữ trong mental model là: `libfoo.so` vẫn tồn tại như một file riêng trên filesystem; khi chương trình chạy, dynamic linker/loader phối hợp với Kernel để map các segment cần thiết của nó vào virtual address space của process.
