@@ -1570,7 +1570,22 @@ libfoo.so.1      -> libfoo.so.1.4.2
 libfoo.so.1.4.2
 ```
 
-Ba tên này thường đóng các vai trò khác nhau.
+Ba tên này thường đóng các vai trò khác nhau. Có thể giữ mental model ngắn gọn:
+
+```text
+libfoo.so
+    -> linker name
+    -> chủ yếu dùng lúc development/link-time
+
+libfoo.so.1
+    -> SONAME / tên ABI
+    -> executable thường ghi vào DT_NEEDED
+
+libfoo.so.1.4.2
+    -> file implementation/version cụ thể
+```
+
+Trong layout phổ biến, `libfoo.so` và `libfoo.so.1` là symlink dẫn tới file implementation thực tế `libfoo.so.1.4.2`.
 
 ### 9.1 Linker name
 
@@ -1614,6 +1629,48 @@ DT_NEEDED = libfoo.so.1
 Điểm quan trọng:
 
 > Runtime dependency không nhất thiết ghi lại chính xác filename mà developer đã truyền vào linker.
+
+Có thể hình dung toàn bộ đường đi:
+
+```text
+Build-time
+==========
+
+-lfoo
+  |
+  v
+libfoo.so
+  |
+  | symlink
+  v
+libfoo.so.1.4.2
+  |
+  | SONAME = libfoo.so.1
+  v
+Application ELF
+  |
+  +--> DT_NEEDED = libfoo.so.1
+
+
+Runtime
+=======
+
+Application ELF
+  |
+  | cần libfoo.so.1
+  v
+libfoo.so.1
+  |
+  | symlink
+  v
+libfoo.so.1.4.2
+  |
+  | dynamic linker/loader map
+  v
+Process
+```
+
+Nhờ đó application phụ thuộc vào **ABI generation** (`libfoo.so.1`) thay vì bị buộc vào một implementation version cụ thể như `libfoo.so.1.4.2`. Nếu library được cập nhật lên `libfoo.so.1.4.3` nhưng vẫn giữ ABI tương thích, symlink `libfoo.so.1` có thể trỏ sang version mới mà application cũ vẫn tiếp tục yêu cầu cùng `DT_NEEDED`.
 
 ### 9.3 Vì sao có major version trong `SONAME`?
 
