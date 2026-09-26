@@ -326,13 +326,14 @@ Mô hình tổng thể từ source của library đến khi code cần thiết �
 
 ```text
 Source của library
-    |
-    | compiler
-    v
-Object files
-    |
-    | GNU ar tạo archive
-    v
+
+foo_math.c --------> foo_math.o
+foo_io.c   --------> foo_io.o
+foo_util.c --------> foo_util.o
+              compiler
+                  |
+                  | GNU ar đóng gói các object member
+                  v
 +-------------------------+
 |       libfoo.a          |
 |-------------------------|
@@ -384,7 +385,14 @@ Object files
 
 Điểm quan trọng của sơ đồ là: `libfoo.a` chỉ tham gia ở **link-time**. Khi linker đã lấy `foo_math.o` và đưa phần code/data cần thiết vào executable, runtime không map `libfoo.a` như một library riêng. Code như `foo_add()` lúc này đã trở thành một phần của executable và được map cùng các segment của executable vào virtual address space của process.
 
-Công cụ GNU `ar` được dùng để tạo, thay đổi và đọc archive.
+Công cụ GNU `ar` được dùng để tạo, thay đổi và đọc archive. Nghĩa là các source file của library trước hết được compiler tạo thành các `.o`, sau đó `ar` đóng gói các `.o` đó thành `libfoo.a`.
+
+Cần phân biệt với shared library: `libfoo.a` thường được **`ar` đóng gói từ các object file**, còn `libfoo.so` được **linker liên kết từ các object file để tạo ELF shared object**.
+
+```text
+.c --compiler--> .o --ar-----> .a
+.c --compiler--> .o --linker-> .so
+```
 
 Điểm rất quan trọng:
 
