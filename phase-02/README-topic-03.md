@@ -608,13 +608,14 @@ Mô hình tổng thể từ source của library đến lúc shared object đư�
 
 ```text
 Source của library
-    |
-    | compiler
-    v
-Object files
-    |
-    | linker tạo shared object
-    v
+
+foo.c --------> foo.o
+bar.c --------> bar.o
+          compiler
+              |
+              | linker liên kết các object file
+              | và tạo ELF shared object
+              v
 +-------------------------+
 |       libfoo.so         |
 |-------------------------|
@@ -656,12 +657,21 @@ Object files
 |                                           |
 |-------------------------------------------|
 | Heap                                      |
-| thường phát triển về địa chỉ cao hơn       |
+| thường phát triển về địa chỉ cao hơn      |
 |-------------------------------------------|
 | .bss / .data                              |
 |-------------------------------------------|
 | .rodata / .text của executable chính      |
 +-------------------------------------------+  địa chỉ thấp
+```
+
+Các source file như `foo.c` và `bar.c` trước hết được **compiler** tạo thành các relocatable object `foo.o` và `bar.o`. Sau đó **linker** liên kết các object file này để tạo `libfoo.so`, là một ELF shared object. Nếu dùng `gcc` làm compiler driver, `gcc` có thể điều phối bước này và gọi linker phía dưới; thành phần thực hiện thao tác liên kết vẫn là linker.
+
+Có thể đối chiếu ngắn với static library:
+
+```text
+.c --compiler--> .o --ar-----> .a
+.c --compiler--> .o --linker-> .so
 ```
 
 Sơ đồ trên là **mô hình bố trí thường gặp**, không phải quy tắc bắt buộc rằng shared library luôn phải nằm ở một địa chỉ cố định giữa heap và stack. Trên Linux, shared objects thường được map vào vùng địa chỉ dùng cho `mmap`; vị trí cụ thể phụ thuộc kiến trúc, Kernel, dynamic linker/loader và cơ chế như ASLR.
