@@ -994,20 +994,87 @@ GNU Make có directive `override` để thay đổi quy tắc ưu tiên này, nh
 
 Make variable và shell environment variable là hai khái niệm liên quan nhưng không giống nhau.
 
-```text
-Make variable
-     |
-     | có thể được export
-     v
-Environment của recipe process
+Ví dụ:
+
+```make
+CC = gcc
+
+target:
+	echo $(CC)
 ```
 
-Một variable Make không tự động trở thành shell environment variable trong mọi trường hợp.
+Ở đây `$(CC)` là **Make variable**. Make expand nó trước khi đưa command cho shell:
 
-Ngược lại, Make có thể import nhiều environment variable khi khởi động.
+```text
+$(CC)
+  |
+  | Make expansion
+  v
+gcc
+```
 
-> **Điểm cần nhớ:** Khi đọc Makefile, luôn hỏi **"đây là Make variable hay shell variable, và expansion xảy ra ở tầng nào?"**.
+Shell thực tế nhận:
 
+```bash
+echo gcc
+```
+
+Ngược lại, nếu recipe viết:
+
+```make
+target:
+	echo $$CC
+```
+
+thì Make biến `$$` thành `$` và shell nhận:
+
+```bash
+echo $CC
+```
+
+Lúc này `$CC` được **shell** xử lý như một shell/environment variable.
+
+Mental model:
+
+```text
+$(CC)
+  |
+  +--> Make expansion
+
+$$CC
+  |
+  | Make xử lý $$ -> $
+  v
+$CC
+  |
+  +--> shell expansion
+```
+
+Một Make variable không tự động trở thành environment variable của recipe process trong mọi trường hợp. Nếu muốn truyền nó xuống environment, có thể dùng `export`:
+
+```make
+CC = gcc
+export CC
+
+target:
+	echo $$CC
+```
+
+Khi đó:
+
+```text
+Make variable
+CC = gcc
+   |
+   | export
+   v
+Environment của shell
+CC=gcc
+```
+
+Chiều ngược lại, khi Make khởi động, nó cũng có thể nhận nhiều variable từ environment của process đã gọi `make`.
+
+> **Điểm cần nhớ:** `$(VAR)` là Make xử lý variable; `$$VAR` trong recipe thường dùng để truyền `$VAR` xuống cho shell xử lý.
 ---
 
 ## 7. Các biến build thường dùng: `CC`, `CPPFLAGS`, `CFLAGS`, `LDFLAGS`, `LDLIBS`
