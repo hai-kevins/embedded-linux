@@ -928,7 +928,7 @@ Thay vì thay thế toàn bộ giá trị, nội dung mới được append theo
 
 ### 6.5 Variable có thể đến từ nhiều nguồn
 
-Một variable Make có thể được hình thành từ:
+Một Make variable có thể đến từ nhiều nơi, ví dụ:
 
 ```text
 Built-in/default
@@ -938,9 +938,40 @@ Included Makefile
 Command line
 ```
 
-Thứ tự ưu tiên có nuance cụ thể, nhưng một nguyên tắc thực tế quan trọng là **assignment trên command line thường có thể override assignment thông thường trong Makefile**.
+Điểm quan trọng cần nhớ ở mức này là: **giá trị truyền trên command line thường có thể override assignment thông thường trong Makefile**.
 
-Ví dụ khái niệm:
+Ví dụ Makefile có:
+
+```make
+CC = gcc
+```
+
+nhưng người dùng chạy:
+
+```bash
+make CC=clang
+```
+
+thì Make sẽ dùng:
+
+```text
+CC = clang
+```
+
+Do đó recipe:
+
+```make
+app: main.c
+	$(CC) main.c -o app
+```
+
+sẽ tương đương với việc chạy:
+
+```bash
+clang main.c -o app
+```
+
+Mental model:
 
 ```text
 Makefile:
@@ -949,10 +980,15 @@ CC = gcc
 Command line:
 make CC=clang
 
-=> recipe dùng clang trong trường hợp thông thường
+        |
+        v
+
+CC thực tế = clang
 ```
 
-GNU Make có directive `override` để thay đổi quy tắc này, nhưng nên dùng có chủ đích vì project thường muốn cho người dùng/tooling override compiler và flag.
+Cơ chế này rất hữu ích vì người dùng có thể thay compiler hoặc option build mà không cần sửa trực tiếp Makefile.
+
+GNU Make có directive `override` để thay đổi quy tắc ưu tiên này, nhưng ở mức nền tảng chỉ cần nhớ rằng **command-line variable thường ưu tiên hơn assignment thông thường trong Makefile**.
 
 ### 6.6 Variable không đồng nghĩa environment variable
 
