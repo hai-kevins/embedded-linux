@@ -347,9 +347,9 @@ foo_util.c --------> foo_util.o
             v
          Linker
             |
-            | chọn member object trong archive cung cấp symbol cần thiết
+            | chọn member object trong archive (libfoo.a) cung cấp symbol cần thiết
             v
-      foo_math.o được lấy
+      foo_math.o (nơi chứa foo_add) được lấy
             |
             | code/section cần thiết tham gia link
             v
@@ -364,7 +364,7 @@ foo_util.c --------> foo_util.o
 | .rodata / .data / .bss / ...              |
 +-------------------------------------------+
             |
-            | khi application chạy
+            | khi application chạy (chương trình nằm trên ổ cứng chuyển thành process được load vào RAM)
             v
 +-------------------------------------------+  địa chỉ cao
 | Virtual address space của process         |
@@ -610,13 +610,14 @@ Mô hình tổng thể từ source của library đến lúc shared object đư�
 
 ```text
 Source của library
-    |
-    | compiler
-    v
-Object files
-    |
-    | linker tạo shared object
-    v
+
+foo_math.c --------> foo_math.o
+foo_io.c   --------> foo_io.o
+foo_util.c --------> foo_util.o
+         compiler
+            |
+            | linker tạo shared object
+            v
 +-------------------------+
 |       libfoo.so         |
 |-------------------------|
