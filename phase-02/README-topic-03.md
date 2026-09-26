@@ -431,7 +431,7 @@ io.o / debug.o có thể không được kéo vào
 
 Tuy nhiên selection thường diễn ra ở **mức object member**, không phải tự động ở mức từng function.
 
-Nếu `math.o` chứa `foo_add()` cùng với các function khác, khi linker lấy `math.o` từ static library thì những function đó cũng có thể được đưa vào executable. Một số phần không được sử dụng có thể được linker loại bỏ ở bước tối ưu khác, nhưng đó không phải là cơ chế chọn member của static library.
+Nếu `math.o` chứa cả `foo_add()` và một số code khác, việc member `math.o` được kéo vào có thể mang theo nhiều section/function của member đó; các optimization/linker garbage collection khác có thể loại thêm phần không dùng, nhưng đó là cơ chế khác.
 
 > **Điểm cần nhớ:** Static archive cho linker khả năng lấy các object member cần thiết. Không nên hiểu `.a` là “copy nguyên file library vào executable”.
 
@@ -499,7 +499,7 @@ Có `.a` trong lệnh link
 Executable hoàn toàn static
 ```
 
-Option `-static` của GCC trên các hệ thống hỗ trợ dynamic linking yêu cầu linker tránh dùng shared libraries cho các dependency thông thường, nhưng việc tạo fully static executable còn phụ thuộc vào việc static variants có tồn tại và toolchain/runtime có hỗ trợ hay không.
+Option `-static` của GCC trên các hệ thống hỗ trợ dynamic linking yêu cầu linker tránh dùng shared libraries cho các dependency thông thường.
 
 ### 4.2 Static executable không có nghĩa “không phụ thuộc gì bên ngoài”
 
