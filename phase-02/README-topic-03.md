@@ -536,7 +536,7 @@ main.o
 |   foo_add()                    |
 |   ...                          |
 |--------------------------------|
-| .rodata / .data / .bss / ...   |
+| .rodata / .data / .bss / ...  |
 +--------------------------------+
 ```
 
@@ -1089,10 +1089,6 @@ Dynamic linker/loader
 | Stack                                     |
 | thường phát triển về địa chỉ thấp hơn     |
 |-------------------------------------------|
-|                                           |
-| khoảng địa chỉ chưa dùng / ASLR           |
-|                                           |
-|-------------------------------------------|
 | mmap region                               |
 |                                           |
 |   +-----------------------------------+   |
@@ -1104,10 +1100,6 @@ Dynamic linker/loader
 |   +-----------------------------------+   |
 |   | các memory mapping khác           |   |
 |   +-----------------------------------+   |
-|                                           |
-|-------------------------------------------|
-|                                           |
-| khoảng địa chỉ chưa dùng                  |
 |                                           |
 |-------------------------------------------|
 | Heap                                      |
@@ -1233,20 +1225,41 @@ Nếu machine code giả định cứng rằng library luôn nằm ở một đ�
 
 `Position-Independent Code` (`PIC`) là code được sinh theo cách phù hợp với việc chạy khi được đặt ở các địa chỉ khác nhau mà không cần giả định một base address cố định theo cách đơn giản.
 
+Có thể hình dung cùng một `libfoo.so` được map ở các vị trí khác nhau:
+
+```text
+Run 1:
+libfoo.so -> virtual address A
+
+Run 2:
+libfoo.so -> virtual address B
+
+Run 3:
+libfoo.so -> virtual address C
+```
+
+PIC giúp machine code của library không phụ thuộc cứng vào việc `libfoo.so` phải luôn bắt đầu ở đúng một địa chỉ tuyệt đối cố định. Đây là đặc tính quan trọng vì vị trí mapping thực tế có thể thay đổi giữa các process hoặc các lần chạy, ví dụ do layout address space và ASLR.
+
 Mô hình:
 
 ```text
 C source của library
        |
-       | compile với mô hình PIC
+       | compiler sinh PIC
+       | ví dụ: -fPIC
        v
 PIC object files
        |
-       | link -shared
+       | linker tạo shared object
+       | ví dụ: -shared
        v
 libfoo.so
        |
-       +--> có thể được map vào vị trí phù hợp trong process
+       | runtime
+       v
+Dynamic linker/loader
+       |
+       +--> map libfoo.so vào vị trí phù hợp trong process
 ```
 
 GCC cung cấp các option như:
@@ -1309,9 +1322,23 @@ foo.o
 libfoo.so
 ```
 
-Chỉ có `-fPIC` không tự biến `.o` thành shared library.
+Chỉ có `-fPIC` không tự biến `.o` thành shared library. Nó chỉ làm compiler sinh object code theo PIC model.
 
-Chỉ có `-shared` cũng không có nghĩa mọi input object tự động được compile lại thành PIC.
+Chỉ có `-shared` cũng không có nghĩa mọi input object tự động được compile lại thành PIC. `-shared` chỉ điều khiển link stage để tạo shared object từ các input object hiện có.
+
+Do đó mental model cần nhớ là:
+
+```text
+foo.c
+  |
+  | compiler -fPIC
+  v
+foo.o
+  |
+  | linker -shared
+  v
+libfoo.so
+```
 
 GCC documentation vì vậy khuyến nghị dùng code-generation options phù hợp khi tạo shared object.
 
