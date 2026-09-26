@@ -725,6 +725,60 @@ Virtual address space của process
 
 Như vậy, `libfoo.so` được tạo trước như một ELF shared object riêng. Sau đó linker dùng nó khi tạo application để ghi dependency động phù hợp vào `Application ELF`. Khi application chạy, dynamic linker/loader đọc dependency đó, tìm shared object tương ứng trên target filesystem và map các segment cần thiết vào virtual address space của process.
 
+### Giải thích ba phase
+
+**PHASE 1 — Tạo shared library:** Đây là giai đoạn build chính library. Compiler biên dịch từng source file của library thành relocatable object file `.o`; sau đó linker liên kết các object đó với chế độ shared để tạo `libfoo.so`. Kết thúc phase này ta đã có shared library, nhưng application chưa sử dụng nó.
+
+```text
+foo_math.c / foo_io.c / foo_util.c
+              |
+              | compiler
+              v
+foo_math.o / foo_io.o / foo_util.o
+              |
+              | linker -shared
+              v
+          libfoo.so
+```
+
+**PHASE 2 — Application link với shared library:** Application cũng được compile riêng thành `main.o`. Khi linker tạo executable từ `main.o` và `libfoo.so`, nó dùng shared library để giải quyết các symbol mà application cần và tạo dynamic metadata phù hợp. Code của library không được copy toàn bộ vào executable như static linking; executable thường ghi dependency dạng `DT_NEEDED`, ví dụ `libfoo.so.X`.
+
+```text
+main.c
+  |
+  | compiler
+  v
+main.o + libfoo.so
+        |
+        | linker
+        v
+Application ELF
+        |
+        +--> DT_NEEDED: libfoo.so.X
+```
+
+**PHASE 3 — Runtime:** Khi application được thực thi, build-time linker không còn tham gia. Dynamic linker/loader đọc các entry `DT_NEEDED`, tìm shared object tương ứng trên target filesystem, map các segment cần thiết của chúng vào virtual address space, rồi thực hiện relocation/symbol resolution cần thiết để application có thể gọi code trong library.
+
+```text
+Application ELF
+      |
+      | exec
+      v
+Dynamic linker/loader
+      |
+      +--> đọc DT_NEEDED
+      +--> tìm libfoo.so.X
+      +--> map shared object
+      +--> relocation / symbol resolution cần thiết
+      v
+Virtual address space của process
+      |
+      +--> code của application
+      +--> code của libfoo.so
+```
+
+Điểm cần phân biệt là **PHASE 1 và PHASE 2 đều dùng linker nhưng là hai lần link với hai mục tiêu khác nhau**: lần thứ nhất tạo `libfoo.so`, lần thứ hai tạo application sử dụng `libfoo.so`. PHASE 3 sử dụng **dynamic linker/loader** ở load-time/runtime, không phải build-time linker.
+
 Sơ đồ trên là **mô hình bố trí thường gặp**, không phải quy tắc bắt buộc rằng shared library luôn phải nằm ở một địa chỉ cố định giữa heap và stack. Trên Linux, shared objects thường được map vào vùng địa chỉ dùng cho `mmap`; vị trí cụ thể phụ thuộc kiến trúc, Kernel, dynamic linker/loader và cơ chế như ASLR.
 
 Điểm cần giữ trong mental model là: `libfoo.so` vẫn tồn tại như một file riêng trên filesystem; khi chương trình chạy, dynamic linker/loader phối hợp với Kernel để map các segment cần thiết của nó vào virtual address space của process.
