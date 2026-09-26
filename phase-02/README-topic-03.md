@@ -1743,32 +1743,132 @@ Runtime chắc chắn cũng tìm thấy libfoo.so
 
 Điều này **không đúng**.
 
-Hai thời điểm dùng hai cơ chế tìm kiếm khác nhau.
+Hai thời điểm dùng hai cơ chế tìm kiếm khác nhau:
+
+```text
+Build-time
+==========
+Linker
+  |
+  +--> tìm library input để tạo ELF output
+
+Runtime
+=======
+Dynamic linker/loader
+  |
+  +--> tìm shared-library dependency mà ELF yêu cầu
+```
+
+Liên hệ với phần `SONAME` trước đó:
+
+```text
+Build-time:
+-lfoo
+  |
+  v
+Linker tìm libfoo.so
+  |
+  | đọc SONAME của shared object
+  v
+Application ELF
+  |
+  +--> DT_NEEDED = libfoo.so.1
+
+Runtime:
+Application ELF
+  |
+  | dynamic loader đọc DT_NEEDED
+  v
+Tìm libfoo.so.1 trên target
+```
+
+> **Điểm cần nhớ:** `-L` giúp build-time linker tìm library. Nó không deploy library sang target và cũng không tự cấu hình runtime search path của dynamic linker/loader.
 
 ### 10.1 Link-time search
 
 Khi tạo executable/shared object, linker cần tìm library input.
 
+Ví dụ:
+
+```text
+-L/opt/sdk/sysroot/usr/lib
+-lfoo
+```
+
+Có thể hiểu:
+
+```text
+-L/opt/sdk/sysroot/usr/lib
+        |
+        +--> thêm directory vào link-time library search path
+
+-lfoo
+        |
+        +--> yêu cầu linker tìm library logic `foo`
+             thường là libfoo.so hoặc libfoo.a tùy chế độ link
+```
+
 Mô hình:
 
 ```text
--L/path/to/sdk/lib
--lfoo
-     |
-     v
-Linker tìm libfoo.* trong search path link-time
+Development host
+================
+
+main.o
+  |
+  | linker
+  | -L/opt/sdk/sysroot/usr/lib
+  | -lfoo
+  v
+/opt/sdk/sysroot/usr/lib/libfoo.so
+  |
+  v
+Application ELF
 ```
 
 `-L` chủ yếu ảnh hưởng **link-time library search**.
 
-Nó không tự động có nghĩa dynamic loader ở target sẽ tìm cùng directory đó lúc chạy.
+Directory như:
+
+```text
+/opt/sdk/sysroot/usr/lib
+```
+
+là path được linker nhìn thấy trên development machine. Nó không tự động có nghĩa dynamic loader trên target sẽ tìm cùng directory đó khi application chạy.
 
 ### 10.2 Runtime search
 
-Khi chương trình chạy, dynamic linker/loader phải tìm dependency như:
+Sau khi link xong, executable có thể chứa dependency như:
 
 ```text
 DT_NEEDED: libfoo.so.1
+```
+
+Khi application được `exec` trên target, dynamic linker/loader phải trả lời câu hỏi:
+
+```text
+"libfoo.so.1 nằm ở đâu trên filesystem của target?"
+```
+
+Mô hình:
+
+```text
+Target
+======
+
+/app/bin/app
+      |
+      | exec
+      v
+Dynamic linker/loader
+      |
+      | đọc DT_NEEDED
+      v
+libfoo.so.1
+      |
+      | runtime library search
+      v
+shared object phù hợp trên target rootfs
 ```
 
 Runtime search có thể chịu ảnh hưởng bởi các cơ chế như:
@@ -1784,6 +1884,35 @@ Cùng với các rule và ngoại lệ của dynamic loader, ví dụ secure-exe
 
 Thứ tự chính xác và semantics giữa `RPATH`/`RUNPATH` có nuance; khi cần chẩn đoán chính xác phải dựa vào `ld.so(8)` của runtime đang sử dụng.
 
+Vì vậy có thể xảy ra trường hợp:
+
+```text
+Build host
+==========
+
+SDK/sysroot có libfoo.so
+        |
+        | linker tìm thấy
+        v
+Application build thành công
+        |
+        | deploy
+        v
+
+Target
+======
+
+Application
+        |
+        | DT_NEEDED = libfoo.so.1
+        v
+Dynamic linker/loader
+        |
+        | không tìm thấy libfoo.so.1
+        v
+Program không start được
+```
+
 ### 10.3 `RPATH` và `RUNPATH` ở mức cần thiết
 
 Executable/shared object có thể mang embedded search path trong dynamic metadata.
@@ -1797,34 +1926,103 @@ App ELF
   +-- RUNPATH: $ORIGIN/../lib
 ```
 
-Token như `$ORIGIN` có thể đại diện cho directory chứa binary/shared object trong ngữ cảnh dynamic loader.
+Token `$ORIGIN` có thể đại diện cho directory chứa executable/shared object trong ngữ cảnh dynamic loader.
 
-Điều này hữu ích khi thiết kế application bundle có layout tương đối:
+Ví dụ application bundle:
 
 ```text
 app-root/
-  bin/app
-  lib/libfoo.so.1
+  |
+  +-- bin/
+  |    +-- app
+  |
+  +-- lib/
+       +-- libfoo.so.1
 ```
 
-Nhưng đây là policy deployment; không nên nhầm nó với sysroot của cross toolchain.
+Nếu `app` có:
+
+```text
+RUNPATH = $ORIGIN/../lib
+```
+
+thì có thể hình dung:
+
+```text
+/app-root/bin/app
+        |
+        | $ORIGIN = /app-root/bin
+        v
+$ORIGIN/../lib
+        |
+        v
+/app-root/lib
+        |
+        v
+libfoo.so.1
+```
+
+Điểm cần phân biệt:
+
+```text
+-L/path
+   |
+   +--> build-time linker tìm library
+
+RUNPATH / RPATH
+   |
+   +--> runtime dynamic linker/loader tìm shared library
+```
+
+`RPATH` và `RUNPATH` có semantics và thứ tự ưu tiên khác nhau; ở mức chủ đề này chỉ cần hiểu chúng là metadata có thể giúp dynamic loader xác định nơi tìm `.so` lúc runtime.
+
+Đây là policy deployment; không nên nhầm nó với sysroot của cross toolchain.
 
 ### 10.4 Sysroot khác runtime library search path
 
-Từ Chủ đề 2:
+Trong cross-development, cần tách rõ hai filesystem view:
+
+```text
+Development host
+================
+
+SDK sysroot
+/opt/sdk/sysroot/
+  |
+  +-- usr/include/
+  +-- usr/lib/libfoo.so
+  +-- ...
+
+Dùng khi compile/link
+```
+
+và:
+
+```text
+Target
+======
+
+Root filesystem
+/
+  |
+  +-- lib/
+  +-- usr/lib/
+  +-- app/
+  +-- ...
+
+Dùng khi chương trình thực sự chạy
+```
+
+Do đó:
 
 ```text
 Sysroot
   |
   +--> build-time view của target headers/libraries
-```
 
-Trong khi:
-
-```text
 Runtime search path
   |
-  +--> dynamic loader trên target tìm `.so` khi chương trình chạy
+  +--> dynamic loader trên target tìm `.so` trong target rootfs
 ```
 
 Một library có thể tồn tại trong sysroot để link nhưng bị thiếu trong root filesystem được deploy.
@@ -1833,20 +2031,71 @@ Ví dụ:
 
 ```text
 SDK sysroot:
-/usr/lib/libfoo.so.1     [có]
+/opt/sdk/sysroot/usr/lib/libfoo.so.1     [có]
 
 Target rootfs:
-/usr/lib/libfoo.so.1     [thiếu]
+/usr/lib/libfoo.so.1                     [thiếu]
 ```
 
 Kết quả:
 
 ```text
 Cross-link thành công
+        |
+        v
+Executable có DT_NEEDED = libfoo.so.1
+        |
+        | deploy sang target
+        v
+Dynamic loader không tìm thấy dependency
+        |
+        v
 Runtime thất bại
 ```
 
-Đây là lỗi cực kỳ điển hình trong Embedded Linux.
+Mental model tổng thể:
+
+```text
+                 DEVELOPMENT HOST
+================================================
+
+main.o
+  |
+  | linker
+  | -L... -lfoo
+  v
+SDK / sysroot
+libfoo.so
+  |
+  v
+Application ELF
+  |
+  +--> DT_NEEDED = libfoo.so.1
+
+                 DEPLOY
+                   |
+                   v
+
+                     TARGET
+================================================
+
+/app/bin/app
+  |
+  | exec
+  v
+Dynamic linker/loader
+  |
+  | đọc DT_NEEDED
+  | runtime search
+  v
+/usr/lib/libfoo.so.1
+  |
+  | map
+  v
+Virtual address space của process
+```
+
+> **Điểm cần nhớ:** Library có trong sysroot không đồng nghĩa library đã có trên target rootfs. `Sysroot` phục vụ build-time; runtime dependency phải được target rootfs và runtime search policy thực sự đáp ứng.
 
 ---
 
