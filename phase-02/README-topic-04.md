@@ -757,25 +757,65 @@ Makefile text
 
 ### 5.5 Exit status của recipe có ý nghĩa với Make
 
-Thông thường nếu một recipe command trả về exit status khác 0, Make coi step đó thất bại và dừng theo logic lỗi của nó.
-
-Điều này tạo chain:
+Khi một command trong recipe kết thúc, nó trả về một **exit status** cho shell. Theo quy ước thông thường trên Linux/Unix:
 
 ```text
-Compiler fails
-     |
-     v
-recipe command returns nonzero
-     |
-     v
-Make sees target update failed
-     |
-     v
-dependent target cannot be considered successfully built
+exit status = 0      -> command thành công
+exit status != 0     -> command báo lỗi/thất bại
 ```
 
-GNU Make có các prefix như `-` để bỏ qua lỗi của một recipe line và `@` để không echo command, nhưng không nên dùng chúng để che lỗi build không chủ đích.
+Make không cần hiểu chi tiết compiler, linker hay command bên ngoài đã lỗi vì nguyên nhân gì. Make chủ yếu dựa vào exit status để biết bước cập nhật target có thành công hay không.
 
+Ví dụ:
+
+```make
+app: main.o foo.o
+	$(CC) main.o foo.o -o app
+```
+
+Nếu linker thất bại:
+
+```text
+Compiler / linker
+       |
+       | exit status != 0
+       v
+      Shell
+       |
+       v
+      Make
+       |
+       v
+recipe bị xem là thất bại
+       |
+       v
+target không được xem là đã update thành công
+```
+
+Do đó, nếu một prerequisite như `foo.o` không build thành công thì target phụ thuộc vào nó như `app` cũng không thể được xem là build thành công.
+
+Mô hình tổng quát:
+
+```text
+External command
+      |
+      v
+  exit status
+   /      \
+  0       != 0
+  |         |
+  v         v
+success    failure
+    \       /
+       Make
+```
+
+GNU Make có một số prefix đặc biệt cho recipe line:
+
+- `-command`: yêu cầu Make bỏ qua lỗi của command đó và tiếp tục.
+- `@command`: chỉ ngăn Make echo command ra màn hình trước khi chạy; **không** làm Make bỏ qua lỗi.
+
+Các prefix này nên được dùng có chủ đích, không nên dùng `-` để che lỗi build ngoài ý muốn.
 ---
 
 ## 6. Variable trong Make và thời điểm expansion
