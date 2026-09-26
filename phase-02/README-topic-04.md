@@ -1324,25 +1324,69 @@ Nó hữu ích trong một số loại rule incremental đặc biệt, nhưng kh
 
 ### 8.5 `$*` — stem của pattern
 
-Trong pattern rule:
+Trong một pattern rule, `$*` là **stem**, tức là phần mà ký tự `%` đã match.
+
+Ví dụ:
 
 ```make
 %.o: %.c
 ```
 
-Nếu target là:
+Nếu Make đang build:
 
 ```text
 foo.o
 ```
 
-thì stem khái quát là:
+thì `%` tương ứng với:
 
 ```text
 foo
 ```
 
-và `$*` có thể đại diện stem trong những context phù hợp.
+Do đó:
+
+```text
+$@ = foo.o
+$< = foo.c
+$* = foo
+```
+
+Mental model:
+
+```text
+%.o : %.c
+ ^
+ |
+ % = foo
+ |
+ v
+foo.o : foo.c
+
+$* = foo
+```
+
+Một ví dụ khác:
+
+```make
+build/%.o: src/%.c
+```
+
+Nếu target là:
+
+```text
+build/driver.o
+```
+
+thì:
+
+```text
+$@ = build/driver.o
+$< = src/driver.c
+$* = driver
+```
+
+> **Điểm cần nhớ:** `$*` không phải toàn bộ tên target hay prerequisite; nó là **phần mà `%` đại diện trong pattern rule**.
 
 ### 8.6 Automatic variable thuộc context của rule/recipe
 
