@@ -741,6 +741,38 @@ foo_math.o / foo_io.o / foo_util.o
           libfoo.so
 ```
 
+Mô hình chi tiết hơn của PHASE 1:
+
+```text
+Source của library
+
+foo_math.c
+foo_io.c
+foo_util.c
+      |
+      | compiler
+      v
+foo_math.o
+foo_io.o
+foo_util.o
+      |
+      | linker -shared
+      v
++--------------------------+
+|        libfoo.so         |
+|--------------------------|
+| ELF headers              |
+| machine code             |
+| data                     |
+| dynamic symbols          |
+| relocation metadata      |
+| dynamic metadata         |
++--------------------------+
+```
+
+Kết thúc phase này, `libfoo.so` đã là một ELF shared object chứa machine code cho target; application chưa cần phải tồn tại ở bước này.
+
+
 **PHASE 2 — Application link với shared library:** Application cũng được compile riêng thành `main.o`. Khi linker tạo executable từ `main.o` và `libfoo.so`, nó dùng shared library để giải quyết các symbol mà application cần và tạo dynamic metadata phù hợp. Code của library không được copy toàn bộ vào executable như static linking; executable thường ghi dependency dạng `DT_NEEDED`, ví dụ `libfoo.so.X`.
 
 ```text
@@ -756,6 +788,34 @@ Application ELF
         |
         +--> DT_NEEDED: libfoo.so.X
 ```
+
+Có thể nhìn PHASE 2 ở mức symbol như sau:
+
+```text
+main.o
+  U foo_add
+     |
+     |        libfoo.so
+     |          D foo_add
+     |             |
+     +-------------+
+            |
+            | linker
+            v
++--------------------------------+
+| Application ELF                |
+|--------------------------------|
+| .text                          |
+|   main()                       |
+|                                |
+| Dynamic metadata               |
+|   NEEDED: libfoo.so.X          |
+|   ...                          |
++--------------------------------+
+```
+
+Ở đây linker xác nhận `foo_add()` được cung cấp bởi shared library và ghi dependency động cần thiết; implementation của `foo_add()` vẫn nằm trong `libfoo.so`, không bị copy toàn bộ vào executable như static linking.
+
 
 **PHASE 3 — Runtime:** Khi application được thực thi, build-time linker không còn tham gia. Dynamic linker/loader đọc các entry `DT_NEEDED`, tìm shared object tương ứng trên target filesystem, map các segment cần thiết của chúng vào virtual address space, rồi thực hiện relocation/symbol resolution cần thiết để application có thể gọi code trong library.
 
@@ -777,7 +837,90 @@ Virtual address space của process
       +--> code của libfoo.so
 ```
 
+Có thể nhìn PHASE 3 từ filesystem đến process như sau:
+
+```text
+Target filesystem
+
+/app/bin/app
+/usr/lib/libfoo.so.X
+        |
+        | app được exec
+        v
+Dynamic linker/loader
+        |
+        | đọc DT_NEEDED
+        | tìm libfoo.so.X
+        | map các segment cần thiết
+        v
++-------------------------------------------+  địa chỉ cao
+| Virtual address space của process         |
+|-------------------------------------------|
+| Stack                                     |
+| thường phát triển về địa chỉ thấp hơn     |
+|-------------------------------------------|
+| mmap region                               |
+|                                           |
+|   +-----------------------------------+   |
+|   | libc.so                           |   |
+|   +-----------------------------------+   |
+|   | libfoo.so                         |   |
+|   |   foo_add()                       |   |
+|   |   foo_read()                      |   |
+|   +-----------------------------------+   |
+|   | các memory mapping khác           |   |
+|   +-----------------------------------+   |
+|                                           |
+|-------------------------------------------|
+| Heap                                      |
+| thường phát triển về địa chỉ cao hơn      |
+|-------------------------------------------|
+| .bss / .data của executable               |
+|-------------------------------------------|
+| .rodata / .text của executable chính      |
+|   main()                                  |
++-------------------------------------------+  địa chỉ thấp
+```
+
+Sau khi được map, `main()` và `foo_add()` cùng xuất hiện trong virtual address space của một process, dù machine code của chúng đến từ hai ELF file khác nhau: executable chính và `libfoo.so.X`.
+
+
 Điểm cần phân biệt là **PHASE 1 và PHASE 2 đều dùng linker nhưng là hai lần link với hai mục tiêu khác nhau**: lần thứ nhất tạo `libfoo.so`, lần thứ hai tạo application sử dụng `libfoo.so`. PHASE 3 sử dụng **dynamic linker/loader** ở load-time/runtime, không phải build-time linker.
+
+Gộp cả ba phase thành một chuỗi duy nhất:
+
+```text
+Source của library
+        |
+        | compiler
+        v
+Object files của library
+        |
+        | linker -shared
+        v
+     libfoo.so                         PHASE 1
+        |
+        |
+main.o + libfoo.so
+        |
+        | linker
+        v
+Application ELF
+DT_NEEDED: libfoo.so.X                 PHASE 2
+        |
+        | exec
+        v
+Dynamic linker/loader
+        |
+        | đọc DT_NEEDED
+        | tìm + map libfoo.so.X
+        v
+Virtual address space
+        |
+        +--> main()
+        +--> foo_add()                 PHASE 3
+```
+
 
 Sơ đồ trên là **mô hình bố trí thường gặp**, không phải quy tắc bắt buộc rằng shared library luôn phải nằm ở một địa chỉ cố định giữa heap và stack. Trên Linux, shared objects thường được map vào vùng địa chỉ dùng cho `mmap`; vị trí cụ thể phụ thuộc kiến trúc, Kernel, dynamic linker/loader và cơ chế như ASLR.
 
