@@ -2176,7 +2176,17 @@ Không phải mọi lỗi "không chạy được" đều là sai architecture. 
 
 ### 12.4 CPU cùng architecture family vẫn có thể thiếu extension
 
-Một binary có thể mang đúng architecture cơ bản nhưng compiler đã sinh instruction extension mà CPU cụ thể không hỗ trợ.
+Một binary có thể mang đúng architecture cơ bản nhưng compiler đã sinh instruction thuộc một ISA extension mà CPU cụ thể không hỗ trợ.
+
+Ví dụ:
+
+```text
+Binary:
+AArch64 + extension X
+
+CPU target:
+AArch64 nhưng không hỗ trợ extension X
+```
 
 Khi đó vấn đề không còn là:
 
@@ -2184,7 +2194,7 @@ Khi đó vấn đề không còn là:
 x86-64 vs AArch64
 ```
 
-mà có thể là:
+mà là:
 
 ```text
 AArch64 code requiring feature X
@@ -2192,7 +2202,47 @@ AArch64 code requiring feature X
 AArch64 CPU lacking feature X
 ```
 
-Đây là lý do chọn `-march`/`-mcpu` phù hợp rất quan trọng.
+Có thể hình dung:
+
+```text
+AArch64 base ISA
+      |
+      +--> extension X
+      |
+      +--> extension Y
+```
+
+Hai CPU đều là AArch64 nhưng không nhất thiết hỗ trợ cùng toàn bộ extension.
+
+Nếu compiler được phép sử dụng extension X:
+
+```text
+Compiler
+   |
+   | sinh instruction thuộc extension X
+   v
+AArch64 binary
+   |
+   v
+CPU target
+   |
+   +--> có extension X      -> thực thi được instruction đó
+   |
+   +--> không có extension X
+            -> không thực thi được instruction đó
+```
+
+Vì vậy:
+
+```text
+Đúng architecture cơ bản
+        !=
+CPU chắc chắn hỗ trợ mọi instruction mà binary dùng
+```
+
+Đây là lý do các option như `-march` và `-mcpu` phải được chọn phù hợp với CPU target: chúng có thể ảnh hưởng tới tập instruction/feature mà compiler được phép sử dụng khi sinh code.
+
+> **Điểm cần nhớ:** Cùng là AArch64 chưa đủ; binary còn phải chỉ yêu cầu những ISA extension mà CPU AArch64 cụ thể trên target thực sự hỗ trợ.
 
 ---
 
