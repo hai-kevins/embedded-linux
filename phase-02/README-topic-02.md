@@ -1482,18 +1482,6 @@ Cross GCC
 cho biết sysroot mà GCC đang nhìn tới
 ```
 
-Có thể tóm tắt toàn bộ phần 9 như sau:
-
-```text
-9.3  Sysroot không cần là full target rootfs
-  |
-9.4  Nhưng nội dung sysroot phải tương thích với target runtime
-  |
-9.5  --sysroot cho toolchain biết root logic dùng khi tìm target files
-  |
-9.6  -print-sysroot cho biết GCC hiện đang nhìn sysroot nào
-```
-
 > **Ghi nhớ:** Sysroot là **môi trường header/library/runtime của target được nhìn từ development machine**. Nó không phải target board, không phải `chroot`, và cũng không nhất thiết là toàn bộ target root filesystem.
 
 ---
@@ -1767,43 +1755,6 @@ DEVELOPMENT MACHINE
 
 Một SDK có thể bố trí toolchain và sysroot gần nhau trong cùng cây thư mục, nhưng điều đó không làm chúng trở thành cùng một khái niệm.
 
-### 10.6 Mô hình tổng quát
-
-Có thể ghép toàn bộ phần 10 thành:
-
-```text
-Development host
-x86-64 Linux
-      |
-      | chạy
-      v
-Cross compiler
-      |
-      +--> preprocessing/compile
-      |       |
-      |       +--> target headers
-      |
-      +--> link
-              |
-              +--> target libraries
-              +--> target crt/runtime
-      |
-      v
-AArch64 target ELF
-```
-
-Trong suốt pipeline, câu hỏi cần giữ là:
-
-```text
-Artifact / header / library này
-        |
-        +--> thuộc host?
-        |
-        +--> hay thuộc target?
-```
-
-> **Điểm cần nhớ:** Đừng chỉ hỏi "file này có trên máy không?". Hãy hỏi **"toolchain đang tìm file này ở đâu cho target hiện tại?"**
-
 ---
 
 ## 11. Cross-build diễn ra như thế nào?
@@ -2060,46 +2011,6 @@ Sau cross-build, binary còn phải được deploy và chạy trong môi trư�
 - emulator/virtualized environment thích hợp.
 
 Chi tiết emulator không thuộc phạm vi chủ đề này.
-
-### 11.6 Mô hình tổng quát
-
-Có thể tóm tắt toàn bộ cross-build như sau:
-
-```text
-Source
-  |
-  | target headers / target macros
-  v
-Preprocess
-  |
-  v
-Translation unit
-  |
-  | target ISA / ABI
-  v
-Compile
-  |
-  v
-Target Assembly
-  |
-  v
-Assemble
-  |
-  v
-Target object
-  |
-  | target crt / libraries / libgcc
-  v
-Link
-  |
-  v
-Target ELF
-  |
-  v
-Target runtime
-```
-
-> **Điểm cần nhớ:** Cross-build không chỉ là dùng một compiler có tên khác. Toàn bộ pipeline phải duy trì tính nhất quán của target từ preprocessing cho tới link, và build thành công chỉ mới tạo ra binary dành cho target chứ chưa chứng minh chương trình chạy đúng trên target.
 
 ---
 
@@ -2681,41 +2592,6 @@ mismatch
 ```
 
 Điểm quan trọng là option của compiler không chỉ ảnh hưởng instruction được sinh ra. Nếu option làm thay đổi ABI hoặc machine variant, toàn bộ runtime/library đi kèm cũng phải có biến thể tương thích.
-
-### 15.7 Mô hình tổng quát
-
-Có thể tóm tắt:
-
-```text
-                 Cross compiler
-                       |
-          +------------+------------+
-          |            |            |
-          v            v            v
-       -march        -mcpu        -mtune
-          |            |            |
-          |            |            +--> tuning
-          |            |
-          |            +--> CPU model / features
-          |
-          +--> allowed ISA/extensions
-                       |
-                       v
-                Generated object
-                       |
-                       v
-              Selected ABI/variant
-                       |
-                       v
-             Matching multilib/runtime
-                       |
-                       v
-                 Target binary
-```
-
-Sơ đồ trên là mental model khái quát; semantics chính xác của từng option vẫn phụ thuộc target GCC cụ thể.
-
-> **Điểm cần nhớ:** `-march` chủ yếu xác định tập ISA/extension được phép dùng; `-mcpu` nhắm tới CPU model cụ thể và có thể ảnh hưởng cả feature lẫn tuning; `-mtune` chủ yếu tối ưu code cho CPU trong giới hạn ISA đang hợp lệ; còn multilib cung cấp các runtime/library variant tương ứng với các ABI/machine configuration mà toolchain hỗ trợ.
 
 ---
 
