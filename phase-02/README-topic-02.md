@@ -660,7 +660,7 @@ Ví dụ rõ nhất là **Windows x86-64 và Linux x86-64**. Cả hai đều có
               |                         |
               v                         v
         Windows x86-64             Linux x86-64
-        PE/COFF (.exe)                 ELF
+        PE/COFF                    ELF
         Microsoft x64 ABI          System V AMD64 ABI
 
 Integer/pointer arguments:
@@ -993,50 +993,95 @@ Ví dụ source dùng:
 #include <stdio.h>
 ```
 
-Header `stdio.h` mà cross compiler nhìn thấy phải mô tả interface phù hợp với libc của target.
+Header `stdio.h` không chứa toàn bộ implementation của `printf()`. Nó chủ yếu cung cấp cho compiler các declaration, type, macro và quy ước interface cần thiết để hiểu source code ở compile time.
 
-Sau đó khi link, implementation tương ứng cũng phải đến từ library target.
+Vì vậy header mà cross compiler nhìn thấy phải thuộc môi trường libc của **target**, không phải lấy tùy ý từ development host.
+
+Sau bước compile, object file vẫn có thể chứa các tham chiếu tới symbol như `printf`. Khi link, implementation thực sự của các symbol đó phải đến từ library dành cho cùng target environment.
 
 Mô hình:
 
 ```text
 Target headers
       |
+      | mô tả interface ở compile time
       v
 Compile source
       |
       v
 Target object
       |
-      +---- link với target libraries
-      |
+      | resolve symbol bằng target libraries
       v
 Target executable
 ```
 
-Nếu lấy header của development host nhưng link library của target một cách tùy tiện, compile có thể thành công nhưng contract giữa compile-time và link/runtime có thể sai.
+Ví dụ khi build trên x86-64 Linux cho AArch64 Linux:
+
+```text
+Development host                  Target environment
+x86-64 Linux                      AArch64 Linux
+/usr/include/...                  sysroot/usr/include/...
+/usr/lib/...                      sysroot/usr/lib/...
+```
+
+Cross compiler phải sử dụng phía **target environment** cho những header/library liên quan tới target.
+
+Do đó cần giữ ba lớp nhất quán:
+
+```text
+Target headers
+      +
+Target libraries
+      +
+Target runtime
+```
+
+Nếu lấy header của development host nhưng lại link với library của target, compiler có thể tạo code dựa trên declaration, type hoặc layout không khớp với binary interface mà target library thực sự cung cấp. Kết quả có thể là lỗi compile, lỗi link hoặc thậm chí chỉ lộ ra khi chương trình chạy.
+
+> **Điểm cần nhớ:** Header cho compiler biết binary interface được sử dụng ở compile time; library cung cấp implementation thật ở link/runtime. Hai phía phải thuộc cùng một target environment tương thích.
 
 ### 8.3 `libgcc` là runtime support của GCC
 
-GCC đôi khi cần các helper routine để thực hiện những operation mà target instruction set không cung cấp trực tiếp hoặc compiler chọn triển khai qua runtime helper.
+GCC đôi khi cần các **helper routine** để thực hiện một operation mà target ISA không có instruction trực tiếp phù hợp hoặc khi compiler chọn triển khai operation đó thông qua runtime support.
 
-Những routine như vậy có thể nằm trong `libgcc`.
+Ví dụ source có:
 
-Do đó GCC driver không chỉ điều phối compiler và linker mà còn biết cách đưa runtime support phù hợp vào quá trình link khi cần.
+```c
+result = a / b;
+```
+
+Compiler không mặc định phải tìm được một instruction duy nhất tương ứng với phép chia này. Tùy target và kiểu dữ liệu, GCC có thể:
+
+```text
+C operation
+    |
+    +--> sinh instruction trực tiếp nếu target hỗ trợ phù hợp (vd: instruction DIV của target)
+    |
+    +--> hạ thành một chuỗi instruction của target (vd: shift / subtract / compare / ... )
+    |
+    +--> hoặc sinh lời gọi tới helper routine (vd: call helper_divide(a, b)) 
+```
+
+Một số helper routine mà code do GCC sinh ra cần có thể nằm trong `libgcc`.
+
+Vì vậy `libgcc` nên được hiểu là **compiler runtime support**: nó cung cấp các routine hỗ trợ cho code mà GCC sinh ra, chứ không phải chỉ đơn giản là "thư viện dùng khi CPU thiếu một instruction".
+
+Trong cross-compilation, phần runtime support này cũng phải phù hợp với architecture/ABI của target. GCC driver biết cách đưa runtime support phù hợp vào quá trình link khi cần.
 
 ### 8.4 Startup files nối ELF entry với C runtime
 
-Ở Chủ đề 1 đã nhấn mạnh rằng source có `main()` không có nghĩa ELF kernel-load entry point trực tiếp là `main()`.
+Ở Chủ đề 1 đã nhấn mạnh rằng source có `main()` không có nghĩa ELF entry point trực tiếp là `main()`.
 
-Trước `main()`, thường có startup code/runtime initialization.
+Khi process bắt đầu, quyền điều khiển trước hết đi vào **startup code** của môi trường C. Startup code thực hiện các bước khởi tạo cần thiết trước khi chuyển quyền điều khiển tới `main()`.
 
-Các object đặc biệt thường được gọi theo các tên như:
+Các object đặc biệt tham gia vào quá trình này thường có tên dạng:
 
 ```text
 crt*.o
 ```
 
-Mô hình khái quát:
+Tên và vai trò chính xác của từng startup object phụ thuộc libc/toolchain, nhưng mental model cần giữ là:
 
 ```text
 Kernel / dynamic loader
@@ -1045,15 +1090,26 @@ Kernel / dynamic loader
 ELF entry point
         |
         v
-C runtime startup
+Startup code / C runtime startup
         |
-        +--> runtime initialization
+        +--> runtime initialization cần thiết
         |
         v
 main()
 ```
 
-Cross toolchain phải sử dụng startup object phù hợp với target ABI và C runtime.
+Do `crt*.o` là các object file thực sự tham gia vào executable, chúng cũng phải được build cho đúng target.
+
+Ví dụ với target AArch64:
+
+```text
+main.o      -> AArch64
+crt*.o      -> AArch64
+libc        -> AArch64-compatible
+libgcc      -> AArch64-compatible
+```
+
+Cross toolchain vì vậy phải sử dụng startup objects phù hợp với target ABI và C runtime; không thể trộn startup object của development host vào target executable.
 
 ### 8.5 Compiler và libc là hai lớp khác nhau
 
@@ -1063,17 +1119,48 @@ Cần tránh đồng nhất:
 GCC = glibc
 ```
 
-Đây là hai project/lớp khác nhau.
+Đây là hai project/lớp khác nhau và đảm nhiệm các vai trò khác nhau.
 
 ```text
 GCC
-  -> compiler + runtime support liên quan compiler
+  -> biên dịch source thành target code
+  -> có compiler runtime support như libgcc
 
 C library
-  -> standard C/POSIX/Linux userspace interfaces và runtime components
+  -> cung cấp header và implementation cho nhiều API C/POSIX/Linux userspace
+  -> ví dụ: printf(), malloc(), fopen(), strlen(), ...
 ```
 
-Một toolchain có thể kết hợp GCC với các libc khác nhau tùy hệ thống.
+Có thể hình dung:
+
+```text
+Source code
+    |
+    v
+   GCC
+    |
+    v
+Target object
+    |
+    +--> compiler runtime support, khi cần
+    |        \-> libgcc
+    |
+    +--> C library implementation
+             \-> libc
+    |
+    v
+Target executable
+```
+
+Do hai lớp này tách biệt, một toolchain dùng GCC không mặc định phải dùng glibc. Tùy hệ thống, GCC có thể được kết hợp với các C library khác nhau như:
+
+```text
+GCC + glibc
+GCC + musl
+GCC + uClibc-ng
+```
+
+Điều quan trọng trong cross-compilation là compiler, compiler runtime, C library, startup files và sysroot phải tạo thành một môi trường **tương thích với cùng target**.
 
 ---
 
