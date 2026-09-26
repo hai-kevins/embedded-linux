@@ -1056,11 +1056,11 @@ Compiler không mặc định phải tìm được một instruction duy nhất 
 ```text
 C operation
     |
-    +--> sinh instruction trực tiếp nếu target hỗ trợ phù hợp (vd: instruction DIV của target)
+    +--> sinh instruction trực tiếp nếu target hỗ trợ phù hợp
     |
-    +--> hạ thành một chuỗi instruction của target (vd: shift / subtract / compare / ... )
+    +--> hạ thành một chuỗi instruction của target
     |
-    +--> hoặc sinh lời gọi tới helper routine (vd: call helper_divide(a, b)) 
+    +--> hoặc sinh lời gọi tới helper routine
 ```
 
 Một số helper routine mà code do GCC sinh ra cần có thể nằm trong `libgcc`.
@@ -1168,9 +1168,13 @@ GCC + uClibc-ng
 
 `Sysroot` là một khái niệm trung tâm của cross-compilation Linux.
 
+Bài toán mà sysroot giải quyết là: **cross compiler chạy trên development host nhưng phải nhìn thấy header, library và runtime files thuộc target, không được vô tình lấy các file tương ứng của host**.
+
 ### 9.1 Sysroot là logical root dùng khi tìm target files
 
-Giả sử target userspace về mặt logic có:
+Giả sử development host là x86-64 Linux, còn target là AArch64 Linux.
+
+Cả hai môi trường về mặt logic đều có thể có:
 
 ```text
 /usr/include
@@ -1178,11 +1182,20 @@ Giả sử target userspace về mặt logic có:
 /lib
 ```
 
-Development machine cũng có các đường dẫn cùng tên, nhưng đó là file dành cho development host.
+nhưng chúng thuộc hai thế giới khác nhau:
 
-Cross compiler không thể mặc định lấy chúng.
+```text
+Development host                  Target environment
+x86-64 Linux                      AArch64 Linux
 
-Sysroot tạo ra một root logic khác, ví dụ về mặt mô hình:
+/usr/include                      /usr/include
+/usr/lib                          /usr/lib
+/lib                              /lib
+```
+
+Các file ở bên trái phục vụ host x86-64; cross compiler không thể mặc định lấy chúng để tạo AArch64 binary.
+
+Sysroot tạo ra một root logic dành cho target, ví dụ:
 
 ```text
 /opt/target-sysroot/
@@ -1194,37 +1207,50 @@ Sysroot tạo ra một root logic khác, ví dụ về mặt mô hình:
 +-- lib/
 ```
 
-Khi sysroot là:
+Nếu sysroot là:
 
 ```text
 /opt/target-sysroot
 ```
 
-thì một search path target logic như:
+thì đường dẫn logic của target:
 
 ```text
 /usr/include
 ```
 
-có thể được ánh xạ thành:
+có thể được toolchain ánh xạ tới:
 
 ```text
 /opt/target-sysroot/usr/include
 ```
 
-và library path target logic:
+và:
 
 ```text
 /usr/lib
 ```
 
-có thể được ánh xạ thành:
+có thể được ánh xạ tới:
 
 ```text
 /opt/target-sysroot/usr/lib
 ```
 
-Theo cách đó, compiler/linker có thể làm việc như thể đang nhìn vào một phần filesystem của target mà không cần chạy trên target.
+Có thể hình dung:
+
+```text
+Target logical path
+/usr/include
+      |
+      | sysroot
+      v
+/opt/target-sysroot/usr/include
+```
+
+Theo cách đó, compiler/linker có thể làm việc với một phần môi trường filesystem của target ngay trên development machine mà không cần chạy trên target board.
+
+> **Cách hiểu ngắn:** Sysroot là cây thư mục trên development machine mà toolchain coi như **root logic của target** khi tìm các file phục vụ compile/link.
 
 ### 9.2 Sysroot không phải `chroot`
 
@@ -1238,16 +1264,64 @@ chroot
   -> thay đổi filesystem root nhìn thấy bởi một process theo cơ chế hệ điều hành
 ```
 
-Dùng sysroot không có nghĩa compiler process bị nhốt vào một filesystem namespace mới hoặc root directory thật của process bị đổi.
+Ví dụ, bình thường một process trên Linux nhìn thấy filesystem bắt đầu từ:
+
+```text
+/
++-- bin/
++-- usr/
++-- home/
++-- var/
++-- ...
+```
+
+Giả sử chuẩn bị một cây filesystem tại:
+
+```text
+/home/user/my_jail/
+```
+
+và chạy một shell với root directory được đổi sang đó:
+
+```bash
+chroot /home/user/my_jail /bin/bash
+```
+
+Từ góc nhìn của shell mới, `/home/user/my_jail/` trở thành `/`:
+
+```text
+Host nhìn thấy:                   Process bên trong chroot nhìn thấy:
+
+/home/user/my_jail/               /
+├── bin/                          ├── bin/
+├── usr/                          ├── usr/
+└── ...                           └── ...
+```
+
+Process đó không còn dùng `/` ban đầu của host làm filesystem root để phân giải pathname; các pathname tuyệt đối như `/bin/...` được hiểu bắt đầu từ root mới.
+
+Điểm này khác hẳn `sysroot`: compiler vẫn là một process chạy bình thường trên development host. Sysroot **không đổi root directory thật của compiler process**; nó chỉ tham gia vào các quy tắc tìm target header, library và runtime files.
+
+> **Ghi nhớ:** `chroot` thay đổi **filesystem root của process**; `sysroot` thay đổi **logical root mà toolchain dùng khi tìm các file của target**.
 
 ### 9.3 Sysroot không đồng nghĩa root filesystem hoàn chỉnh
 
-Một sysroot thường có cấu trúc giống một phần root filesystem target, nhưng:
+Một sysroot thường có cấu trúc giống một phần root filesystem của target, nhưng:
 
 ```text
 Sysroot
    !=
 Bản sao bắt buộc phải hoàn chỉnh của target rootfs
+```
+
+Hai môi trường phục vụ hai mục đích khác nhau:
+
+```text
+Sysroot
+  -> phục vụ development: compile / link
+
+Target rootfs
+  -> phục vụ runtime: boot / chạy application
 ```
 
 Sysroot chủ yếu cần những thành phần phục vụ compile/link, chẳng hạn:
@@ -1258,7 +1332,7 @@ Sysroot chủ yếu cần những thành phần phục vụ compile/link, chẳn
 - dynamic-link related files cần ở link time;
 - các metadata/development symlink phù hợp.
 
-Một rootfs dùng để boot/chạy target lại chứa nhiều thứ không cần cho compiler:
+Trong khi đó, target rootfs còn có nhiều thành phần không cần cho compiler:
 
 ```text
 /etc
@@ -1269,7 +1343,26 @@ runtime state
 ...
 ```
 
-Ngược lại, target rootfs tối giản có thể thiếu development header và unversioned linker symlink nên không tự động trở thành một sysroot tốt.
+Ngược lại, một target rootfs tối giản có thể đủ để chạy application nhưng lại thiếu các file development cần cho quá trình build.
+
+Ví dụ:
+
+```text
+Target rootfs:
+    có libfoo.so.1 để application chạy
+
+Development sysroot:
+    có thể còn cần foo.h
+    và libfoo.so -> libfoo.so.1
+```
+
+Vì vậy:
+
+```text
+Đủ để RUN
+    !=
+Đủ để BUILD
+```
 
 ### 9.4 Sysroot phải tương thích với target runtime
 
@@ -1283,6 +1376,18 @@ Nội dung sysroot phải phù hợp với:
 - C library version/compatibility expectations;
 - các third-party library mà application cần;
 - môi trường target thực tế.
+
+Chỉ cùng architecture chưa đủ. Ví dụ:
+
+```text
+Target runtime:
+AArch64 + glibc
+
+Sysroot:
+AArch64 + một libc/runtime không tương thích
+```
+
+thì ISA có thể đúng nhưng binary environment vẫn không khớp.
 
 Mô hình:
 
@@ -1304,34 +1409,92 @@ Cross compiler target configuration
                Target-compatible ELF
 ```
 
+Version của library cũng là một phần của tính tương thích. Nếu sysroot chứa một library mới hơn và application sử dụng symbol mà target runtime cũ không có, build có thể thành công nhưng chương trình vẫn thất bại khi chạy trên target.
+
+> **Điểm cần nhớ:** Sysroot nên đại diện đủ chính xác cho userspace environment mà binary sau cùng sẽ chạy trên đó, hoặc ít nhất là một baseline tương thích với target runtime.
+
 ### 9.5 `--sysroot` thay đổi nơi GCC tìm target header/library
 
-GCC hỗ trợ option `--sysroot=DIR` để dùng `DIR` như logical root cho header và library search theo cấu hình tương ứng.
+GCC hỗ trợ option `--sysroot=DIR` để dùng `DIR` như logical root cho việc tìm header và library theo các search rule phù hợp của toolchain.
+
+Ví dụ:
+
+```text
+--sysroot=/opt/aarch64-sysroot
+```
+
+Khi target path logic là:
+
+```text
+/usr/include/stdio.h
+```
+
+thì toolchain có thể tìm file tương ứng dưới:
+
+```text
+/opt/aarch64-sysroot/usr/include/stdio.h
+```
+
+Tương tự:
+
+```text
+Target logical path:
+/usr/lib
+
+Development machine:
+/opt/aarch64-sysroot/usr/lib
+```
+
+Có thể hiểu ngắn gọn:
+
+> Khi tìm các file thuộc target environment, toolchain coi `DIR` là **root logic của target**.
 
 Điểm cần hiểu ở đây không phải thuộc lệnh, mà là cơ chế:
 
 ```text
-Host absolute-looking path
-/usr/include
-
-không nhất thiết phải là
-
+Host /usr/include
+      !=
 Target logical /usr/include
 ```
 
-Sysroot cho phép toolchain giữ hai thế giới này tách biệt.
+Không nên hiểu máy móc rằng sysroot sẽ được thêm vào trước **mọi** absolute pathname. Search path thực tế còn phụ thuộc vào cấu hình GCC, target-specific paths, compiler internal paths và các option như `-I`, `-L`, `-B`; phần 10 sẽ tiếp tục làm rõ vấn đề này.
 
 ### 9.6 `-print-sysroot` chỉ là cửa sổ quan sát cấu hình
 
-GCC có thể cho biết sysroot target mà nó đang dùng thông qua option kiểu:
+GCC có thể cho biết sysroot target mà nó đang sử dụng thông qua option:
 
 ```text
 -print-sysroot
 ```
 
-Đây là một ví dụ về cách compiler driver có thể tự mô tả một phần cấu hình target của nó.
+Option này không tạo, tải xuống hay thay đổi sysroot. Nó chỉ giúp quan sát một phần cấu hình mà compiler driver đang dùng.
 
-> **Ghi nhớ:** Sysroot là **môi trường header/library của target được nhìn từ development machine**, không phải target board và cũng không phải cơ chế filesystem isolation.
+Mental model:
+
+```text
+Cross GCC
+   |
+   | đã được cấu hình với target/sysroot
+   v
+-print-sysroot
+   |
+   v
+cho biết sysroot mà GCC đang nhìn tới
+```
+
+Có thể tóm tắt toàn bộ phần 9 như sau:
+
+```text
+9.3  Sysroot không cần là full target rootfs
+  |
+9.4  Nhưng nội dung sysroot phải tương thích với target runtime
+  |
+9.5  --sysroot cho toolchain biết root logic dùng khi tìm target files
+  |
+9.6  -print-sysroot cho biết GCC hiện đang nhìn sysroot nào
+```
+
+> **Ghi nhớ:** Sysroot là **môi trường header/library/runtime của target được nhìn từ development machine**. Nó không phải target board, không phải `chroot`, và cũng không nhất thiết là toàn bộ target root filesystem.
 
 ---
 
