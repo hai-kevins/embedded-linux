@@ -258,7 +258,7 @@ int main(void)
 }
 ```
 
-Compiler có thể tạo `main.o` vì nó biết signature của `foo_add()`.
+Compiler có thể tạo `main.o` vì nó biết prototype của `foo_add()`.
 
 Nhưng object file có thể chỉ chứa một **undefined symbol reference**:
 
