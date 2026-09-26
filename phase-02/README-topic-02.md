@@ -660,7 +660,7 @@ Ví dụ rõ nhất là **Windows x86-64 và Linux x86-64**. Cả hai đều có
               |                         |
               v                         v
         Windows x86-64             Linux x86-64
-        PE/COFF                    ELF
+        PE/COFF (.exe)                 ELF
         Microsoft x64 ABI          System V AMD64 ABI
 
 Integer/pointer arguments:
