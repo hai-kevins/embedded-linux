@@ -73,24 +73,17 @@ CMake đưa thêm một tầng trừu tượng:
 Mental model trung tâm của chương:
 
 ```text
-CMakeLists.txt
-+ Toolchain / Cache / Platform
+CMake project description
         |
         | configure
         v
-Mô hình project nội bộ của CMake
+Project + toolchain + cache
         |
         | generate
         v
-Build system được sinh ra
-(Makefile / build.ninja / IDE project)
+Native build system
         |
         | build
-        v
-Native build tool
-(make / ninja / ...)
-        |
-        | gọi
         v
 Compiler / Linker / Archiver
         |
@@ -273,7 +266,7 @@ Toàn bộ workflow CMake có thể hiểu bằng ba giai đoạn logic:
 3. Build
 ```
 
-Mặc dù một lần chạy lệnh CMake thông thường có thể thực hiện liên tiếp cả `configure` và `generate`, việc tách ba khái niệm này giúp hiểu đúng vai trò của từng tầng.
+Mặc dù một lần chạy lệnh CMake thông thường có thể thực hiện liên tiếp cả giai đoạn configure và generate, việc tách ba khái niệm này giúp hiểu đúng vai trò của từng tầng.
 
 ### 2.1 Configure
 
@@ -283,29 +276,16 @@ Mô hình:
 
 ```text
 CMakeLists.txt
-+ Toolchain information
-+ Cache values
-+ Platform information
+Toolchain information
+Cache values
+Platform information
         |
-        | configure
         v
-Mô hình project nội bộ của CMake
+     Configure
+        |
+        v
+Internal project model
 ```
-
-**Mô hình project nội bộ của CMake** là cách CMake biểu diễn project bên trong sau khi đã đọc và xử lý các thông tin cấu hình. Có thể hình dung nó chứa những quan hệ như:
-
-```text
-Project
-  |
-  +-- Target nào tồn tại?
-  +-- Target là executable hay library?
-  +-- Source nào thuộc target nào?
-  +-- Target nào phụ thuộc target nào?
-  +-- Include/compile requirement nào gắn với target?
-  +-- Compiler/toolchain và build configuration nào đang được dùng?
-```
-
-Đây **không phải một file build cụ thể** như `Makefile` hay `build.ninja`. Sang giai đoạn `generate`, CMake mới dùng mô hình nội bộ này để sinh build system phù hợp với generator đã chọn.
 
 Ở giai đoạn này CMake có thể:
 
@@ -321,43 +301,42 @@ Project
 
 ### 2.2 Generate
 
-Sau khi có **mô hình project nội bộ của CMake** hợp lệ, CMake dùng generator đã chọn để tạo build system cụ thể. Đây chính là đầu ra nối tiếp trực tiếp từ giai đoạn `configure`.
+Sau khi có project model hợp lệ, CMake tạo build system tương ứng với generator.
+
+Ví dụ:
 
 ```text
-Mô hình project nội bộ của CMake
-        |
-        | generate
-        v
-Build system được sinh ra
-        |
-        +--> Unix Makefiles generator -> Makefile
-        |
-        +--> Ninja generator          -> build.ninja
-        |
-        +--> IDE generator            -> IDE project
+Generator = Unix Makefiles
+         |
+         v
+      Makefiles
+
+Generator = Ninja
+         |
+         v
+     build.ninja
 ```
 
-Giai đoạn `generate` chuyển mô hình project nội bộ của CMake thành build system mà công cụ build tương ứng có thể sử dụng.
+Generate phase chuyển mô hình CMake sang mô hình mà native build tool hiểu được.
 
 ### 2.3 Build
 
-Giai đoạn `build` bắt đầu từ **build system được sinh ra** ở giai đoạn `generate`. Native build tool đọc các build rule và dependency, rồi gọi các công cụ của toolchain để tạo artifact.
+Build phase là lúc native build tool thực thi dependency graph đã được sinh ra.
 
 ```text
-Build system được sinh ra
-(Makefile / build.ninja / IDE project)
-        |
-        | build
-        v
-Native build tool
-(make / ninja / ...)
-        |
-        +--> Compiler
-        +--> Linker
-        +--> Archiver
+Generated buildsystem
         |
         v
-Executable / Library
+   make / ninja / IDE
+        |
+        +----> compiler
+        |
+        +----> linker
+        |
+        +----> archiver
+        |
+        v
+ Build artifacts
 ```
 
 CMake cung cấp giao diện `cmake --build` để điều khiển build theo cách độc lập hơn với generator, nhưng backend thực sự vẫn là native build tool tương ứng.
@@ -540,7 +519,7 @@ CMake language != Bash
 CMakeLists.txt  != shell script
 ```
 
-Việc nhầm hai lớp này dễ dẫn tới cách xử lý variable, quoting hoặc command invocation sai.
+Việc nhầm hai lớp này dễ dẫn tới cách xử lý variable, quoting (cách dùng dấu nháy) hoặc command invocation (cách gọi lệnh) không đúng.
 
 ---
 
