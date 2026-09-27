@@ -675,7 +675,7 @@ Target: app
   +-- properties
 ```
 
-Tên target là identity logic trong CMake. Tên file output thực tế có thể chịu ảnh hưởng bởi platform convention và target property.
+Tên target là định danh logic của target trong CMake. Tên file đầu ra thực tế có thể thay đổi theo quy ước của nền tảng và các thuộc tính được cấu hình cho target.
 
 ### 4.2 Library target
 
