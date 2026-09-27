@@ -540,7 +540,7 @@ CMake language != Bash
 CMakeLists.txt  != shell script
 ```
 
-Việc nhầm hai lớp này dễ dẫn tới cách xử lý variable, quoting hoặc command invocation sai.
+Việc nhầm hai lớp này dễ dẫn tới cách xử lý variable, cách dùng dấu nháy hoặc cách gọi lệnh không đúng.
 
 ---
 
@@ -743,9 +743,37 @@ CMake target name
 physical filename
 ```
 
-Ví dụ logical target `core` có thể tạo output mang convention khác nhau trên các platform.
+Ví dụ:
 
-Target là đối tượng mà project gắn requirement vào; file output chỉ là một artifact được tạo từ target đó.
+```cmake
+add_library(core STATIC
+    foo.c
+    bar.c
+)
+```
+
+Ở đây `core` là **tên định danh logic của target trong CMake**. Các command khác có thể dùng tên này để tham chiếu và cấu hình target:
+
+```cmake
+target_include_directories(core PUBLIC include)
+target_compile_options(core PRIVATE -Wall)
+```
+
+Target `core` còn mang các thông tin như source, include directory, compile option, dependency, property và usage requirement. Khi build, target này mới tạo ra artifact vật lý, ví dụ trên Linux:
+
+```text
+core            -> target logic trong CMake
+libcore.a       -> file output của STATIC library
+libcore.so      -> file output của SHARED library
+```
+
+Tên file output thực tế còn phụ thuộc loại target, nền tảng và các property được cấu hình. Vì vậy, target là đối tượng logic mà CMake quản lý; file output chỉ là một artifact được tạo ra từ target đó.
+
+Ngoài ra, target có thể được yêu cầu build trực tiếp qua tên logic của nó, ví dụ:
+
+```bash
+cmake --build build --target core
+```
 
 ### 4.4 Dependency nên được mô tả giữa target với target khi có thể
 
@@ -757,11 +785,32 @@ app
  +--> core library
 ```
 
-mô hình tốt là để CMake biết `core` là một target và `app` phụ thuộc target đó.
+mô hình tốt là để CMake biết `core` là một target và `app` phụ thuộc target đó:
 
-Khi dependency được biểu diễn bằng target, CMake hiểu được nhiều metadata hơn so với việc chỉ đưa một chuỗi filename library vào command line.
+```cmake
+target_link_libraries(app PRIVATE core)
+```
 
-Đây là nền tảng cho usage requirement ở phần sau.
+Mental model:
+
+```text
+app target
+    |
+    | dependency
+    v
+core target
+    |
+    +-- source
+    +-- build requirement
+    +-- usage requirement
+    +-- output library
+```
+
+Khi dependency được biểu diễn bằng target, CMake không chỉ biết `app` cần một file library nào đó, mà còn hiểu quan hệ giữa hai đối tượng trong build graph. Nhờ đó CMake có thể xử lý build order, chọn output phù hợp của `core` và truyền các usage requirement khi interface của target cho phép.
+
+Nếu chỉ đưa một tên file hoặc linker flag rời rạc, CMake có ít thông tin hơn về dependency đó.
+
+Đây là nền tảng cho `target_link_libraries()` và usage requirement ở các phần sau.
 
 ---
 
