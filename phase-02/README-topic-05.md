@@ -210,7 +210,7 @@ CMake
 
 GNU Make là một **native build tool** mà CMake có thể dùng thông qua một generator phù hợp.
 
-### 1.3 CMake mô tả intent nhiều hơn command cụ thể
+### 1.3 CMake mô tả mục đích cần đạt được nhiều hơn là các command cụ thể.
 
 Trong CMake hiện đại, project nên cố gắng mô tả:
 
