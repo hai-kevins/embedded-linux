@@ -1145,7 +1145,7 @@ target_include_directories(core
 )
 ```
 
-Về mặt compiler, CMake có thể chuyển thông tin đó thành option thích hợp như `-I...` hoặc equivalent của toolchain.
+Về mặt compiler, CMake có thể chuyển thông tin đó thành option thích hợp như `-I...` hoặc tương đương của toolchain.
 
 Mental model:
 
