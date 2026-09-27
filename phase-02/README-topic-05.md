@@ -1540,8 +1540,42 @@ cmake --build
 native build tool
       |
       v
-actual build
+thực thi build thực tế
 ```
+
+Ở đây, **native build tool** là công cụ build trực tiếp thực thi các build rule đã được sinh ra, ví dụ `make`, `ninja` hoặc `MSBuild`. Nó nằm gần toolchain hơn CMake vì chính tầng này điều phối và chạy các command compile, link hoặc archive cần thiết.
+
+```text
+CMake
+  |
+  | generate buildsystem
+  v
+Makefile / build.ninja / ...
+  |
+  v
+make / ninja                  <- native build tool
+  |
+  +--> gcc / clang            <- compiler / compiler driver
+  +--> ld                     <- linker
+  +--> ar                     <- archiver
+  |
+  v
+.o / executable / .so / .a
+```
+
+Cần phân biệt rõ:
+
+```text
+make / ninja
+    -> công cụ điều phối quá trình build
+    -> trực tiếp gọi các tool cần thiết
+
+gcc / clang / ld / ar
+    -> các công cụ thực hiện compile, link, archive
+    -> thuộc compiler/toolchain context
+```
+
+Vì vậy, `make` hoặc `ninja` **không phải là thành phần của compiler toolchain**. Chúng là tầng build trực tiếp điều phối việc sử dụng toolchain theo dependency graph và build rule đã có.
 
 Nó không có nghĩa CMake tự biến thành compiler/linker.
 
