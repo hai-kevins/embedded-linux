@@ -853,23 +853,73 @@ CMake không thay đổi bản chất pipeline; nó chỉ mô tả và tự đ�
 
 ### 5.2 Header và source không có cùng vai trò
 
-Header thường được đưa vào source code bằng `#include`, còn compiler cần **include search path** để tìm header.
+Header thường được source code đưa vào bằng `#include`, còn compiler cần **include search path** để biết phải tìm header ở directory nào.
 
-Do đó cần phân biệt:
+Do đó cần phân biệt hai câu hỏi:
 
 ```text
 Source file list
-      !=
+    -> file source nào thuộc target và cần được compile?
+
 Include directory list
+    -> compiler phải tìm header ở những directory nào?
 ```
 
-Một header có thể được liệt kê trong metadata/source list để project structure rõ hơn, nhưng việc compiler tìm được:
+Ví dụ:
+
+```cmake
+add_executable(app
+    src/main.c
+)
+
+target_include_directories(app PRIVATE
+    include
+)
+```
+
+Ở đây:
+
+```text
+src/main.c
+    -> source của target app
+    -> được compile để tạo object file
+
+include/
+    -> include search path
+    -> giúp compiler tìm header như foo.h
+```
+
+Nếu `main.c` chứa:
 
 ```c
 #include <foo.h>
 ```
 
-phụ thuộc vào include search path và layout phù hợp, không phải chỉ vì tên header xuất hiện đâu đó trong `add_library()`.
+thì `target_include_directories()` mới cung cấp directory để compiler tìm `foo.h`. Việc chỉ liệt kê header trong target, ví dụ:
+
+```cmake
+add_executable(app
+    src/main.c
+    include/foo.h
+)
+```
+
+không tự động thêm `include/` vào include search path.
+
+Header có thể được liệt kê trong source list để cấu trúc target rõ hơn đối với CMake/IDE, nhưng header thông thường không được compile độc lập thành một object file riêng:
+
+```text
+main.c + các header được #include
+        |
+        v
+Translation unit
+        |
+        | compile
+        v
+main.o
+```
+
+> **Điểm cần nhớ:** Source list cho CMake biết **source nào thuộc target**; include directory cho compiler biết **tìm header ở đâu**. Hai khái niệm này không thay thế cho nhau.
 
 ### 5.3 Project nhiều directory
 
