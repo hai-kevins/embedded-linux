@@ -1402,23 +1402,33 @@ CMake có command:
 find_package(SomeLib REQUIRED)
 ```
 
-Ở mức nền tảng, có thể hiểu:
+Ở mức nền tảng, có thể đọc lệnh này là:
 
 ```text
 Project cần SomeLib
         |
-        | find_package(...)
+        | find_package(SomeLib REQUIRED)
         v
-CMake tìm thông tin package phù hợp
+CMake tìm và nạp thông tin cần thiết về package
         |
         +--> tìm thấy  -> project tiếp tục configure
         |
-        +--> không thấy + REQUIRED -> configure thất bại
+        +--> không thấy -> configure thất bại vì có REQUIRED
 ```
 
-`find_package()` **không đồng nghĩa với tải hoặc cài package từ Internet**. Vai trò chính của nó là tìm và nạp thông tin để project sử dụng dependency đã được cung cấp theo cơ chế mà package/CMake environment hỗ trợ.
+`find_package()` **không đồng nghĩa với tải hoặc cài package từ Internet**. Vai trò chính của nó là tìm và nạp thông tin để project sử dụng dependency đã được cung cấp theo cơ chế mà package và môi trường CMake hỗ trợ.
 
-Với modern CMake, package thường có thể cung cấp **imported target**. Khi đó project có thể liên kết dependency theo target identity, ví dụ về mặt mô hình:
+`REQUIRED` cho biết dependency này là bắt buộc đối với cấu hình hiện tại. Nếu CMake không tìm được package phù hợp, bước `configure` không thể tiếp tục.
+
+Với modern CMake, package thường có thể cung cấp một **imported target**, ví dụ:
+
+```text
+SomeLib::SomeLib
+```
+
+Imported target là target logic đại diện cho dependency nằm bên ngoài project hiện tại. Nó có thể mang theo các thông tin mà consumer cần như library cần link, include directory, compile definition hoặc các usage requirement khác do package công bố.
+
+Ví dụ:
 
 ```cmake
 find_package(SomeLib REQUIRED)
@@ -1435,16 +1445,33 @@ External package
       |
       | find_package()
       v
-Imported target + usage requirements
+Imported target: SomeLib::SomeLib
+      |
+      +-- link information
+      +-- include requirements
+      +-- compile requirements
+      +-- usage requirements
       |
       | target_link_libraries()
       v
-app
+     app
 ```
 
-Điểm quan trọng vẫn giống dependency nội bộ: nếu dependency được biểu diễn bằng target phù hợp, CMake có thể mang theo các usage requirement như include directory, compile definition hoặc link information mà package công bố.
+Cần phân biệt hai nhiệm vụ:
 
-> **Giới hạn của chương:** Chỉ cần hiểu `find_package()` là cầu nối từ project tới dependency bên ngoài. Các mode tìm package, package config file, version selection, export/install package và dependency provider chưa cần đi sâu ở đây.
+```text
+find_package(...)
+    -> tìm/nạp thông tin package và đưa dependency phù hợp vào mô hình CMake
+
+target_link_libraries(...)
+    -> khai báo target nào phụ thuộc/link với target đó
+```
+
+Điểm quan trọng vẫn giống dependency nội bộ: nếu dependency được biểu diễn bằng target phù hợp, CMake có thể giữ nhiều metadata hơn so với việc project tự ghép rời rạc include path, library path và linker flag.
+
+> **Điểm cần nhớ:** `find_package()` là cầu nối từ project tới dependency bên ngoài; imported target là cách dependency đó có thể xuất hiện trong mô hình target-centric của CMake.
+
+> **Giới hạn của chương:** Chỉ cần hiểu mental model trên. Các mode tìm package, package config file, version selection, export/install package và dependency provider chưa cần đi sâu ở đây.
 
 ---
 
