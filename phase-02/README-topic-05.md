@@ -1082,8 +1082,6 @@ core target
   +--> compile include requirement: include/
 ```
 
-Một số property còn có `INTERFACE_...` counterpart để biểu diễn requirement truyền sang consumer.
-
 ### 6.3 Modern CMake thiên về target-centric model
 
 CMake vẫn có nhiều command/variable mang tính directory-wide hoặc global vì lý do lịch sử và nhiều use case khác nhau.
