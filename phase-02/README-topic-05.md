@@ -731,7 +731,7 @@ add_library(core SHARED
 )
 ```
 
-CMake sẽ xử lý nhiều platform convention về tên output, suffix/prefix và command build tương ứng thông qua generator/toolchain.
+CMake sẽ xử lý nhiều quy ước của nền tảng liên quan đến tên file đầu ra, tiền tố/hậu tố và các lệnh build tương ứng thông qua generator và toolchain.
 
 ### 4.3 Target logic khác file output
 
