@@ -1487,9 +1487,16 @@ app ---> core
 
 `app` là **consumer** của `core`.
 
-Một requirement có thể chỉ cần cho `core`, hoặc còn cần cho consumer của `core`.
+Một **usage requirement** là requirement mà một target công bố cho consumer của nó, ví dụ include directory, compile definition, compile option hoặc link dependency mà consumer cần để sử dụng target đó đúng cách.
 
-CMake dùng ba scope phổ biến:
+Vì vậy khi gắn một requirement vào target, cần trả lời hai câu hỏi:
+
+```text
+1. Chính target có cần requirement này để build không?
+2. Consumer của target có cần requirement này không?
+```
+
+CMake dùng ba scope phổ biến để mô tả hai câu hỏi đó:
 
 ```text
 PRIVATE
@@ -1501,56 +1508,79 @@ INTERFACE
 
 `PRIVATE` nghĩa là requirement cần cho chính target, nhưng không được công bố như usage requirement cho consumer.
 
-```text
-core
- |
- +-- PRIVATE requirement
- |
- v
-Dùng khi build core
+Ví dụ:
 
-app ---> core
- |
- +-- không tự nhận requirement đó như interface của core
+```cmake
+target_include_directories(core PRIVATE
+    src/internal
+)
 ```
 
-Ví dụ điển hình: header nội bộ chỉ source của `core` sử dụng.
+Mental model:
+
+```text
+src/internal/
+      |
+      | PRIVATE
+      v
+    core
+      |
+      X
+     app
+```
+
+`core` có thể dùng các header nội bộ trong `src/internal/`, nhưng `app` không tự nhận include directory này chỉ vì nó phụ thuộc `core`.
 
 ### 8.2 `PUBLIC`
 
 `PUBLIC` nghĩa là requirement cần cho cả target và consumer.
 
+Ví dụ:
+
+```cmake
+target_include_directories(core PUBLIC
+    include
+)
+```
+
+Nếu `include/` chứa public header của `core`, cả source của `core` và consumer như `app` đều có thể cần directory này.
+
 ```text
-          PUBLIC requirement
-                |
-          +-----+-----+
-          |           |
-          v           v
-        core         app
-                    consumer
+          include/
+             |
+          PUBLIC
+          /             v      v
+       core    app
+              consumer
 ```
 
-Ví dụ một public header của library chứa:
-
-```c
-#include <dependency/header.h>
-```
-
-thì consumer include public header đó cũng có thể cần include requirement tương ứng.
+`PUBLIC` vì vậy phù hợp với requirement thuộc public interface của target.
 
 ### 8.3 `INTERFACE`
 
-`INTERFACE` nghĩa là requirement dành cho consumer, không dùng để build implementation của target đó.
+`INTERFACE` nghĩa là requirement dành cho consumer, không dùng để build implementation của chính target.
 
-```text
-core
- |
- | interface requirement
- v
-consumer
+Ví dụ một header-only library:
+
+```cmake
+add_library(math_utils INTERFACE)
+
+target_include_directories(math_utils INTERFACE
+    include
+)
 ```
 
-Đây là nền tảng cho `INTERFACE` library và header-only usage model, dù chi tiết nâng cao chưa cần đi sâu trong chủ đề này.
+Mental model:
+
+```text
+include/
+   |
+   | INTERFACE
+   v
+consumer của math_utils
+```
+
+Target `math_utils` không có source implementation cần compile, nhưng consumer vẫn cần `include/` để tìm các header của library.
 
 ### 8.4 Bảng mental model
 
@@ -1560,7 +1590,13 @@ consumer
 | `PUBLIC` | Có | Có |
 | `INTERFACE` | Không | Có |
 
-Bảng trên diễn tả **usage requirement semantics** ở mức cơ bản.
+Có thể nhớ ngắn gọn:
+
+```text
+PRIVATE    -> chỉ target cần
+PUBLIC     -> target và consumer đều cần
+INTERFACE  -> chỉ consumer cần
+```
 
 ### 8.5 Usage requirement lan truyền theo dependency graph
 
@@ -1570,26 +1606,28 @@ Giả sử:
 app ---> middleware ---> core
 ```
 
-Nếu `core` công bố một requirement qua interface, và dependency relationship ở các tầng cho phép propagation, CMake có thể truyền requirement đó tới consumer phù hợp.
+Nếu `core` công bố một requirement qua interface, và các dependency ở giữa cũng công bố requirement đó phù hợp, CMake có thể truyền requirement tới consumer ở tầng tiếp theo.
 
 Mental model:
 
 ```text
 core
  |
- | INTERFACE_* properties
+ | usage requirement
  v
 middleware
  |
- | propagated usage requirements
+ | tiếp tục công bố qua interface
  v
 app
 ```
 
-Đây là điểm khác biệt lớn giữa:
+Điểm quan trọng là requirement **lan truyền theo dependency graph**, không phải tự động áp dụng cho toàn bộ project.
+
+Đây là khác biệt giữa:
 
 ```text
-"thêm flag toàn cục"
+"thêm flag/include path toàn cục"
 ```
 
 và:
@@ -1610,9 +1648,22 @@ Requirement áp dụng cho target
 được đưa vào usage interface cho consumer của target.
 ```
 
-Một target không phụ thuộc target đó sẽ không tự nhiên nhận requirement chỉ vì keyword là `PUBLIC`.
+Ví dụ:
+
+```text
+app ----> core
+
+test
+
+tool
+```
+
+Nếu `core` có một `PUBLIC` include directory thì `app`, với tư cách consumer của `core`, có thể nhận requirement đó. `test` và `tool` không phụ thuộc `core` sẽ không tự nhận nó.
+
+> **Điểm cần nhớ:** `PRIVATE`, `PUBLIC` và `INTERFACE` không mô tả "mức truy cập" như trong C/C++; chúng mô tả **requirement áp dụng cho target và/hoặc consumer của target**.
 
 ---
+
 
 ## 9. Variable, cache và trạng thái của build tree
 
