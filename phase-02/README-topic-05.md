@@ -1606,21 +1606,42 @@ Giả sử:
 app ---> middleware ---> core
 ```
 
-Nếu `core` công bố một requirement qua interface, và các dependency ở giữa cũng công bố requirement đó phù hợp, CMake có thể truyền requirement tới consumer ở tầng tiếp theo.
+Nếu `core` công bố một requirement qua interface, consumer trực tiếp như `middleware` có thể nhận requirement đó. Requirement chỉ tiếp tục truyền tới `app` nếu quan hệ dependency ở tầng `middleware` cũng công bố nó qua interface phù hợp.
+
+Ví dụ:
+
+```cmake
+target_include_directories(core INTERFACE
+    include/core
+)
+
+target_link_libraries(middleware PUBLIC
+    core
+)
+
+target_link_libraries(app PRIVATE
+    middleware
+)
+```
 
 Mental model:
 
 ```text
 core
  |
- | usage requirement
+ | INTERFACE requirement
  v
 middleware
  |
- | tiếp tục công bố qua interface
+ | PUBLIC dependency tới core
+ | -> requirement tiếp tục được công bố
  v
 app
 ```
+
+Ở đây `middleware` là consumer của `core`, nên nhận requirement mà `core` công bố qua `INTERFACE`. Vì `middleware` phụ thuộc `core` bằng `PUBLIC`, dependency đó còn thuộc interface của `middleware`, nên consumer như `app` có thể nhận tiếp requirement phù hợp từ `core`.
+
+Nếu `middleware` dùng `PRIVATE core`, requirement cần thiết vẫn có thể được dùng để build `middleware`, nhưng dependency tới `core` không được công bố tiếp qua interface của `middleware`, nên `app` không tự nhận requirement đó qua `middleware`.
 
 Điểm quan trọng là requirement **lan truyền theo dependency graph**, không phải tự động áp dụng cho toàn bộ project.
 
