@@ -4,7 +4,7 @@
 >
 > **Quy ước ngôn ngữ:** Phần giải thích dùng Tiếng Việt. Các thuật ngữ cần tra cứu đúng theo tài liệu CMake như `source tree`, `build tree`, `target`, `property`, `usage requirement`, `generator`, `configure`, `generate`, `cache`, `toolchain file`, `single-config generator`, `multi-config generator` được giữ nguyên bằng tiếng Anh và giải thích tại vị trí phù hợp.
 >
-> **Phạm vi:** `CMakeLists.txt`, `cmake_minimum_required()`, `project()`, source/build tree, out-of-source build, generator, target, executable/library target, source, include directory, compile definition/option, link library, target property, usage requirement, `PUBLIC`/`PRIVATE`/`INTERFACE`, variable, cache, build configuration, `add_subdirectory()` và toolchain file ở mức nền tảng. Package management, `install()`/`export()`, `find_package()` nâng cao, generator expression chuyên sâu, presets, custom command phức tạp, testing/CTest, packaging/CPack và CMake internals không thuộc phạm vi chương này.
+> **Phạm vi:** `CMakeLists.txt`, `cmake_minimum_required()`, `project()`, source/build tree, out-of-source build, generator, target, executable/library target, source, include directory, compile definition/option, link library, target property, usage requirement, `PUBLIC`/`PRIVATE`/`INTERFACE`, variable, cache, build configuration, `add_subdirectory()`, `find_package()` cơ bản, install rule cơ bản và toolchain file ở mức nền tảng. Package management nâng cao, `export()`, package config chuyên sâu, generator expression chuyên sâu, presets, custom command phức tạp, testing/CTest, packaging/CPack và CMake internals không thuộc phạm vi chương này.
 >
 > Chương này là **lý thuyết nền tảng**, được thiết kế để xây dựng mental model về CMake. Không có bài thực hành.
 
@@ -333,6 +333,70 @@ Binary artifacts
 ```
 
 Khi có lỗi, phải xác định lỗi thuộc lớp nào thay vì gọi mọi lỗi là "lỗi CMake".
+
+### 2.5 Từ command line đến ba giai đoạn trên
+
+Một cách dùng CMake cổ điển thường gặp là:
+
+```bash
+mkdir build
+cd build
+cmake ..
+```
+
+Ở đây, shell đang đứng trong `build/`, còn `..` là đường dẫn tới directory cha chứa top-level `CMakeLists.txt`. Vì vậy có thể đọc:
+
+```text
+cmake ..
+  |
+  +--> source tree = ..
+  +--> build tree  = directory hiện tại
+```
+
+CMake sẽ configure rồi generate buildsystem trong `build/`; lệnh này **không có nghĩa là build toàn bộ source**.
+
+Cú pháp hiện đại làm rõ hai directory hơn:
+
+```bash
+cmake -S . -B build
+```
+
+Mental model:
+
+```text
+-S .      -> source tree
+-B build  -> build tree
+```
+
+Sau khi build tree đã được configure/generated, có thể yêu cầu build qua giao diện chung của CMake:
+
+```bash
+cmake --build build
+```
+
+Luồng tương ứng:
+
+```text
+CMakeLists.txt
+      |
+      | cmake -S . -B build
+      v
+build/
+  + generated buildsystem
+  + cache
+      |
+      | cmake --build build
+      v
+make / ninja / native build tool
+      |
+      v
+Compiler / Linker
+      |
+      v
+Build artifacts
+```
+
+> **Điểm cần nhớ:** `cmake ..` là cách viết phụ thuộc current working directory; `cmake -S . -B build` biểu diễn source tree và build tree rõ ràng hơn. Cả hai đều thuộc bước configure/generate, còn `cmake --build` mới yêu cầu backend thực hiện build.
 
 ---
 
@@ -1057,6 +1121,60 @@ Trong CMake, nếu library là target hoặc đã có full path/được tìm b�
 
 Tài liệu CMake cũng khuyến nghị tránh `target_link_directories()` khi có thể dùng target hoặc full path rõ ràng hơn, vì search path có thể khiến linker chọn nhầm library cùng tên.
 
+### 7.5 `find_package()` và dependency bên ngoài ở mức cơ bản
+
+Không phải mọi library mà project cần đều được tạo bằng `add_library()` ngay trong source tree hiện tại. Project có thể phụ thuộc một package/library đã được cung cấp từ bên ngoài.
+
+CMake có command:
+
+```cmake
+find_package(SomeLib REQUIRED)
+```
+
+Ở mức nền tảng, có thể hiểu:
+
+```text
+Project cần SomeLib
+        |
+        | find_package(...)
+        v
+CMake tìm thông tin package phù hợp
+        |
+        +--> tìm thấy  -> project tiếp tục configure
+        |
+        +--> không thấy + REQUIRED -> configure thất bại
+```
+
+`find_package()` **không đồng nghĩa với tải hoặc cài package từ Internet**. Vai trò chính của nó là tìm và nạp thông tin để project sử dụng dependency đã được cung cấp theo cơ chế mà package/CMake environment hỗ trợ.
+
+Với modern CMake, package thường có thể cung cấp **imported target**. Khi đó project có thể liên kết dependency theo target identity, ví dụ về mặt mô hình:
+
+```cmake
+find_package(SomeLib REQUIRED)
+
+target_link_libraries(app
+    PRIVATE SomeLib::SomeLib
+)
+```
+
+Mental model:
+
+```text
+External package
+      |
+      | find_package()
+      v
+Imported target + usage requirements
+      |
+      | target_link_libraries()
+      v
+app
+```
+
+Điểm quan trọng vẫn giống dependency nội bộ: nếu dependency được biểu diễn bằng target phù hợp, CMake có thể mang theo các usage requirement như include directory, compile definition hoặc link information mà package công bố.
+
+> **Giới hạn của chương:** Chỉ cần hiểu `find_package()` là cầu nối từ project tới dependency bên ngoài. Các mode tìm package, package config file, version selection, export/install package và dependency provider chưa cần đi sâu ở đây.
+
 ---
 
 ## 8. `PRIVATE`, `PUBLIC`, `INTERFACE` và usage requirement
@@ -1434,6 +1552,74 @@ MinSizeRel
 Với multi-config generator, configuration thường được chọn tại build time và `CMAKE_BUILD_TYPE` không đóng vai trò tương tự.
 
 > **Điểm cần nhớ:** Khi đọc tài liệu hoặc build script, luôn hỏi generator thuộc single-config hay multi-config trước khi suy luận behavior của build configuration.
+
+### 10.5 Build và install là hai bước khác nhau
+
+Build tạo artifact của target trong build tree, ví dụ executable hoặc library. Install là bước **đưa các artifact được project chỉ định tới một install layout/prefix**.
+
+Mental model:
+
+```text
+Source Tree
+    |
+    | configure / generate
+    v
+Build Tree
+    |
+    | build
+    v
+Executable / Library trong build tree
+    |
+    | install
+    v
+Install prefix / staging layout
+```
+
+Project phải khai báo install rule nếu muốn artifact tham gia bước install. Ví dụ ở mức cơ bản:
+
+```cmake
+install(TARGETS app
+    RUNTIME DESTINATION bin
+)
+```
+
+Ý nghĩa là executable target `app` có một install rule đưa runtime artifact vào `bin` tương đối với install prefix. Đây là mô tả install layout, không phải command thực hiện build.
+
+### 10.6 `cmake --install`
+
+Sau khi build tree đã được generate và có install rule, CMake cung cấp giao diện:
+
+```bash
+cmake --install build
+```
+
+Mental model:
+
+```text
+build/
+  + generated install rules
+  + build artifacts
+        |
+        | cmake --install build
+        v
+Install destination
+```
+
+`cmake --install` không thay thế `cmake --build`: một bước yêu cầu build artifact, bước kia thực thi install rule của project. Tùy project và workflow, artifact cần thiết thường phải được build trước khi install.
+
+Trong Embedded Linux, ranh giới này đặc biệt hữu ích để hiểu các workflow có staging area hoặc target root filesystem:
+
+```text
+Build artifact
+      |
+      | install/copy theo layout
+      v
+Staging area / target filesystem layout
+```
+
+Nhưng CMake chỉ thực hiện install rule của package/project; việc tạo toàn bộ root filesystem hoặc image hệ thống thường thuộc build framework lớn hơn như Buildroot hoặc Yocto Project.
+
+> **Điểm cần nhớ:** `build` trả lời câu hỏi **"tạo artifact như thế nào?"**, còn `install` trả lời **"đưa artifact đã được chọn tới layout/prefix nào?"**.
 
 ---
 
@@ -2023,6 +2209,12 @@ Chủ đề tiếp theo sẽ tập trung vào **GDB Fundamentals**: debug symbol
 
 - `target_link_libraries()`  
   https://cmake.org/cmake/help/latest/command/target_link_libraries.html
+
+- `find_package()`  
+  https://cmake.org/cmake/help/latest/command/find_package.html
+
+- `install()`  
+  https://cmake.org/cmake/help/latest/command/install.html
 
 ### 15.3 Tài liệu nền tảng liên quan
 
