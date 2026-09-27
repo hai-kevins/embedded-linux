@@ -1086,16 +1086,38 @@ core target
 
 CMake vẫn có nhiều command/variable mang tính directory-wide hoặc global vì lý do lịch sử và nhiều use case khác nhau.
 
-Tuy nhiên với project mới, target-scoped API thường tạo dependency và scope rõ ràng hơn:
+Tuy nhiên với project mới, cách tư duy nên lấy **target làm trung tâm**: source, include directory, compile option, compile definition và dependency nên được gắn vào đúng target sở hữu hoặc cần chúng.
+
+Ví dụ, nếu chỉ target `core` cần `-Wall`:
+
+```cmake
+target_compile_options(core PRIVATE
+    -Wall
+)
+```
+
+Mental model:
+
+```text
+-Wall
+  |
+  v
+core target
+
+app / target khác
+  -> không tự nhận -Wall
+```
+
+Cách này giúp scope của setting rõ ràng hơn, giảm ảnh hưởng ngoài ý muốn lên các target không liên quan và làm dependency model dễ theo dõi, suy luận hơn.
 
 ```text
 Setting gắn đúng target
         |
         v
-Ít side effect hơn
+Ít ảnh hưởng ngoài ý muốn hơn
         |
         v
-Dependency model dễ reasoning hơn
+Dependency model dễ theo dõi hơn
 ```
 
 > **Điểm cần nhớ:** CMake không chỉ là tập hợp variable. Mental model mạnh hơn là **target + property + dependency + usage requirement**.
