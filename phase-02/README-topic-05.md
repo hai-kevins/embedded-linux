@@ -266,7 +266,7 @@ Toàn bộ workflow CMake có thể hiểu bằng ba giai đoạn logic:
 3. Build
 ```
 
-Mặc dù một invocation CMake thông thường có thể thực hiện cả configure và generate liên tiếp, việc tách ba khái niệm này giúp hiểu đúng vai trò từng tầng.
+Mặc dù một lần chạy lệnh CMake thông thường có thể thực hiện liên tiếp cả giai đoạn configure và generate, việc tách ba khái niệm này giúp hiểu đúng vai trò của từng tầng.
 
 ### 2.1 Configure
 
