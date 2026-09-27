@@ -1173,40 +1173,6 @@ library/link dependency
 
 Hai khái niệm thuộc hai stage khác nhau của build flow.
 
-Ví dụ, nếu `main.c` có:
-
-```c
-#include <foo.h>
-```
-
-thì `target_include_directories()` giúp compiler tìm được `foo.h` trong include search path:
-
-```cmake
-target_include_directories(app PRIVATE include)
-```
-
-Nhưng nếu `foo.h` chỉ khai báo hàm `foo()` còn implementation nằm trong library `foo`, target vẫn phải có link dependency phù hợp:
-
-```cmake
-target_link_libraries(app PRIVATE foo)
-```
-
-Mental model:
-
-```text
-main.c
-  |
-  | include directory
-  v
-Compile -> main.o
-            |
-            | link library
-            v
-          Link -> app
-```
-
-> **Điểm cần nhớ:** Include directory trả lời câu hỏi **"compiler tìm header ở đâu?"**; link library trả lời câu hỏi **"linker lấy implementation/symbol cần thiết từ đâu?"**. Hai khái niệm không thay thế cho nhau.
-
 ### 6.6 Compile definition
 
 Preprocessor definition như:
@@ -1307,40 +1273,79 @@ và có thể truyền usage requirement từ `core` sang `app` theo interface �
 
 ### 7.2 Link dependency và build-order dependency có liên hệ nhưng không đồng nhất
 
-Nếu `app` link `core`, relation đó có cả ý nghĩa build dependency và link information.
+Nếu `app` link `core`:
 
-Nhưng không phải mọi dependency trong buildsystem đều là link dependency.
-
-Ví dụ generated file hoặc custom target có thể tạo dependency thứ tự mà không hề tham gia linker command.
-
-Ở mức chủ đề này cần nhớ:
-
-```text
-Link dependency
-    là một loại dependency có semantics liên quan linking,
-    không phải tên chung cho mọi dependency trong CMake.
+```cmake
+target_link_libraries(app PRIVATE core)
 ```
 
-### 7.3 Prefer target identity thay vì tự ghép linker flag khi có thể
-
-Nếu dependency là một target CMake, việc link bằng target name cho phép CMake giữ nhiều metadata hơn:
+thì quan hệ này vừa có ý nghĩa về **thứ tự build**, vừa có ý nghĩa về **linking**. `core` phải được build khi output của nó cần cho bước link của `app`, đồng thời output đó cũng trở thành một phần của thông tin link của `app`.
 
 ```text
-Target identity
+core
+  |
+  | build trước khi cần
+  v
+output của core
+  |
+  | tham gia link
+  v
+app
+```
+
+Tuy nhiên, không phải mọi dependency trong buildsystem đều là link dependency. Ví dụ một generated file có thể phải được tạo trước khi compile một target:
+
+```text
+generate config.h
+        |
+        | build-order dependency
+        v
+      app
+```
+
+`config.h` ảnh hưởng thứ tự build nhưng không được đưa vào linker command.
+
+> **Điểm cần nhớ:** Link dependency là một loại dependency có ý nghĩa liên quan tới linking; build-order dependency chỉ yêu cầu các bước được thực hiện theo thứ tự phù hợp. Hai khái niệm có thể đi cùng nhau nhưng không đồng nhất.
+
+### 7.3 Ưu tiên target identity thay vì tự ghép linker flag khi có thể
+
+Nếu dependency đã là một CMake target, nên tham chiếu bằng target name:
+
+```cmake
+target_link_libraries(app PRIVATE core)
+```
+
+Khi đó `core` là **target identity** trong mô hình CMake và có thể mang theo nhiều thông tin:
+
+```text
+Target: core
   |
   +-- output location
   +-- build dependency
   +-- usage requirements
+  +-- properties
   +-- platform-specific details
 ```
 
-Trong khi một chuỗi raw như:
+CMake vì thế hiểu quan hệ:
+
+```text
+app target
+    |
+    | dependency
+    v
+core target
+```
+
+Trong khi một linker flag rời rạc như:
 
 ```text
 -lcore
 ```
 
-chỉ truyền một phần intent xuống linker và không tự biểu diễn đầy đủ mô hình target của CMake.
+chủ yếu chỉ nói cho linker rằng cần tìm một library tên `core`. Riêng chuỗi này không tự mô tả đầy đủ cho CMake rằng `core` là target nào, được build ở đâu, có usage requirement gì hoặc có dependency relationship nào với `app`.
+
+> **Điểm cần nhớ:** Khi library đã được biểu diễn thành CMake target, dùng target identity giữ lại nhiều thông tin build hơn so với tự ghép raw linker flag.
 
 ### 7.4 `target_link_directories()` không phải lựa chọn mặc định cho mọi library
 
@@ -1351,9 +1356,41 @@ Muốn link library
 => luôn phải thêm library directory
 ```
 
-Trong CMake, nếu library là target hoặc đã có full path/được tìm bằng cơ chế thích hợp, việc thêm global/search directory không nhất thiết cần thiết.
+Điều này không đúng trong mọi trường hợp. Nếu library đã là CMake target:
 
-Tài liệu CMake cũng khuyến nghị tránh `target_link_directories()` khi có thể dùng target hoặc full path rõ ràng hơn, vì search path có thể khiến linker chọn nhầm library cùng tên.
+```cmake
+add_library(core STATIC core.c)
+add_executable(app main.c)
+
+target_link_libraries(app PRIVATE core)
+```
+
+thì CMake đã biết output của target `core` nằm ở đâu và có thể sinh dependency/link rule phù hợp. Không cần thêm một library search directory chỉ để linker tìm output của chính target này.
+
+```text
+app
+ |
+ | phụ thuộc trực tiếp target
+ v
+core
+ |
+ +-- CMake biết output location
+```
+
+Ngược lại, thêm search directory rồi link bằng tên có thể khiến linker phải tìm library theo thứ tự search path:
+
+```text
+-lfoo
+  |
+  v
+/libA/libfoo.so
+/libB/libfoo.so
+...
+```
+
+Nếu có nhiều library cùng tên, search order có thể ảnh hưởng library được chọn.
+
+Vì vậy, khi có thể, nên ưu tiên CMake target hoặc full path rõ ràng hơn thay vì mặc định thêm `target_link_directories()`.
 
 ### 7.5 `find_package()` và dependency bên ngoài ở mức cơ bản
 
