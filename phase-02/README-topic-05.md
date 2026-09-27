@@ -1030,7 +1030,39 @@ app
  +-- không nhận option X trừ khi dependency interface yêu cầu
 ```
 
-Thay vì áp dụng option toàn cục cho mọi target.
+Ví dụ:
+
+```cmake
+add_library(libA STATIC
+    foo.c
+)
+
+add_executable(app
+    main.c
+)
+
+target_compile_options(libA PRIVATE
+    -Wall
+)
+```
+
+Ở đây `-Wall` được gắn trực tiếp vào target `libA`, nên khi CMake sinh command build, source của `libA` nhận option này còn `app` không tự nhận nó:
+
+```text
+foo.c
+  |
+  | compile với -Wall
+  v
+foo.o
+
+main.c
+  |
+  | compile không có -Wall từ libA
+  v
+main.o
+```
+
+Đó là ý nghĩa của **target-scoped setting**: setting nào chỉ cần cho một target thì nên gắn vào đúng target đó, thay vì áp dụng rộng cho toàn project và vô tình ảnh hưởng các target không liên quan.
 
 ### 6.2 Target property là state của target
 
