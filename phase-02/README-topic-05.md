@@ -266,7 +266,7 @@ Toàn bộ workflow CMake có thể hiểu bằng ba giai đoạn logic:
 3. Build
 ```
 
-Mặc dù một lần chạy lệnh CMake thông thường có thể thực hiện liên tiếp cả giai đoạn configure và generate, việc tách ba khái niệm này giúp hiểu đúng vai trò của từng tầng.
+Mặc dù một invocation CMake thông thường có thể thực hiện cả configure và generate liên tiếp, việc tách ba khái niệm này giúp hiểu đúng vai trò từng tầng.
 
 ### 2.1 Configure
 
@@ -284,8 +284,23 @@ Platform information
      Configure
         |
         v
-Internal project model
+Mô hình project nội bộ của CMake
 ```
+
+**Mô hình project nội bộ của CMake** là cách CMake biểu diễn project bên trong sau khi đã đọc và xử lý các thông tin cấu hình. Có thể hình dung nó chứa những quan hệ như:
+
+```text
+Project
+  |
+  +-- Target nào tồn tại?
+  +-- Target là executable hay library?
+  +-- Source nào thuộc target nào?
+  +-- Target nào phụ thuộc target nào?
+  +-- Include/compile requirement nào gắn với target?
+  +-- Compiler/toolchain và build configuration nào đang được dùng?
+```
+
+Đây **không phải một file build cụ thể** như `Makefile` hay `build.ninja`. Sang giai đoạn `generate`, CMake mới dùng mô hình nội bộ này để sinh build system phù hợp với generator đã chọn.
 
 Ở giai đoạn này CMake có thể:
 
