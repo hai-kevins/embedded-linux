@@ -210,7 +210,7 @@ CMake
 
 GNU Make là một **native build tool** mà CMake có thể dùng thông qua một generator phù hợp.
 
-### 1.3 CMake mô tả mục đích cần đạt được nhiều hơn là các command cụ thể.
+### 1.3 CMake mô tả mục đích cần đạt được nhiều hơn command cụ thể
 
 Trong CMake hiện đại, project nên cố gắng mô tả:
 
@@ -223,6 +223,34 @@ Requirement nào phải truyền cho consumer?
 ```
 
 thay vì tự ghép một chuỗi compiler command cố định cho mọi platform.
+
+Ví dụ:
+
+```cmake
+add_executable(app
+    main.c
+    foo.c
+)
+```
+
+Đoạn trên chủ yếu mô tả **mục đích cần đạt được**:
+
+```text
+Tạo executable target tên app
+    |
+    +-- source: main.c
+    +-- source: foo.c
+```
+
+Project không cần tự viết trực tiếp từng command như:
+
+```text
+gcc -c main.c -o main.o
+gcc -c foo.c -o foo.o
+gcc main.o foo.o -o app
+```
+
+CMake sẽ dựa vào target, generator và toolchain để sinh các build rule và command phù hợp. Vì vậy cùng một mô tả `add_executable()` có thể được dùng với Make, Ninja hoặc toolchain khác mà project không phải tự hard-code toàn bộ chuỗi command build.
 
 Đây là lý do mô hình **target-centric** rất quan trọng và sẽ được dùng xuyên suốt chương.
 
