@@ -1173,6 +1173,40 @@ library/link dependency
 
 Hai khái niệm thuộc hai stage khác nhau của build flow.
 
+Ví dụ, nếu `main.c` có:
+
+```c
+#include <foo.h>
+```
+
+thì `target_include_directories()` giúp compiler tìm được `foo.h` trong include search path:
+
+```cmake
+target_include_directories(app PRIVATE include)
+```
+
+Nhưng nếu `foo.h` chỉ khai báo hàm `foo()` còn implementation nằm trong library `foo`, target vẫn phải có link dependency phù hợp:
+
+```cmake
+target_link_libraries(app PRIVATE foo)
+```
+
+Mental model:
+
+```text
+main.c
+  |
+  | include directory
+  v
+Compile -> main.o
+            |
+            | link library
+            v
+          Link -> app
+```
+
+> **Điểm cần nhớ:** Include directory trả lời câu hỏi **"compiler tìm header ở đâu?"**; link library trả lời câu hỏi **"linker lấy implementation/symbol cần thiết từ đâu?"**. Hai khái niệm không thay thế cho nhau.
+
 ### 6.6 Compile definition
 
 Preprocessor definition như:
